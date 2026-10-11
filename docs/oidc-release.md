@@ -1,6 +1,6 @@
 # OIDC release gates and reproducible delivery
 
-This follow-up closes the three requested engineering gates: independent review, repeatable quality checks, and fresh-checkout source delivery. Local gates have passed. The GitHub workflow is ready to execute when these changes are published to an Actions-enabled repository; a hosted CI run and production deployment are not claimed.
+This follow-up closes the three requested engineering gates: independent review, repeatable quality checks, and fresh-checkout source delivery. Local gates passed, and the published quality workflow passed remotely for backend commit `749fa36`. Production deployment is not claimed.
 
 ## Independent review
 
@@ -52,9 +52,26 @@ The test server binds loopback port 43181. Browser contexts are isolated, servic
 
 ## CI and release integration
 
-`.github/workflows/oidc-quality.yml` uses read-only repository permissions and commit-pinned actions. Its frontend job builds and tests the real bundle, then supplies that artifact to backend and PostgreSQL/MySQL/MariaDB jobs. Fresh jobs therefore do not depend on an ignored local ZIP. It also checks Ent regeneration and tests the fail-closed gate/submodule helpers.
+`.github/workflows/oidc-quality.yml` uses read-only source permissions and commit-pinned actions. Its frontend job builds and tests the real bundle, then supplies that artifact to backend and PostgreSQL/MySQL/MariaDB jobs. Fresh jobs therefore do not depend on an ignored local ZIP. It also checks Ent regeneration and tests the fail-closed gate/submodule helpers.
 
 GoReleaser uses the same verified asset builder and runs the backend gate. The existing Azure `Default` self-hosted pool must provide Python 3 and pnpm; an explicit prerequisite step checks them before release. No alternative package-manager installation method is introduced. Branch protection and hosted execution remain repository administration tasks, separate from committing the workflow.
+
+### Tag-triggered container publication
+
+Push a tag on the commit containing this workflow to publish `ghcr.io/isning/cloudreve:<tag>`:
+
+```sh
+git tag v4.14.0-oidc.1
+git push origin v4.14.0-oidc.1
+```
+
+The workflow accepts any Git tag that is also a valid container tag: 1-128 characters, starting with a letter, digit or underscore and containing only letters, digits, underscores, dots and hyphens. Branch pushes, pull requests and manual runs only perform verification. No `latest` or moving version aliases are published; GitOps consumers can record the release tag or manifest digest.
+
+Publication waits for frontend/browser, backend/race, migration and all three database gates. Linux AMD64 and ARM64 runtime images build on native runners using the existing Dockerfile and the verified embedded frontend artifact. Both frontend and backend report the exact release tag. Each platform passes isolated container startup, HTTP ping and embedded frontend checks before upload; the final multi-platform tag is published only after both platforms succeed. The manifest is checked for exactly `linux/amd64` and `linux/arm64`, and its digest is recorded in the job summary.
+
+Only the publication jobs receive `packages: write`; authentication uses the repository's automatic `GITHUB_TOKEN`. No additional registry publishing secret is needed. OCI labels associate the image with the source repository and commit. The registry path follows the lowercase GitHub repository name if this repository is forked again.
+
+GitHub Container Registry initially creates packages with private visibility. After the first publication, set the package public in GitHub if anonymous Kubernetes pulls are desired, or supply an `imagePullSecret` through the deployment's secret-management system. Package visibility is independent of source-repository visibility. The inherited Azure/GoReleaser Docker Hub publication remains a separate upstream release path.
 
 ## Bounded upstream exceptions
 
