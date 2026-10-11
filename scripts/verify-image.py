@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Smoke-test a packaged image using an isolated, labelled local container."""
 import argparse
+import http.client
 import json
 import pathlib
 import subprocess
@@ -28,7 +29,8 @@ def verify(image, version, engine):
                 with urllib.request.urlopen(base + '/api/v4/site/ping', timeout=3) as response:
                     ping = json.load(response)
                 break
-            except (urllib.error.URLError, TimeoutError, json.JSONDecodeError):
+            except (urllib.error.URLError, TimeoutError, ConnectionError,
+                    http.client.HTTPException, json.JSONDecodeError):
                 if time.monotonic() >= deadline:
                     raise SystemExit('Packaged application did not become ready within 120 seconds')
                 time.sleep(1)
