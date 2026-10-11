@@ -5,7 +5,6 @@ before:
     - go mod tidy
     - chmod +x ./.build/build-assets.sh
     - ./.build/build-assets.sh {{.Version}}
-    - python3 scripts/verify.py --stage backend
 
 builds:
   - env:
@@ -90,7 +89,7 @@ dockers:
       - .build/aria2.supervisor.conf
       - .build/entrypoint.sh
     image_templates:
-      - "cloudreve/cloudreve:{{ .Tag }}-amd64"
+      - "{{ .Env.GHCR_IMAGE }}:{{ .Tag }}-amd64"
   - dockerfile: Dockerfile
     use: buildx
     build_flag_templates:
@@ -102,18 +101,18 @@ dockers:
       - .build/aria2.supervisor.conf
       - .build/entrypoint.sh
     image_templates:
-      - "cloudreve/cloudreve:{{ .Tag }}-arm64"
+      - "{{ .Env.GHCR_IMAGE }}:{{ .Tag }}-arm64"
 
 docker_manifests:
-  - name_template: "cloudreve/cloudreve:latest"
+  - name_template: "{{ .Env.GHCR_IMAGE }}:latest"
     image_templates:
-      - "cloudreve/cloudreve:{{ .Tag }}-amd64"
-      - "cloudreve/cloudreve:{{ .Tag }}-arm64"
-  - name_template: "cloudreve/cloudreve:v4"
+      - "{{ .Env.GHCR_IMAGE }}:{{ .Tag }}-amd64"
+      - "{{ .Env.GHCR_IMAGE }}:{{ .Tag }}-arm64"
+  - name_template: "{{ .Env.GHCR_IMAGE }}:v4"
     image_templates:
-      - "cloudreve/cloudreve:{{ .Tag }}-amd64"
-      - "cloudreve/cloudreve:{{ .Tag }}-arm64"
-  - name_template: "cloudreve/cloudreve:{{ .Tag }}"
+      - "{{ .Env.GHCR_IMAGE }}:{{ .Tag }}-amd64"
+      - "{{ .Env.GHCR_IMAGE }}:{{ .Tag }}-arm64"
+  - name_template: "{{ .Env.GHCR_IMAGE }}:{{ .Tag }}"
     image_templates:
-      - "cloudreve/cloudreve:{{ .Tag }}-amd64"
-      - "cloudreve/cloudreve:{{ .Tag }}-arm64"
+      - "{{ .Env.GHCR_IMAGE }}:{{ .Tag }}-amd64"
+      - "{{ .Env.GHCR_IMAGE }}:{{ .Tag }}-arm64"

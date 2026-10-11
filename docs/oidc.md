@@ -85,17 +85,24 @@ The Ent sources are `ent/schema/{externalidentity,openidtransaction,openidsessio
 
 Startup runs the independent additive `oidc_extension_schema_v1` extension even when the official backend version has not changed. It preserves official version markers and existing settings, adds the three tables and managed column, and publishes completion only after successful DDL/bootstrap. SQLite uses an OS file lock beside the database, PostgreSQL uses a pinned advisory lock, and MySQL/MariaDB use a pinned named lock. Failed or partial initialization can be retried. All instances must share the database, configured site URL and nonempty effective Cloudreve secret key. Restarting with a changed key invalidates pending authentication and protected external refresh material. An empty encryption key rejects OIDC preparation/refresh without requiring an external record for ordinary native refresh.
 
-The community frontend is maintained in a separate fork referenced by the `assets` submodule. Clone with `--recurse-submodules`, or let the normal builder initialize it. The backend records the exact frontend commit as a Git submodule entry; frontend source archives and Git bundles are not checked into the backend. The builder refuses dirty source or an unexpected initialized revision. See [release gates and delivery](oidc-release.md) for fresh-checkout and update instructions.
+The community frontend is maintained in the `assets` submodule. Clone with
+`--recurse-submodules`; the backend records the frontend revision in its Git tree.
+The upstream `.build/build-assets.sh` entrypoint builds and packages the frontend
+for `.goreleaser.yaml`. The fork uses its existing pnpm lockfile.
 
 ```sh
-python3 scripts/build-frontend.py --stage all
+bash .build/build-assets.sh 4.14.0-oidc.2
 go build .
-python3 scripts/verify.py --stage backend
-python3 scripts/test_release_tools.py
+go test -race ./pkg/oidc ./pkg/authpolicy ./inventory ./routers/controllers
 ```
 
-The builder pins pnpm, uses frozen dependencies, checks TypeScript against source-bound upstream exceptions, and writes a deterministic embedded archive with the backend version. `--stage build` and `--stage package` support separate reruns; build provenance rejects stale packaging. `application/statics/assets.zip` remains an ignored build artifact. On an upstream update, rebase the local frontend extension, regenerate Ent, publish the reviewed frontend commit to its own fork, update the backend submodule entry, then rerun all release gates.
+`application/statics/assets.zip` is an ignored build artifact. Publish frontend
+changes in the frontend fork and update the backend submodule revision before
+building a release. Regenerate Ent with `go generate ./ent` when schemas change.
 
-For the real database matrix, run the same tests with `OIDC_TEST_DRIVER=postgres` or `mysql` and `OIDC_TEST_DSN` supplied securely. The account running these opt-in tests needs permission to create disposable databases. Use an owned test service: every HTTP and migration fixture creates a fresh database. MySQL and MariaDB both use driver `mysql`. Default tests use SQLite. Migration and multi-instance tests launch independent processes and do not share in-memory caches.
+Database regression tests use `OIDC_TEST_DRIVER=postgres` or `mysql` and
+`OIDC_TEST_DSN`. Use an owned disposable test service with permission to create
+test databases. MySQL and MariaDB use driver `mysql`; default tests use SQLite.
+Migration and multi-instance tests launch independent processes.
 
-See [release gates and validation](oidc-release.md) for the published verification procedures and results. Planning tickets, local evidence and runtime artifacts are not part of the source release. The full upstream Go test tree contains inherited cache/config/request test compile failures, and the frontend retains inherited TypeScript diagnostics; these are bounded by `verification/upstream-baseline.json`.
+See [building and releasing](oidc-release.md) for the shared release entrypoints.

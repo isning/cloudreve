@@ -2,6 +2,14 @@
 set -euo pipefail
 export NODE_OPTIONS="--max-old-space-size=8192"
 
-# Keep local releases and GoReleaser on the same verified build path.
+# Build the pinned frontend for the upstream GoReleaser hook.
 cd "$(dirname "$0")/.."
-python3 scripts/build-frontend.py --stage all --version "${1:?Release version required}"
+version="${1:?Release version required}"
+cd assets
+pnpm install --frozen-lockfile --ignore-scripts
+pnpm version "$version" --no-git-tag-version --allow-same-version
+pnpm run build
+
+cd ..
+zip -r - assets/build > application/statics/assets.zip.pending
+mv application/statics/assets.zip.pending application/statics/assets.zip

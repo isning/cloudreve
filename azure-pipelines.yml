@@ -6,6 +6,7 @@ variables:
   GO_VERSION: "1.26.5"
   NODE_VERSION: "22.x"
   DOCKER_BUILDKIT: 1
+  GHCR_IMAGE: ghcr.io/isning/cloudreve
 
 pool:
   name: Default
@@ -14,7 +15,7 @@ jobs:
   - job: Release
     steps:
       - checkout: self
-        submodules: false
+        submodules: true
         persistCredentials: true
       - task: NodeTool@0
         inputs:
@@ -25,18 +26,15 @@ jobs:
           version: "$(GO_VERSION)"
         displayName: Install Go
       - task: CmdLine@2
-        displayName: Validate self-hosted build prerequisites
+        displayName: Validate frontend build prerequisites
         inputs:
-          script: |
-            set -euo pipefail
-            python3 --version
-            pnpm dlx pnpm@10.34.6 --version
-      - task: Docker@2
+          script: pnpm --version
+      - task: CmdLine@2
+        displayName: Login to GHCR
         inputs:
-          containerRegistry: "CR DockerHub"
-          command: "login"
-          addPipelineData: false
-          addBaseImageData: false
+          script: printf '%s' "$GITHUB_TOKEN" | docker login ghcr.io --username "$(GITHUB_USER)" --password-stdin
+        env:
+          GITHUB_TOKEN: $(GITHUB_TOKEN)
       - task: CmdLine@2
         displayName: "Install tonistiigi/binfmt"
         inputs:
@@ -51,3 +49,4 @@ jobs:
           args: "release --timeout 60m -p 4"
         env:
           GITHUB_TOKEN: $(GITHUB_TOKEN)
+          GHCR_IMAGE: $(GHCR_IMAGE)
