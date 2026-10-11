@@ -13,11 +13,13 @@ import (
 	"github.com/cloudreve/Cloudreve/v4/inventory/types"
 	"github.com/cloudreve/Cloudreve/v4/pkg/auth/requestinfo"
 	"github.com/cloudreve/Cloudreve/v4/pkg/boolset"
+	"github.com/cloudreve/Cloudreve/v4/pkg/oidc"
 )
 
 type (
 	// Provider provides strong type setting access.
 	Provider interface {
+		ExternalLoginProviders(ctx context.Context) (*oidc.Registry, error)
 		// Site basic information
 		SiteBasic(ctx context.Context) *SiteBasic
 		// PWA related settings

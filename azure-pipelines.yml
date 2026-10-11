@@ -14,9 +14,9 @@ jobs:
   - job: Release
     steps:
       - checkout: self
-        submodules: true
+        submodules: false
         persistCredentials: true
-      - task: NodeTool@0 
+      - task: NodeTool@0
         inputs:
           versionSpec: '$(NODE_VERSION)'
         displayName: 'Install Node.js'
@@ -24,6 +24,13 @@ jobs:
         inputs:
           version: "$(GO_VERSION)"
         displayName: Install Go
+      - task: CmdLine@2
+        displayName: Validate self-hosted build prerequisites
+        inputs:
+          script: |
+            set -euo pipefail
+            python3 --version
+            pnpm dlx pnpm@10.34.6 --version
       - task: Docker@2
         inputs:
           containerRegistry: "CR DockerHub"
@@ -44,4 +51,3 @@ jobs:
           args: "release --timeout 60m -p 4"
         env:
           GITHUB_TOKEN: $(GITHUB_TOKEN)
-          

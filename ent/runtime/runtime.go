@@ -8,6 +8,7 @@ import (
 	"github.com/cloudreve/Cloudreve/v4/ent/davaccount"
 	"github.com/cloudreve/Cloudreve/v4/ent/directlink"
 	"github.com/cloudreve/Cloudreve/v4/ent/entity"
+	"github.com/cloudreve/Cloudreve/v4/ent/externalidentity"
 	"github.com/cloudreve/Cloudreve/v4/ent/file"
 	"github.com/cloudreve/Cloudreve/v4/ent/fsevent"
 	"github.com/cloudreve/Cloudreve/v4/ent/group"
@@ -15,6 +16,8 @@ import (
 	"github.com/cloudreve/Cloudreve/v4/ent/node"
 	"github.com/cloudreve/Cloudreve/v4/ent/oauthclient"
 	"github.com/cloudreve/Cloudreve/v4/ent/oauthgrant"
+	"github.com/cloudreve/Cloudreve/v4/ent/openidsession"
+	"github.com/cloudreve/Cloudreve/v4/ent/openidtransaction"
 	"github.com/cloudreve/Cloudreve/v4/ent/passkey"
 	"github.com/cloudreve/Cloudreve/v4/ent/schema"
 	"github.com/cloudreve/Cloudreve/v4/ent/setting"
@@ -90,6 +93,30 @@ func init() {
 	entityDescReferenceCount := entityFields[3].Descriptor()
 	// entity.DefaultReferenceCount holds the default value on creation for the reference_count field.
 	entity.DefaultReferenceCount = entityDescReferenceCount.Default.(int)
+	externalidentityFields := schema.ExternalIdentity{}.Fields()
+	_ = externalidentityFields
+	// externalidentityDescIdentityKey is the schema descriptor for identity_key field.
+	externalidentityDescIdentityKey := externalidentityFields[0].Descriptor()
+	// externalidentity.IdentityKeyValidator is a validator for the "identity_key" field. It is called by the builders before save.
+	externalidentity.IdentityKeyValidator = externalidentityDescIdentityKey.Validators[0].(func(string) error)
+	// externalidentityDescIssuer is the schema descriptor for issuer field.
+	externalidentityDescIssuer := externalidentityFields[2].Descriptor()
+	// externalidentity.IssuerValidator is a validator for the "issuer" field. It is called by the builders before save.
+	externalidentity.IssuerValidator = externalidentityDescIssuer.Validators[0].(func(string) error)
+	// externalidentityDescSubject is the schema descriptor for subject field.
+	externalidentityDescSubject := externalidentityFields[3].Descriptor()
+	// externalidentity.SubjectValidator is a validator for the "subject" field. It is called by the builders before save.
+	externalidentity.SubjectValidator = externalidentityDescSubject.Validators[0].(func(string) error)
+	// externalidentityDescLinkedAt is the schema descriptor for linked_at field.
+	externalidentityDescLinkedAt := externalidentityFields[6].Descriptor()
+	// externalidentity.DefaultLinkedAt holds the default value on creation for the linked_at field.
+	externalidentity.DefaultLinkedAt = externalidentityDescLinkedAt.Default.(func() time.Time)
+	// externalidentityDescUpdatedAt is the schema descriptor for updated_at field.
+	externalidentityDescUpdatedAt := externalidentityFields[7].Descriptor()
+	// externalidentity.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	externalidentity.DefaultUpdatedAt = externalidentityDescUpdatedAt.Default.(func() time.Time)
+	// externalidentity.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	externalidentity.UpdateDefaultUpdatedAt = externalidentityDescUpdatedAt.UpdateDefault.(func() time.Time)
 	fileHooks := schema.File{}.Hooks()
 	file.Hooks[0] = fileHooks[0]
 	fileFields := schema.File{}.Fields()
@@ -276,6 +303,38 @@ func init() {
 	oauthgrantDescScopes := oauthgrantFields[2].Descriptor()
 	// oauthgrant.DefaultScopes holds the default value on creation for the scopes field.
 	oauthgrant.DefaultScopes = oauthgrantDescScopes.Default.([]string)
+	openidsessionFields := schema.OpenIDSession{}.Fields()
+	_ = openidsessionFields
+	// openidsessionDescRootID is the schema descriptor for root_id field.
+	openidsessionDescRootID := openidsessionFields[0].Descriptor()
+	// openidsession.RootIDValidator is a validator for the "root_id" field. It is called by the builders before save.
+	openidsession.RootIDValidator = openidsessionDescRootID.Validators[0].(func(string) error)
+	// openidsessionDescIssuer is the schema descriptor for issuer field.
+	openidsessionDescIssuer := openidsessionFields[3].Descriptor()
+	// openidsession.IssuerValidator is a validator for the "issuer" field. It is called by the builders before save.
+	openidsession.IssuerValidator = openidsessionDescIssuer.Validators[0].(func(string) error)
+	openidtransactionFields := schema.OpenIDTransaction{}.Fields()
+	_ = openidtransactionFields
+	// openidtransactionDescTransactionKey is the schema descriptor for transaction_key field.
+	openidtransactionDescTransactionKey := openidtransactionFields[0].Descriptor()
+	// openidtransaction.TransactionKeyValidator is a validator for the "transaction_key" field. It is called by the builders before save.
+	openidtransaction.TransactionKeyValidator = openidtransactionDescTransactionKey.Validators[0].(func(string) error)
+	// openidtransactionDescBrowserProof is the schema descriptor for browser_proof field.
+	openidtransactionDescBrowserProof := openidtransactionFields[4].Descriptor()
+	// openidtransaction.BrowserProofValidator is a validator for the "browser_proof" field. It is called by the builders before save.
+	openidtransaction.BrowserProofValidator = openidtransactionDescBrowserProof.Validators[0].(func(string) error)
+	// openidtransactionDescConfigDigest is the schema descriptor for config_digest field.
+	openidtransactionDescConfigDigest := openidtransactionFields[5].Descriptor()
+	// openidtransaction.ConfigDigestValidator is a validator for the "config_digest" field. It is called by the builders before save.
+	openidtransaction.ConfigDigestValidator = openidtransactionDescConfigDigest.Validators[0].(func(string) error)
+	// openidtransactionDescAttempts is the schema descriptor for attempts field.
+	openidtransactionDescAttempts := openidtransactionFields[7].Descriptor()
+	// openidtransaction.DefaultAttempts holds the default value on creation for the attempts field.
+	openidtransaction.DefaultAttempts = openidtransactionDescAttempts.Default.(int)
+	// openidtransactionDescConsumed is the schema descriptor for consumed field.
+	openidtransactionDescConsumed := openidtransactionFields[8].Descriptor()
+	// openidtransaction.DefaultConsumed holds the default value on creation for the consumed field.
+	openidtransaction.DefaultConsumed = openidtransactionDescConsumed.Default.(bool)
 	passkeyMixin := schema.Passkey{}.Mixin()
 	passkeyMixinHooks0 := passkeyMixin[0].Hooks()
 	passkey.Hooks[0] = passkeyMixinHooks0[0]
@@ -418,6 +477,10 @@ func init() {
 	userDescSettings := userFields[7].Descriptor()
 	// user.DefaultSettings holds the default value on creation for the settings field.
 	user.DefaultSettings = userDescSettings.Default.(*types.UserSetting)
+	// userDescSSOManaged is the schema descriptor for sso_managed field.
+	userDescSSOManaged := userFields[9].Descriptor()
+	// user.DefaultSSOManaged holds the default value on creation for the sso_managed field.
+	user.DefaultSSOManaged = userDescSSOManaged.Default.(bool)
 }
 
 const (

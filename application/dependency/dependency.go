@@ -24,6 +24,7 @@ import (
 	"github.com/cloudreve/Cloudreve/v4/pkg/hashid"
 	"github.com/cloudreve/Cloudreve/v4/pkg/logging"
 	"github.com/cloudreve/Cloudreve/v4/pkg/mediameta"
+	"github.com/cloudreve/Cloudreve/v4/pkg/oidc"
 	"github.com/cloudreve/Cloudreve/v4/pkg/queue"
 	"github.com/cloudreve/Cloudreve/v4/pkg/request"
 	"github.com/cloudreve/Cloudreve/v4/pkg/searcher"
@@ -53,6 +54,7 @@ type (
 // Dep manages all dependencies of the server application. The default implementation is not
 // concurrent safe, so all inner deps should be initialized before any goroutine starts.
 type Dep interface {
+	OIDC() *oidc.Runtime
 	// ConfigProvider Get a singleton conf.ConfigProvider instance.
 	ConfigProvider() conf.ConfigProvider
 	// Logger Get a singleton logging.Logger instance.
@@ -149,6 +151,7 @@ type Dep interface {
 }
 
 type dependency struct {
+	oidcRuntime           *oidc.Runtime
 	configProvider        conf.ConfigProvider
 	logger                logging.Logger
 	statics               iofs.FS
@@ -350,6 +353,9 @@ func (d *dependency) DBClient() *ent.Client {
 		d.panicError(err)
 	}
 
+	if err := inventory.EnsureExternalAuthSchema(context.Background(), client); err != nil {
+		d.panicError(err)
+	}
 	d.dbClient = client
 	return d.dbClient
 }

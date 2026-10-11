@@ -15,6 +15,7 @@ import (
 	"github.com/cloudreve/Cloudreve/v4/ent/davaccount"
 	"github.com/cloudreve/Cloudreve/v4/ent/directlink"
 	"github.com/cloudreve/Cloudreve/v4/ent/entity"
+	"github.com/cloudreve/Cloudreve/v4/ent/externalidentity"
 	"github.com/cloudreve/Cloudreve/v4/ent/file"
 	"github.com/cloudreve/Cloudreve/v4/ent/fsevent"
 	"github.com/cloudreve/Cloudreve/v4/ent/group"
@@ -22,6 +23,8 @@ import (
 	"github.com/cloudreve/Cloudreve/v4/ent/node"
 	"github.com/cloudreve/Cloudreve/v4/ent/oauthclient"
 	"github.com/cloudreve/Cloudreve/v4/ent/oauthgrant"
+	"github.com/cloudreve/Cloudreve/v4/ent/openidsession"
+	"github.com/cloudreve/Cloudreve/v4/ent/openidtransaction"
 	"github.com/cloudreve/Cloudreve/v4/ent/passkey"
 	"github.com/cloudreve/Cloudreve/v4/ent/setting"
 	"github.com/cloudreve/Cloudreve/v4/ent/share"
@@ -88,22 +91,25 @@ var (
 func checkColumn(table, column string) error {
 	initCheck.Do(func() {
 		columnCheck = sql.NewColumnCheck(map[string]func(string) bool{
-			davaccount.Table:    davaccount.ValidColumn,
-			directlink.Table:    directlink.ValidColumn,
-			entity.Table:        entity.ValidColumn,
-			file.Table:          file.ValidColumn,
-			fsevent.Table:       fsevent.ValidColumn,
-			group.Table:         group.ValidColumn,
-			metadata.Table:      metadata.ValidColumn,
-			node.Table:          node.ValidColumn,
-			oauthclient.Table:   oauthclient.ValidColumn,
-			oauthgrant.Table:    oauthgrant.ValidColumn,
-			passkey.Table:       passkey.ValidColumn,
-			setting.Table:       setting.ValidColumn,
-			share.Table:         share.ValidColumn,
-			storagepolicy.Table: storagepolicy.ValidColumn,
-			task.Table:          task.ValidColumn,
-			user.Table:          user.ValidColumn,
+			davaccount.Table:        davaccount.ValidColumn,
+			directlink.Table:        directlink.ValidColumn,
+			entity.Table:            entity.ValidColumn,
+			externalidentity.Table:  externalidentity.ValidColumn,
+			file.Table:              file.ValidColumn,
+			fsevent.Table:           fsevent.ValidColumn,
+			group.Table:             group.ValidColumn,
+			metadata.Table:          metadata.ValidColumn,
+			node.Table:              node.ValidColumn,
+			oauthclient.Table:       oauthclient.ValidColumn,
+			oauthgrant.Table:        oauthgrant.ValidColumn,
+			openidsession.Table:     openidsession.ValidColumn,
+			openidtransaction.Table: openidtransaction.ValidColumn,
+			passkey.Table:           passkey.ValidColumn,
+			setting.Table:           setting.ValidColumn,
+			share.Table:             share.ValidColumn,
+			storagepolicy.Table:     storagepolicy.ValidColumn,
+			task.Table:              task.ValidColumn,
+			user.Table:              user.ValidColumn,
 		})
 	})
 	return columnCheck(table, column)

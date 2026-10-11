@@ -12,8 +12,11 @@ import (
 
 	"github.com/cloudreve/Cloudreve/v4/application/constants"
 	"github.com/cloudreve/Cloudreve/v4/application/dependency"
+	entsetting "github.com/cloudreve/Cloudreve/v4/ent/setting"
 	"github.com/cloudreve/Cloudreve/v4/inventory"
+	"github.com/cloudreve/Cloudreve/v4/inventory/debug"
 	"github.com/cloudreve/Cloudreve/v4/pkg/filemanager/manager"
+	"github.com/cloudreve/Cloudreve/v4/pkg/oidc"
 	"github.com/cloudreve/Cloudreve/v4/pkg/serializer"
 	"github.com/cloudreve/Cloudreve/v4/pkg/setting"
 	"github.com/cloudreve/Cloudreve/v4/pkg/thumb"
@@ -279,6 +282,20 @@ func (s *SetSettingService) SetSetting(c *gin.Context) (map[string]string, error
 	kv := dep.KV()
 	settingClient := dep.SettingClient()
 
+	if raw, ok := s.Settings[oidc.SettingName]; ok {
+		registry, err := oidc.ParseRegistry(raw)
+		if err != nil {
+			return nil, serializer.NewError(serializer.CodeParamErr, "Invalid external login providers", err)
+		}
+		for _, provider := range registry.Providers {
+			for _, group := range provider.Config.GroupMapping {
+				if _, err := dep.DBClient().Group.Get(c.Request.Context(), group); err != nil {
+					return nil, serializer.NewError(serializer.CodeParamErr, "Invalid target group", nil)
+				}
+			}
+		}
+	}
+
 	// Preprocess settings
 	allPreprocessors := make(map[string]SettingPreProcessor)
 	allPostprocessors := make(map[string]SettingPostProcessor)
@@ -306,11 +323,34 @@ func (s *SetSettingService) SetSetting(c *gin.Context) (map[string]string, error
 	}
 
 	// Save to db
-	sc, tx, ctx, err := inventory.WithTx(c, settingClient)
+	sc, tx, ctx, err := inventory.WithTx(c.Request.Context(), settingClient)
 	if err != nil {
 		return nil, serializer.NewError(serializer.CodeDBError, "Failed to create transaction", err)
 	}
 
+	if raw, ok := s.Settings[oidc.SettingName]; ok {
+		ctx = context.WithValue(ctx, debug.SkipDbLogging{}, true)
+		_, err := sc.GetClient().Setting.Update().Where(entsetting.Name(oidc.SettingName)).SetName(oidc.SettingName).Save(ctx)
+		if err != nil {
+			_ = inventory.Rollback(tx)
+			return nil, fmt.Errorf("cannot lock provider configuration")
+		}
+		previousRaw, err := sc.Get(ctx, oidc.SettingName)
+		if err != nil {
+			_ = inventory.Rollback(tx)
+			return nil, err
+		}
+		previous, err := oidc.ParseRegistry(previousRaw)
+		if err != nil {
+			_ = inventory.Rollback(tx)
+			return nil, fmt.Errorf("stored provider configuration is invalid")
+		}
+		next, _ := oidc.ParseRegistry(raw)
+		if err = next.ValidateUpdate(*previous); err != nil {
+			_ = inventory.Rollback(tx)
+			return nil, serializer.NewError(serializer.CodeParamErr, err.Error(), nil)
+		}
+	}
 	if err := sc.Set(ctx, s.Settings); err != nil {
 		_ = inventory.Rollback(tx)
 		return nil, serializer.NewError(serializer.CodeDBError, "Failed to save settings", err)

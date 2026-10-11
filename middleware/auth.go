@@ -49,6 +49,17 @@ func SignRequired(authInstance auth.Auth) gin.HandlerFunc {
 func CurrentUser() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		dep := dependency.FromContext(c)
+		// OpenID callbacks are authorized by a prepared transaction and its cookie.
+		// A stale active-account bearer must not intercept this AuthNone endpoint.
+		if c.Request.Method == http.MethodPost && c.Request.URL.Path == "/api/v4/session/openid" {
+			if err := SetUserCtx(c, 0); err != nil {
+				c.JSON(200, serializer.Err(c, err))
+				c.Abort()
+				return
+			}
+			c.Next()
+			return
+		}
 		shouldContinue, err := dep.TokenAuth().VerifyAndRetrieveUser(c)
 		if err != nil {
 			c.JSON(200, serializer.Err(c, err))
@@ -75,7 +86,7 @@ func CurrentUser() gin.HandlerFunc {
 func SetUserCtx(c *gin.Context, uid int) error {
 	dep := dependency.FromContext(c)
 	userClient := dep.UserClient()
-	loginUser, err := userClient.GetLoginUserByID(c, uid)
+	loginUser, err := userClient.GetLoginUserByID(c.Request.Context(), uid)
 	if err != nil {
 		return serializer.NewError(serializer.CodeDBError, "failed to get login user", err)
 	}

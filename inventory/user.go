@@ -22,6 +22,7 @@ import (
 	"github.com/cloudreve/Cloudreve/v4/ent/task"
 	"github.com/cloudreve/Cloudreve/v4/ent/user"
 	"github.com/cloudreve/Cloudreve/v4/inventory/types"
+	"github.com/cloudreve/Cloudreve/v4/pkg/authpolicy"
 	"github.com/cloudreve/Cloudreve/v4/pkg/serializer"
 	"github.com/cloudreve/Cloudreve/v4/pkg/util"
 	"github.com/go-webauthn/webauthn/webauthn"
@@ -133,6 +134,8 @@ type userClient struct {
 type (
 	// NewUserArgs args to create a new user
 	NewUserArgs struct {
+		SSOManaged    bool
+		SkipBootstrap bool
 		Email         string
 		Nick          string // Optional
 		PlainPassword string
@@ -172,6 +175,13 @@ func (c *userClient) UpdateTwoFASecret(ctx context.Context, u *ent.User, secret 
 }
 
 func (c *userClient) UpdatePassword(ctx context.Context, u *ent.User, newPassword string) (*ent.User, error) {
+	fresh, err := c.GetByID(ctx, u.ID)
+	if err != nil {
+		return nil, err
+	}
+	if err = (authpolicy.Facts{Managed: fresh.SSOManaged}).CheckLocalCredential(); err != nil {
+		return nil, err
+	}
 	digest, err := digestPassword(newPassword)
 	if err != nil {
 		return nil, err
@@ -193,6 +203,13 @@ func (c *userClient) ListPasskeys(ctx context.Context, uid int) ([]*ent.Passkey,
 }
 
 func (c *userClient) AddPasskey(ctx context.Context, uid int, name string, credential *webauthn.Credential) (*ent.Passkey, error) {
+	u, err := c.GetByID(ctx, uid)
+	if err != nil {
+		return nil, err
+	}
+	if err = (authpolicy.Facts{Managed: u.SSOManaged}).CheckLocalCredential(); err != nil {
+		return nil, err
+	}
 	return c.client.Passkey.Create().
 		SetName(name).
 		SetCredentialID(base64.StdEncoding.EncodeToString(credential.ID)).
@@ -213,6 +230,24 @@ func (c *userClient) MarkPasskeyUsed(ctx context.Context, uid int, keyId string)
 }
 
 func (c *userClient) Delete(ctx context.Context, uid int) error {
+	scoped, tx, ctx, err := WithTx[UserClient](ctx, c)
+	if err != nil {
+		return err
+	}
+	defer Rollback(tx)
+	if err = scoped.(*userClient).deleteUser(ctx, uid); err != nil {
+		return err
+	}
+	return Commit(tx)
+}
+func (c *userClient) deleteUser(ctx context.Context, uid int) error {
+	if err := c.client.User.Update().Where(user.ID(uid)).AddStorage(0).Exec(ctx); err != nil {
+		return err
+	}
+	if err := detachExternalAuth(ctx, c.client, uid); err != nil {
+		return err
+	}
+
 	// Dav accounts
 	if _, err := c.client.DavAccount.Delete().Where(davaccount.OwnerID(uid)).Exec(schema.SkipSoftDelete(ctx)); err != nil {
 		return fmt.Errorf("failed to delete dav accounts: %w", err)
@@ -384,7 +419,7 @@ func (c *userClient) Create(ctx context.Context, args *NewUserArgs) (*ent.User, 
 		SetNick(nick).
 		SetStatus(args.Status).
 		SetGroupID(args.GroupID).
-		SetAvatar(args.Avatar)
+		SetAvatar(args.Avatar).SetSSOManaged(args.SSOManaged)
 
 	if args.PlainPassword != "" {
 		pwdDigest, err := digestPassword(args.PlainPassword)
@@ -406,7 +441,7 @@ func (c *userClient) Create(ctx context.Context, args *NewUserArgs) (*ent.User, 
 		return nil, fmt.Errorf("failed to create user: %w", err)
 	}
 
-	if newUser.ID == 1 {
+	if newUser.ID == 1 && !args.SkipBootstrap {
 		// For the first user registered, elevate it to admin group.
 		if _, err := newUser.Update().SetGroupID(1).Save(ctx); err != nil {
 			return newUser, fmt.Errorf("failed to elevate user to admin: %w", err)
@@ -572,6 +607,15 @@ func (c *userClient) Upsert(ctx context.Context, u *ent.User, password, twoFa st
 		return q.Save(ctx)
 	}
 
+	if password != "" {
+		fresh, err := c.GetByID(ctx, u.ID)
+		if err != nil {
+			return nil, err
+		}
+		if err = (authpolicy.Facts{Managed: fresh.SSOManaged}).CheckLocalCredential(); err != nil {
+			return nil, err
+		}
+	}
 	q := c.client.User.UpdateOne(u).
 		SetEmail(u.Email).
 		SetNick(u.Nick).
@@ -617,6 +661,9 @@ func IsAnonymousUser(u *ent.User) bool {
 
 // CheckPassword 根据明文校验密码
 func CheckPassword(u *ent.User, password string) error {
+	if err := (authpolicy.Facts{Managed: u.SSOManaged}).CheckLocalCredential(); err != nil {
+		return err
+	}
 	// 根据存储密码拆分为 Salt 和 Digest
 	passwordStore := strings.Split(u.Password, ":")
 	if len(passwordStore) != 2 && len(passwordStore) != 3 {

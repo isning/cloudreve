@@ -1,15 +1,7 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 export NODE_OPTIONS="--max-old-space-size=8192"
 
-# This script is used to build the assets for the application.
-cd assets
-rm -rf build
-yarn install --network-timeout 1000000
-yarn version --new-version $1 --no-git-tag-version
-yarn run build
-
-# Copy the build files to the application directory
-cd ../
-zip -r - assets/build >assets.zip
-mv assets.zip application/statics
+# Keep local releases and GoReleaser on the same verified build path.
+cd "$(dirname "$0")/.."
+python3 scripts/build-frontend.py --stage all --version "${1:?Release version required}"

@@ -105,6 +105,11 @@ func GroupUsers(v int) predicate.User {
 	return predicate.User(sql.FieldEQ(FieldGroupUsers, v))
 }
 
+// SSOManaged applies equality check predicate on the "sso_managed" field. It's identical to SSOManagedEQ.
+func SSOManaged(v bool) predicate.User {
+	return predicate.User(sql.FieldEQ(FieldSSOManaged, v))
+}
+
 // CreatedAtEQ applies the EQ predicate on the "created_at" field.
 func CreatedAtEQ(v time.Time) predicate.User {
 	return predicate.User(sql.FieldEQ(FieldCreatedAt, v))
@@ -680,6 +685,16 @@ func GroupUsersNotIn(vs ...int) predicate.User {
 	return predicate.User(sql.FieldNotIn(FieldGroupUsers, vs...))
 }
 
+// SSOManagedEQ applies the EQ predicate on the "sso_managed" field.
+func SSOManagedEQ(v bool) predicate.User {
+	return predicate.User(sql.FieldEQ(FieldSSOManaged, v))
+}
+
+// SSOManagedNEQ applies the NEQ predicate on the "sso_managed" field.
+func SSOManagedNEQ(v bool) predicate.User {
+	return predicate.User(sql.FieldNEQ(FieldSSOManaged, v))
+}
+
 // HasGroup applies the HasEdge predicate on the "group" edge.
 func HasGroup() predicate.User {
 	return predicate.User(func(s *sql.Selector) {
@@ -879,6 +894,75 @@ func HasOauthGrants() predicate.User {
 func HasOauthGrantsWith(preds ...predicate.OAuthGrant) predicate.User {
 	return predicate.User(func(s *sql.Selector) {
 		step := newOauthGrantsStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
+// HasExternalIdentities applies the HasEdge predicate on the "external_identities" edge.
+func HasExternalIdentities() predicate.User {
+	return predicate.User(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, ExternalIdentitiesTable, ExternalIdentitiesColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasExternalIdentitiesWith applies the HasEdge predicate on the "external_identities" edge with a given conditions (other predicates).
+func HasExternalIdentitiesWith(preds ...predicate.ExternalIdentity) predicate.User {
+	return predicate.User(func(s *sql.Selector) {
+		step := newExternalIdentitiesStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
+// HasOpenidTransactions applies the HasEdge predicate on the "openid_transactions" edge.
+func HasOpenidTransactions() predicate.User {
+	return predicate.User(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, OpenidTransactionsTable, OpenidTransactionsColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasOpenidTransactionsWith applies the HasEdge predicate on the "openid_transactions" edge with a given conditions (other predicates).
+func HasOpenidTransactionsWith(preds ...predicate.OpenIDTransaction) predicate.User {
+	return predicate.User(func(s *sql.Selector) {
+		step := newOpenidTransactionsStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
+// HasOpenidSessions applies the HasEdge predicate on the "openid_sessions" edge.
+func HasOpenidSessions() predicate.User {
+	return predicate.User(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, OpenidSessionsTable, OpenidSessionsColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasOpenidSessionsWith applies the HasEdge predicate on the "openid_sessions" edge with a given conditions (other predicates).
+func HasOpenidSessionsWith(preds ...predicate.OpenIDSession) predicate.User {
+	return predicate.User(func(s *sql.Selector) {
+		step := newOpenidSessionsStep()
 		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
 			for _, p := range preds {
 				p(s)

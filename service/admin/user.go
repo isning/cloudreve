@@ -239,7 +239,7 @@ func (s *BatchUserService) Delete(c *gin.Context) error {
 			continue
 		}
 
-		fc, tx, ctx, err := inventory.WithTx(c, fileClient)
+		fc, tx, ctx, err := inventory.WithTx(c.Request.Context(), fileClient)
 		if err != nil {
 			ae.Add(strconv.Itoa(id), serializer.NewError(serializer.CodeDBError, "Failed to start transaction", err))
 			continue
@@ -251,6 +251,11 @@ func (s *BatchUserService) Delete(c *gin.Context) error {
 			continue
 		}
 
+		if err := uc.GetClient().User.Update().Where(user.ID(id)).AddStorage(0).Exec(ctx); err != nil {
+			_ = inventory.Rollback(tx)
+			ae.Add(strconv.Itoa(id), err)
+			continue
+		}
 		if err := fc.DeleteByUser(ctx, id); err != nil {
 			_ = inventory.Rollback(tx)
 			ae.Add(strconv.Itoa(id), serializer.NewError(serializer.CodeDBError, "Failed to delete user files", err))

@@ -11,6 +11,7 @@ import (
 	"github.com/cloudreve/Cloudreve/v4/ent/davaccount"
 	"github.com/cloudreve/Cloudreve/v4/ent/directlink"
 	"github.com/cloudreve/Cloudreve/v4/ent/entity"
+	"github.com/cloudreve/Cloudreve/v4/ent/externalidentity"
 	"github.com/cloudreve/Cloudreve/v4/ent/file"
 	"github.com/cloudreve/Cloudreve/v4/ent/fsevent"
 	"github.com/cloudreve/Cloudreve/v4/ent/group"
@@ -18,6 +19,8 @@ import (
 	"github.com/cloudreve/Cloudreve/v4/ent/node"
 	"github.com/cloudreve/Cloudreve/v4/ent/oauthclient"
 	"github.com/cloudreve/Cloudreve/v4/ent/oauthgrant"
+	"github.com/cloudreve/Cloudreve/v4/ent/openidsession"
+	"github.com/cloudreve/Cloudreve/v4/ent/openidtransaction"
 	"github.com/cloudreve/Cloudreve/v4/ent/passkey"
 	"github.com/cloudreve/Cloudreve/v4/ent/predicate"
 	"github.com/cloudreve/Cloudreve/v4/ent/setting"
@@ -162,6 +165,33 @@ func (f TraverseEntity) Traverse(ctx context.Context, q ent.Query) error {
 		return f(ctx, q)
 	}
 	return fmt.Errorf("unexpected query type %T. expect *ent.EntityQuery", q)
+}
+
+// The ExternalIdentityFunc type is an adapter to allow the use of ordinary function as a Querier.
+type ExternalIdentityFunc func(context.Context, *ent.ExternalIdentityQuery) (ent.Value, error)
+
+// Query calls f(ctx, q).
+func (f ExternalIdentityFunc) Query(ctx context.Context, q ent.Query) (ent.Value, error) {
+	if q, ok := q.(*ent.ExternalIdentityQuery); ok {
+		return f(ctx, q)
+	}
+	return nil, fmt.Errorf("unexpected query type %T. expect *ent.ExternalIdentityQuery", q)
+}
+
+// The TraverseExternalIdentity type is an adapter to allow the use of ordinary function as Traverser.
+type TraverseExternalIdentity func(context.Context, *ent.ExternalIdentityQuery) error
+
+// Intercept is a dummy implementation of Intercept that returns the next Querier in the pipeline.
+func (f TraverseExternalIdentity) Intercept(next ent.Querier) ent.Querier {
+	return next
+}
+
+// Traverse calls f(ctx, q).
+func (f TraverseExternalIdentity) Traverse(ctx context.Context, q ent.Query) error {
+	if q, ok := q.(*ent.ExternalIdentityQuery); ok {
+		return f(ctx, q)
+	}
+	return fmt.Errorf("unexpected query type %T. expect *ent.ExternalIdentityQuery", q)
 }
 
 // The FileFunc type is an adapter to allow the use of ordinary function as a Querier.
@@ -353,6 +383,60 @@ func (f TraverseOAuthGrant) Traverse(ctx context.Context, q ent.Query) error {
 	return fmt.Errorf("unexpected query type %T. expect *ent.OAuthGrantQuery", q)
 }
 
+// The OpenIDSessionFunc type is an adapter to allow the use of ordinary function as a Querier.
+type OpenIDSessionFunc func(context.Context, *ent.OpenIDSessionQuery) (ent.Value, error)
+
+// Query calls f(ctx, q).
+func (f OpenIDSessionFunc) Query(ctx context.Context, q ent.Query) (ent.Value, error) {
+	if q, ok := q.(*ent.OpenIDSessionQuery); ok {
+		return f(ctx, q)
+	}
+	return nil, fmt.Errorf("unexpected query type %T. expect *ent.OpenIDSessionQuery", q)
+}
+
+// The TraverseOpenIDSession type is an adapter to allow the use of ordinary function as Traverser.
+type TraverseOpenIDSession func(context.Context, *ent.OpenIDSessionQuery) error
+
+// Intercept is a dummy implementation of Intercept that returns the next Querier in the pipeline.
+func (f TraverseOpenIDSession) Intercept(next ent.Querier) ent.Querier {
+	return next
+}
+
+// Traverse calls f(ctx, q).
+func (f TraverseOpenIDSession) Traverse(ctx context.Context, q ent.Query) error {
+	if q, ok := q.(*ent.OpenIDSessionQuery); ok {
+		return f(ctx, q)
+	}
+	return fmt.Errorf("unexpected query type %T. expect *ent.OpenIDSessionQuery", q)
+}
+
+// The OpenIDTransactionFunc type is an adapter to allow the use of ordinary function as a Querier.
+type OpenIDTransactionFunc func(context.Context, *ent.OpenIDTransactionQuery) (ent.Value, error)
+
+// Query calls f(ctx, q).
+func (f OpenIDTransactionFunc) Query(ctx context.Context, q ent.Query) (ent.Value, error) {
+	if q, ok := q.(*ent.OpenIDTransactionQuery); ok {
+		return f(ctx, q)
+	}
+	return nil, fmt.Errorf("unexpected query type %T. expect *ent.OpenIDTransactionQuery", q)
+}
+
+// The TraverseOpenIDTransaction type is an adapter to allow the use of ordinary function as Traverser.
+type TraverseOpenIDTransaction func(context.Context, *ent.OpenIDTransactionQuery) error
+
+// Intercept is a dummy implementation of Intercept that returns the next Querier in the pipeline.
+func (f TraverseOpenIDTransaction) Intercept(next ent.Querier) ent.Querier {
+	return next
+}
+
+// Traverse calls f(ctx, q).
+func (f TraverseOpenIDTransaction) Traverse(ctx context.Context, q ent.Query) error {
+	if q, ok := q.(*ent.OpenIDTransactionQuery); ok {
+		return f(ctx, q)
+	}
+	return fmt.Errorf("unexpected query type %T. expect *ent.OpenIDTransactionQuery", q)
+}
+
 // The PasskeyFunc type is an adapter to allow the use of ordinary function as a Querier.
 type PasskeyFunc func(context.Context, *ent.PasskeyQuery) (ent.Value, error)
 
@@ -524,6 +608,8 @@ func NewQuery(q ent.Query) (Query, error) {
 		return &query[*ent.DirectLinkQuery, predicate.DirectLink, directlink.OrderOption]{typ: ent.TypeDirectLink, tq: q}, nil
 	case *ent.EntityQuery:
 		return &query[*ent.EntityQuery, predicate.Entity, entity.OrderOption]{typ: ent.TypeEntity, tq: q}, nil
+	case *ent.ExternalIdentityQuery:
+		return &query[*ent.ExternalIdentityQuery, predicate.ExternalIdentity, externalidentity.OrderOption]{typ: ent.TypeExternalIdentity, tq: q}, nil
 	case *ent.FileQuery:
 		return &query[*ent.FileQuery, predicate.File, file.OrderOption]{typ: ent.TypeFile, tq: q}, nil
 	case *ent.FsEventQuery:
@@ -538,6 +624,10 @@ func NewQuery(q ent.Query) (Query, error) {
 		return &query[*ent.OAuthClientQuery, predicate.OAuthClient, oauthclient.OrderOption]{typ: ent.TypeOAuthClient, tq: q}, nil
 	case *ent.OAuthGrantQuery:
 		return &query[*ent.OAuthGrantQuery, predicate.OAuthGrant, oauthgrant.OrderOption]{typ: ent.TypeOAuthGrant, tq: q}, nil
+	case *ent.OpenIDSessionQuery:
+		return &query[*ent.OpenIDSessionQuery, predicate.OpenIDSession, openidsession.OrderOption]{typ: ent.TypeOpenIDSession, tq: q}, nil
+	case *ent.OpenIDTransactionQuery:
+		return &query[*ent.OpenIDTransactionQuery, predicate.OpenIDTransaction, openidtransaction.OrderOption]{typ: ent.TypeOpenIDTransaction, tq: q}, nil
 	case *ent.PasskeyQuery:
 		return &query[*ent.PasskeyQuery, predicate.Passkey, passkey.OrderOption]{typ: ent.TypePasskey, tq: q}, nil
 	case *ent.SettingQuery:

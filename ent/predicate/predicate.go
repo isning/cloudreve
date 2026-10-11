@@ -15,6 +15,9 @@ type DirectLink func(*sql.Selector)
 // Entity is the predicate function for entity builders.
 type Entity func(*sql.Selector)
 
+// ExternalIdentity is the predicate function for externalidentity builders.
+type ExternalIdentity func(*sql.Selector)
+
 // File is the predicate function for file builders.
 type File func(*sql.Selector)
 
@@ -35,6 +38,12 @@ type OAuthClient func(*sql.Selector)
 
 // OAuthGrant is the predicate function for oauthgrant builders.
 type OAuthGrant func(*sql.Selector)
+
+// OpenIDSession is the predicate function for openidsession builders.
+type OpenIDSession func(*sql.Selector)
+
+// OpenIDTransaction is the predicate function for openidtransaction builders.
+type OpenIDTransaction func(*sql.Selector)
 
 // Passkey is the predicate function for passkey builders.
 type Passkey func(*sql.Selector)

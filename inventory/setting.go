@@ -49,6 +49,9 @@ func (c *settingClient) GetClient() *ent.Client {
 }
 
 func (c *settingClient) Get(ctx context.Context, name string) (string, error) {
+	if name == "external_login_providers" {
+		ctx = externalAuthContext(ctx)
+	}
 	s, err := c.client.Setting.Query().Where(setting.Name(name)).Only(ctx)
 	if err != nil {
 		return "", fmt.Errorf("failed to query setting %q from DB: %w", name, err)
@@ -58,6 +61,12 @@ func (c *settingClient) Get(ctx context.Context, name string) (string, error) {
 }
 
 func (c *settingClient) Gets(ctx context.Context, names []string) (map[string]string, error) {
+	for _, name := range names {
+		if name == "external_login_providers" {
+			ctx = externalAuthContext(ctx)
+			break
+		}
+	}
 	settings := make(map[string]string)
 	res, err := c.client.Setting.Query().Where(setting.NameIn(names...)).All(ctx)
 	if err != nil {
@@ -73,6 +82,9 @@ func (c *settingClient) Gets(ctx context.Context, names []string) (map[string]st
 
 func (c *settingClient) Set(ctx context.Context, settings map[string]string) error {
 	for k, v := range settings {
+		if k == "external_login_providers" {
+			ctx = externalAuthContext(ctx)
+		}
 		if err := c.client.Setting.Update().Where(setting.Name(k)).SetValue(v).Exec(ctx); err != nil {
 			return fmt.Errorf("failed to create setting %q: %w", k, err)
 		}
@@ -523,6 +535,7 @@ var DefaultSettings = map[string]string{
 	"defaultTheme":                               `#1976d2`,
 	"theme_options":                              `{"#1976d2":{"light":{"palette":{"primary":{"main":"#1976d2","light":"#42a5f5","dark":"#1565c0"},"secondary":{"main":"#9c27b0","light":"#ba68c8","dark":"#7b1fa2"}}},"dark":{"palette":{"primary":{"main":"#90caf9","light":"#e3f2fd","dark":"#42a5f5"},"secondary":{"main":"#ce93d8","light":"#f3e5f5","dark":"#ab47bc"}}}},"#3f51b5":{"light":{"palette":{"primary":{"main":"#3f51b5"},"secondary":{"main":"#f50057"}}},"dark":{"palette":{"primary":{"main":"#9fa8da"},"secondary":{"main":"#ff4081"}}}}}`,
 	"max_parallel_transfer":                      `4`,
+	"external_login_providers":                   `{"version":1,"next_id":3,"providers":[]}`,
 	"secret_key":                                 util.RandStringRunesCrypto(256),
 	"temp_path":                                  "temp",
 	"avatar_path":                                "avatar",

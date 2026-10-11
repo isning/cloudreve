@@ -41,6 +41,8 @@ const (
 	FieldSettings = "settings"
 	// FieldGroupUsers holds the string denoting the group_users field in the database.
 	FieldGroupUsers = "group_users"
+	// FieldSSOManaged holds the string denoting the sso_managed field in the database.
+	FieldSSOManaged = "sso_managed"
 	// EdgeGroup holds the string denoting the group edge name in mutations.
 	EdgeGroup = "group"
 	// EdgeFiles holds the string denoting the files edge name in mutations.
@@ -59,6 +61,12 @@ const (
 	EdgeEntities = "entities"
 	// EdgeOauthGrants holds the string denoting the oauth_grants edge name in mutations.
 	EdgeOauthGrants = "oauth_grants"
+	// EdgeExternalIdentities holds the string denoting the external_identities edge name in mutations.
+	EdgeExternalIdentities = "external_identities"
+	// EdgeOpenidTransactions holds the string denoting the openid_transactions edge name in mutations.
+	EdgeOpenidTransactions = "openid_transactions"
+	// EdgeOpenidSessions holds the string denoting the openid_sessions edge name in mutations.
+	EdgeOpenidSessions = "openid_sessions"
 	// Table holds the table name of the user in the database.
 	Table = "users"
 	// GroupTable is the table that holds the group relation/edge.
@@ -124,6 +132,27 @@ const (
 	OauthGrantsInverseTable = "oauth_grants"
 	// OauthGrantsColumn is the table column denoting the oauth_grants relation/edge.
 	OauthGrantsColumn = "user_id"
+	// ExternalIdentitiesTable is the table that holds the external_identities relation/edge.
+	ExternalIdentitiesTable = "external_identities"
+	// ExternalIdentitiesInverseTable is the table name for the ExternalIdentity entity.
+	// It exists in this package in order to avoid circular dependency with the "externalidentity" package.
+	ExternalIdentitiesInverseTable = "external_identities"
+	// ExternalIdentitiesColumn is the table column denoting the external_identities relation/edge.
+	ExternalIdentitiesColumn = "user_id"
+	// OpenidTransactionsTable is the table that holds the openid_transactions relation/edge.
+	OpenidTransactionsTable = "open_id_transactions"
+	// OpenidTransactionsInverseTable is the table name for the OpenIDTransaction entity.
+	// It exists in this package in order to avoid circular dependency with the "openidtransaction" package.
+	OpenidTransactionsInverseTable = "open_id_transactions"
+	// OpenidTransactionsColumn is the table column denoting the openid_transactions relation/edge.
+	OpenidTransactionsColumn = "user_id"
+	// OpenidSessionsTable is the table that holds the openid_sessions relation/edge.
+	OpenidSessionsTable = "open_id_sessions"
+	// OpenidSessionsInverseTable is the table name for the OpenIDSession entity.
+	// It exists in this package in order to avoid circular dependency with the "openidsession" package.
+	OpenidSessionsInverseTable = "open_id_sessions"
+	// OpenidSessionsColumn is the table column denoting the openid_sessions relation/edge.
+	OpenidSessionsColumn = "user_id"
 )
 
 // Columns holds all SQL columns for user fields.
@@ -141,6 +170,7 @@ var Columns = []string{
 	FieldAvatar,
 	FieldSettings,
 	FieldGroupUsers,
+	FieldSSOManaged,
 }
 
 // ValidColumn reports if the column name is valid (part of the table columns).
@@ -175,6 +205,8 @@ var (
 	DefaultStorage int64
 	// DefaultSettings holds the default value on creation for the "settings" field.
 	DefaultSettings *types.UserSetting
+	// DefaultSSOManaged holds the default value on creation for the "sso_managed" field.
+	DefaultSSOManaged bool
 )
 
 // Status defines the type for the "status" enum field.
@@ -266,6 +298,11 @@ func ByAvatar(opts ...sql.OrderTermOption) OrderOption {
 // ByGroupUsers orders the results by the group_users field.
 func ByGroupUsers(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldGroupUsers, opts...).ToFunc()
+}
+
+// BySSOManaged orders the results by the sso_managed field.
+func BySSOManaged(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldSSOManaged, opts...).ToFunc()
 }
 
 // ByGroupField orders the results by group field.
@@ -386,6 +423,48 @@ func ByOauthGrants(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
 		sqlgraph.OrderByNeighborTerms(s, newOauthGrantsStep(), append([]sql.OrderTerm{term}, terms...)...)
 	}
 }
+
+// ByExternalIdentitiesCount orders the results by external_identities count.
+func ByExternalIdentitiesCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newExternalIdentitiesStep(), opts...)
+	}
+}
+
+// ByExternalIdentities orders the results by external_identities terms.
+func ByExternalIdentities(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newExternalIdentitiesStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
+
+// ByOpenidTransactionsCount orders the results by openid_transactions count.
+func ByOpenidTransactionsCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newOpenidTransactionsStep(), opts...)
+	}
+}
+
+// ByOpenidTransactions orders the results by openid_transactions terms.
+func ByOpenidTransactions(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newOpenidTransactionsStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
+
+// ByOpenidSessionsCount orders the results by openid_sessions count.
+func ByOpenidSessionsCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newOpenidSessionsStep(), opts...)
+	}
+}
+
+// ByOpenidSessions orders the results by openid_sessions terms.
+func ByOpenidSessions(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newOpenidSessionsStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
 func newGroupStep() *sqlgraph.Step {
 	return sqlgraph.NewStep(
 		sqlgraph.From(Table, FieldID),
@@ -447,5 +526,26 @@ func newOauthGrantsStep() *sqlgraph.Step {
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(OauthGrantsInverseTable, FieldID),
 		sqlgraph.Edge(sqlgraph.O2M, false, OauthGrantsTable, OauthGrantsColumn),
+	)
+}
+func newExternalIdentitiesStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(ExternalIdentitiesInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2M, false, ExternalIdentitiesTable, ExternalIdentitiesColumn),
+	)
+}
+func newOpenidTransactionsStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(OpenidTransactionsInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2M, false, OpenidTransactionsTable, OpenidTransactionsColumn),
+	)
+}
+func newOpenidSessionsStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(OpenidSessionsInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2M, false, OpenidSessionsTable, OpenidSessionsColumn),
 	)
 }

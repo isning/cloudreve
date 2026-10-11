@@ -22,6 +22,12 @@ func (m *EntityMutation) SetRawID(t int) {
 
 // SetUpdatedAt sets the "updated_at" field.
 
+func (m *ExternalIdentityMutation) SetRawID(t int) {
+	m.id = &t
+}
+
+// SetUpdatedAt sets the "updated_at" field.
+
 func (m *FileMutation) SetRawID(t int) {
 	m.id = &t
 }
@@ -59,6 +65,18 @@ func (m *OAuthClientMutation) SetRawID(t int) {
 // SetUpdatedAt sets the "updated_at" field.
 
 func (m *OAuthGrantMutation) SetRawID(t int) {
+	m.id = &t
+}
+
+// SetUpdatedAt sets the "updated_at" field.
+
+func (m *OpenIDSessionMutation) SetRawID(t int) {
+	m.id = &t
+}
+
+// SetUpdatedAt sets the "updated_at" field.
+
+func (m *OpenIDTransactionMutation) SetRawID(t int) {
 	m.id = &t
 }
 

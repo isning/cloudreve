@@ -14,6 +14,7 @@ import (
 	"github.com/cloudreve/Cloudreve/v4/ent/davaccount"
 	"github.com/cloudreve/Cloudreve/v4/ent/directlink"
 	"github.com/cloudreve/Cloudreve/v4/ent/entity"
+	"github.com/cloudreve/Cloudreve/v4/ent/externalidentity"
 	"github.com/cloudreve/Cloudreve/v4/ent/file"
 	"github.com/cloudreve/Cloudreve/v4/ent/fsevent"
 	"github.com/cloudreve/Cloudreve/v4/ent/group"
@@ -21,6 +22,8 @@ import (
 	"github.com/cloudreve/Cloudreve/v4/ent/node"
 	"github.com/cloudreve/Cloudreve/v4/ent/oauthclient"
 	"github.com/cloudreve/Cloudreve/v4/ent/oauthgrant"
+	"github.com/cloudreve/Cloudreve/v4/ent/openidsession"
+	"github.com/cloudreve/Cloudreve/v4/ent/openidtransaction"
 	"github.com/cloudreve/Cloudreve/v4/ent/passkey"
 	"github.com/cloudreve/Cloudreve/v4/ent/predicate"
 	"github.com/cloudreve/Cloudreve/v4/ent/setting"
@@ -43,22 +46,25 @@ const (
 	OpUpdateOne = ent.OpUpdateOne
 
 	// Node types.
-	TypeDavAccount    = "DavAccount"
-	TypeDirectLink    = "DirectLink"
-	TypeEntity        = "Entity"
-	TypeFile          = "File"
-	TypeFsEvent       = "FsEvent"
-	TypeGroup         = "Group"
-	TypeMetadata      = "Metadata"
-	TypeNode          = "Node"
-	TypeOAuthClient   = "OAuthClient"
-	TypeOAuthGrant    = "OAuthGrant"
-	TypePasskey       = "Passkey"
-	TypeSetting       = "Setting"
-	TypeShare         = "Share"
-	TypeStoragePolicy = "StoragePolicy"
-	TypeTask          = "Task"
-	TypeUser          = "User"
+	TypeDavAccount        = "DavAccount"
+	TypeDirectLink        = "DirectLink"
+	TypeEntity            = "Entity"
+	TypeExternalIdentity  = "ExternalIdentity"
+	TypeFile              = "File"
+	TypeFsEvent           = "FsEvent"
+	TypeGroup             = "Group"
+	TypeMetadata          = "Metadata"
+	TypeNode              = "Node"
+	TypeOAuthClient       = "OAuthClient"
+	TypeOAuthGrant        = "OAuthGrant"
+	TypeOpenIDSession     = "OpenIDSession"
+	TypeOpenIDTransaction = "OpenIDTransaction"
+	TypePasskey           = "Passkey"
+	TypeSetting           = "Setting"
+	TypeShare             = "Share"
+	TypeStoragePolicy     = "StoragePolicy"
+	TypeTask              = "Task"
+	TypeUser              = "User"
 )
 
 // DavAccountMutation represents an operation that mutates the DavAccount nodes in the graph.
@@ -2968,6 +2974,822 @@ func (m *EntityMutation) ResetEdge(name string) error {
 		return nil
 	}
 	return fmt.Errorf("unknown Entity edge %s", name)
+}
+
+// ExternalIdentityMutation represents an operation that mutates the ExternalIdentity nodes in the graph.
+type ExternalIdentityMutation struct {
+	config
+	op             Op
+	typ            string
+	id             *int
+	identity_key   *string
+	provider_id    *int
+	addprovider_id *int
+	issuer         *string
+	subject        *string
+	state          *externalidentity.State
+	linked_at      *time.Time
+	updated_at     *time.Time
+	clearedFields  map[string]struct{}
+	user           *int
+	cleareduser    bool
+	done           bool
+	oldValue       func(context.Context) (*ExternalIdentity, error)
+	predicates     []predicate.ExternalIdentity
+}
+
+var _ ent.Mutation = (*ExternalIdentityMutation)(nil)
+
+// externalidentityOption allows management of the mutation configuration using functional options.
+type externalidentityOption func(*ExternalIdentityMutation)
+
+// newExternalIdentityMutation creates new mutation for the ExternalIdentity entity.
+func newExternalIdentityMutation(c config, op Op, opts ...externalidentityOption) *ExternalIdentityMutation {
+	m := &ExternalIdentityMutation{
+		config:        c,
+		op:            op,
+		typ:           TypeExternalIdentity,
+		clearedFields: make(map[string]struct{}),
+	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
+}
+
+// withExternalIdentityID sets the ID field of the mutation.
+func withExternalIdentityID(id int) externalidentityOption {
+	return func(m *ExternalIdentityMutation) {
+		var (
+			err   error
+			once  sync.Once
+			value *ExternalIdentity
+		)
+		m.oldValue = func(ctx context.Context) (*ExternalIdentity, error) {
+			once.Do(func() {
+				if m.done {
+					err = errors.New("querying old values post mutation is not allowed")
+				} else {
+					value, err = m.Client().ExternalIdentity.Get(ctx, id)
+				}
+			})
+			return value, err
+		}
+		m.id = &id
+	}
+}
+
+// withExternalIdentity sets the old ExternalIdentity of the mutation.
+func withExternalIdentity(node *ExternalIdentity) externalidentityOption {
+	return func(m *ExternalIdentityMutation) {
+		m.oldValue = func(context.Context) (*ExternalIdentity, error) {
+			return node, nil
+		}
+		m.id = &node.ID
+	}
+}
+
+// Client returns a new `ent.Client` from the mutation. If the mutation was
+// executed in a transaction (ent.Tx), a transactional client is returned.
+func (m ExternalIdentityMutation) Client() *Client {
+	client := &Client{config: m.config}
+	client.init()
+	return client
+}
+
+// Tx returns an `ent.Tx` for mutations that were executed in transactions;
+// it returns an error otherwise.
+func (m ExternalIdentityMutation) Tx() (*Tx, error) {
+	if _, ok := m.driver.(*txDriver); !ok {
+		return nil, errors.New("ent: mutation is not running in a transaction")
+	}
+	tx := &Tx{config: m.config}
+	tx.init()
+	return tx, nil
+}
+
+// ID returns the ID value in the mutation. Note that the ID is only available
+// if it was provided to the builder or after it was returned from the database.
+func (m *ExternalIdentityMutation) ID() (id int, exists bool) {
+	if m.id == nil {
+		return
+	}
+	return *m.id, true
+}
+
+// IDs queries the database and returns the entity ids that match the mutation's predicate.
+// That means, if the mutation is applied within a transaction with an isolation level such
+// as sql.LevelSerializable, the returned ids match the ids of the rows that will be updated
+// or updated by the mutation.
+func (m *ExternalIdentityMutation) IDs(ctx context.Context) ([]int, error) {
+	switch {
+	case m.op.Is(OpUpdateOne | OpDeleteOne):
+		id, exists := m.ID()
+		if exists {
+			return []int{id}, nil
+		}
+		fallthrough
+	case m.op.Is(OpUpdate | OpDelete):
+		return m.Client().ExternalIdentity.Query().Where(m.predicates...).IDs(ctx)
+	default:
+		return nil, fmt.Errorf("IDs is not allowed on %s operations", m.op)
+	}
+}
+
+// SetIdentityKey sets the "identity_key" field.
+func (m *ExternalIdentityMutation) SetIdentityKey(s string) {
+	m.identity_key = &s
+}
+
+// IdentityKey returns the value of the "identity_key" field in the mutation.
+func (m *ExternalIdentityMutation) IdentityKey() (r string, exists bool) {
+	v := m.identity_key
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldIdentityKey returns the old "identity_key" field's value of the ExternalIdentity entity.
+// If the ExternalIdentity object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ExternalIdentityMutation) OldIdentityKey(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldIdentityKey is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldIdentityKey requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldIdentityKey: %w", err)
+	}
+	return oldValue.IdentityKey, nil
+}
+
+// ResetIdentityKey resets all changes to the "identity_key" field.
+func (m *ExternalIdentityMutation) ResetIdentityKey() {
+	m.identity_key = nil
+}
+
+// SetProviderID sets the "provider_id" field.
+func (m *ExternalIdentityMutation) SetProviderID(i int) {
+	m.provider_id = &i
+	m.addprovider_id = nil
+}
+
+// ProviderID returns the value of the "provider_id" field in the mutation.
+func (m *ExternalIdentityMutation) ProviderID() (r int, exists bool) {
+	v := m.provider_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldProviderID returns the old "provider_id" field's value of the ExternalIdentity entity.
+// If the ExternalIdentity object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ExternalIdentityMutation) OldProviderID(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldProviderID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldProviderID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldProviderID: %w", err)
+	}
+	return oldValue.ProviderID, nil
+}
+
+// AddProviderID adds i to the "provider_id" field.
+func (m *ExternalIdentityMutation) AddProviderID(i int) {
+	if m.addprovider_id != nil {
+		*m.addprovider_id += i
+	} else {
+		m.addprovider_id = &i
+	}
+}
+
+// AddedProviderID returns the value that was added to the "provider_id" field in this mutation.
+func (m *ExternalIdentityMutation) AddedProviderID() (r int, exists bool) {
+	v := m.addprovider_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetProviderID resets all changes to the "provider_id" field.
+func (m *ExternalIdentityMutation) ResetProviderID() {
+	m.provider_id = nil
+	m.addprovider_id = nil
+}
+
+// SetIssuer sets the "issuer" field.
+func (m *ExternalIdentityMutation) SetIssuer(s string) {
+	m.issuer = &s
+}
+
+// Issuer returns the value of the "issuer" field in the mutation.
+func (m *ExternalIdentityMutation) Issuer() (r string, exists bool) {
+	v := m.issuer
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldIssuer returns the old "issuer" field's value of the ExternalIdentity entity.
+// If the ExternalIdentity object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ExternalIdentityMutation) OldIssuer(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldIssuer is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldIssuer requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldIssuer: %w", err)
+	}
+	return oldValue.Issuer, nil
+}
+
+// ResetIssuer resets all changes to the "issuer" field.
+func (m *ExternalIdentityMutation) ResetIssuer() {
+	m.issuer = nil
+}
+
+// SetSubject sets the "subject" field.
+func (m *ExternalIdentityMutation) SetSubject(s string) {
+	m.subject = &s
+}
+
+// Subject returns the value of the "subject" field in the mutation.
+func (m *ExternalIdentityMutation) Subject() (r string, exists bool) {
+	v := m.subject
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldSubject returns the old "subject" field's value of the ExternalIdentity entity.
+// If the ExternalIdentity object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ExternalIdentityMutation) OldSubject(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldSubject is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldSubject requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldSubject: %w", err)
+	}
+	return oldValue.Subject, nil
+}
+
+// ResetSubject resets all changes to the "subject" field.
+func (m *ExternalIdentityMutation) ResetSubject() {
+	m.subject = nil
+}
+
+// SetUserID sets the "user_id" field.
+func (m *ExternalIdentityMutation) SetUserID(i int) {
+	m.user = &i
+}
+
+// UserID returns the value of the "user_id" field in the mutation.
+func (m *ExternalIdentityMutation) UserID() (r int, exists bool) {
+	v := m.user
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldUserID returns the old "user_id" field's value of the ExternalIdentity entity.
+// If the ExternalIdentity object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ExternalIdentityMutation) OldUserID(ctx context.Context) (v *int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldUserID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldUserID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldUserID: %w", err)
+	}
+	return oldValue.UserID, nil
+}
+
+// ClearUserID clears the value of the "user_id" field.
+func (m *ExternalIdentityMutation) ClearUserID() {
+	m.user = nil
+	m.clearedFields[externalidentity.FieldUserID] = struct{}{}
+}
+
+// UserIDCleared returns if the "user_id" field was cleared in this mutation.
+func (m *ExternalIdentityMutation) UserIDCleared() bool {
+	_, ok := m.clearedFields[externalidentity.FieldUserID]
+	return ok
+}
+
+// ResetUserID resets all changes to the "user_id" field.
+func (m *ExternalIdentityMutation) ResetUserID() {
+	m.user = nil
+	delete(m.clearedFields, externalidentity.FieldUserID)
+}
+
+// SetState sets the "state" field.
+func (m *ExternalIdentityMutation) SetState(e externalidentity.State) {
+	m.state = &e
+}
+
+// State returns the value of the "state" field in the mutation.
+func (m *ExternalIdentityMutation) State() (r externalidentity.State, exists bool) {
+	v := m.state
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldState returns the old "state" field's value of the ExternalIdentity entity.
+// If the ExternalIdentity object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ExternalIdentityMutation) OldState(ctx context.Context) (v externalidentity.State, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldState is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldState requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldState: %w", err)
+	}
+	return oldValue.State, nil
+}
+
+// ResetState resets all changes to the "state" field.
+func (m *ExternalIdentityMutation) ResetState() {
+	m.state = nil
+}
+
+// SetLinkedAt sets the "linked_at" field.
+func (m *ExternalIdentityMutation) SetLinkedAt(t time.Time) {
+	m.linked_at = &t
+}
+
+// LinkedAt returns the value of the "linked_at" field in the mutation.
+func (m *ExternalIdentityMutation) LinkedAt() (r time.Time, exists bool) {
+	v := m.linked_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldLinkedAt returns the old "linked_at" field's value of the ExternalIdentity entity.
+// If the ExternalIdentity object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ExternalIdentityMutation) OldLinkedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldLinkedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldLinkedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldLinkedAt: %w", err)
+	}
+	return oldValue.LinkedAt, nil
+}
+
+// ResetLinkedAt resets all changes to the "linked_at" field.
+func (m *ExternalIdentityMutation) ResetLinkedAt() {
+	m.linked_at = nil
+}
+
+// SetUpdatedAt sets the "updated_at" field.
+func (m *ExternalIdentityMutation) SetUpdatedAt(t time.Time) {
+	m.updated_at = &t
+}
+
+// UpdatedAt returns the value of the "updated_at" field in the mutation.
+func (m *ExternalIdentityMutation) UpdatedAt() (r time.Time, exists bool) {
+	v := m.updated_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldUpdatedAt returns the old "updated_at" field's value of the ExternalIdentity entity.
+// If the ExternalIdentity object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ExternalIdentityMutation) OldUpdatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldUpdatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldUpdatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldUpdatedAt: %w", err)
+	}
+	return oldValue.UpdatedAt, nil
+}
+
+// ResetUpdatedAt resets all changes to the "updated_at" field.
+func (m *ExternalIdentityMutation) ResetUpdatedAt() {
+	m.updated_at = nil
+}
+
+// ClearUser clears the "user" edge to the User entity.
+func (m *ExternalIdentityMutation) ClearUser() {
+	m.cleareduser = true
+	m.clearedFields[externalidentity.FieldUserID] = struct{}{}
+}
+
+// UserCleared reports if the "user" edge to the User entity was cleared.
+func (m *ExternalIdentityMutation) UserCleared() bool {
+	return m.UserIDCleared() || m.cleareduser
+}
+
+// UserIDs returns the "user" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// UserID instead. It exists only for internal usage by the builders.
+func (m *ExternalIdentityMutation) UserIDs() (ids []int) {
+	if id := m.user; id != nil {
+		ids = append(ids, *id)
+	}
+	return
+}
+
+// ResetUser resets all changes to the "user" edge.
+func (m *ExternalIdentityMutation) ResetUser() {
+	m.user = nil
+	m.cleareduser = false
+}
+
+// Where appends a list predicates to the ExternalIdentityMutation builder.
+func (m *ExternalIdentityMutation) Where(ps ...predicate.ExternalIdentity) {
+	m.predicates = append(m.predicates, ps...)
+}
+
+// WhereP appends storage-level predicates to the ExternalIdentityMutation builder. Using this method,
+// users can use type-assertion to append predicates that do not depend on any generated package.
+func (m *ExternalIdentityMutation) WhereP(ps ...func(*sql.Selector)) {
+	p := make([]predicate.ExternalIdentity, len(ps))
+	for i := range ps {
+		p[i] = ps[i]
+	}
+	m.Where(p...)
+}
+
+// Op returns the operation name.
+func (m *ExternalIdentityMutation) Op() Op {
+	return m.op
+}
+
+// SetOp allows setting the mutation operation.
+func (m *ExternalIdentityMutation) SetOp(op Op) {
+	m.op = op
+}
+
+// Type returns the node type of this mutation (ExternalIdentity).
+func (m *ExternalIdentityMutation) Type() string {
+	return m.typ
+}
+
+// Fields returns all fields that were changed during this mutation. Note that in
+// order to get all numeric fields that were incremented/decremented, call
+// AddedFields().
+func (m *ExternalIdentityMutation) Fields() []string {
+	fields := make([]string, 0, 8)
+	if m.identity_key != nil {
+		fields = append(fields, externalidentity.FieldIdentityKey)
+	}
+	if m.provider_id != nil {
+		fields = append(fields, externalidentity.FieldProviderID)
+	}
+	if m.issuer != nil {
+		fields = append(fields, externalidentity.FieldIssuer)
+	}
+	if m.subject != nil {
+		fields = append(fields, externalidentity.FieldSubject)
+	}
+	if m.user != nil {
+		fields = append(fields, externalidentity.FieldUserID)
+	}
+	if m.state != nil {
+		fields = append(fields, externalidentity.FieldState)
+	}
+	if m.linked_at != nil {
+		fields = append(fields, externalidentity.FieldLinkedAt)
+	}
+	if m.updated_at != nil {
+		fields = append(fields, externalidentity.FieldUpdatedAt)
+	}
+	return fields
+}
+
+// Field returns the value of a field with the given name. The second boolean
+// return value indicates that this field was not set, or was not defined in the
+// schema.
+func (m *ExternalIdentityMutation) Field(name string) (ent.Value, bool) {
+	switch name {
+	case externalidentity.FieldIdentityKey:
+		return m.IdentityKey()
+	case externalidentity.FieldProviderID:
+		return m.ProviderID()
+	case externalidentity.FieldIssuer:
+		return m.Issuer()
+	case externalidentity.FieldSubject:
+		return m.Subject()
+	case externalidentity.FieldUserID:
+		return m.UserID()
+	case externalidentity.FieldState:
+		return m.State()
+	case externalidentity.FieldLinkedAt:
+		return m.LinkedAt()
+	case externalidentity.FieldUpdatedAt:
+		return m.UpdatedAt()
+	}
+	return nil, false
+}
+
+// OldField returns the old value of the field from the database. An error is
+// returned if the mutation operation is not UpdateOne, or the query to the
+// database failed.
+func (m *ExternalIdentityMutation) OldField(ctx context.Context, name string) (ent.Value, error) {
+	switch name {
+	case externalidentity.FieldIdentityKey:
+		return m.OldIdentityKey(ctx)
+	case externalidentity.FieldProviderID:
+		return m.OldProviderID(ctx)
+	case externalidentity.FieldIssuer:
+		return m.OldIssuer(ctx)
+	case externalidentity.FieldSubject:
+		return m.OldSubject(ctx)
+	case externalidentity.FieldUserID:
+		return m.OldUserID(ctx)
+	case externalidentity.FieldState:
+		return m.OldState(ctx)
+	case externalidentity.FieldLinkedAt:
+		return m.OldLinkedAt(ctx)
+	case externalidentity.FieldUpdatedAt:
+		return m.OldUpdatedAt(ctx)
+	}
+	return nil, fmt.Errorf("unknown ExternalIdentity field %s", name)
+}
+
+// SetField sets the value of a field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *ExternalIdentityMutation) SetField(name string, value ent.Value) error {
+	switch name {
+	case externalidentity.FieldIdentityKey:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetIdentityKey(v)
+		return nil
+	case externalidentity.FieldProviderID:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetProviderID(v)
+		return nil
+	case externalidentity.FieldIssuer:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetIssuer(v)
+		return nil
+	case externalidentity.FieldSubject:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetSubject(v)
+		return nil
+	case externalidentity.FieldUserID:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetUserID(v)
+		return nil
+	case externalidentity.FieldState:
+		v, ok := value.(externalidentity.State)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetState(v)
+		return nil
+	case externalidentity.FieldLinkedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetLinkedAt(v)
+		return nil
+	case externalidentity.FieldUpdatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetUpdatedAt(v)
+		return nil
+	}
+	return fmt.Errorf("unknown ExternalIdentity field %s", name)
+}
+
+// AddedFields returns all numeric fields that were incremented/decremented during
+// this mutation.
+func (m *ExternalIdentityMutation) AddedFields() []string {
+	var fields []string
+	if m.addprovider_id != nil {
+		fields = append(fields, externalidentity.FieldProviderID)
+	}
+	return fields
+}
+
+// AddedField returns the numeric value that was incremented/decremented on a field
+// with the given name. The second boolean return value indicates that this field
+// was not set, or was not defined in the schema.
+func (m *ExternalIdentityMutation) AddedField(name string) (ent.Value, bool) {
+	switch name {
+	case externalidentity.FieldProviderID:
+		return m.AddedProviderID()
+	}
+	return nil, false
+}
+
+// AddField adds the value to the field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *ExternalIdentityMutation) AddField(name string, value ent.Value) error {
+	switch name {
+	case externalidentity.FieldProviderID:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddProviderID(v)
+		return nil
+	}
+	return fmt.Errorf("unknown ExternalIdentity numeric field %s", name)
+}
+
+// ClearedFields returns all nullable fields that were cleared during this
+// mutation.
+func (m *ExternalIdentityMutation) ClearedFields() []string {
+	var fields []string
+	if m.FieldCleared(externalidentity.FieldUserID) {
+		fields = append(fields, externalidentity.FieldUserID)
+	}
+	return fields
+}
+
+// FieldCleared returns a boolean indicating if a field with the given name was
+// cleared in this mutation.
+func (m *ExternalIdentityMutation) FieldCleared(name string) bool {
+	_, ok := m.clearedFields[name]
+	return ok
+}
+
+// ClearField clears the value of the field with the given name. It returns an
+// error if the field is not defined in the schema.
+func (m *ExternalIdentityMutation) ClearField(name string) error {
+	switch name {
+	case externalidentity.FieldUserID:
+		m.ClearUserID()
+		return nil
+	}
+	return fmt.Errorf("unknown ExternalIdentity nullable field %s", name)
+}
+
+// ResetField resets all changes in the mutation for the field with the given name.
+// It returns an error if the field is not defined in the schema.
+func (m *ExternalIdentityMutation) ResetField(name string) error {
+	switch name {
+	case externalidentity.FieldIdentityKey:
+		m.ResetIdentityKey()
+		return nil
+	case externalidentity.FieldProviderID:
+		m.ResetProviderID()
+		return nil
+	case externalidentity.FieldIssuer:
+		m.ResetIssuer()
+		return nil
+	case externalidentity.FieldSubject:
+		m.ResetSubject()
+		return nil
+	case externalidentity.FieldUserID:
+		m.ResetUserID()
+		return nil
+	case externalidentity.FieldState:
+		m.ResetState()
+		return nil
+	case externalidentity.FieldLinkedAt:
+		m.ResetLinkedAt()
+		return nil
+	case externalidentity.FieldUpdatedAt:
+		m.ResetUpdatedAt()
+		return nil
+	}
+	return fmt.Errorf("unknown ExternalIdentity field %s", name)
+}
+
+// AddedEdges returns all edge names that were set/added in this mutation.
+func (m *ExternalIdentityMutation) AddedEdges() []string {
+	edges := make([]string, 0, 1)
+	if m.user != nil {
+		edges = append(edges, externalidentity.EdgeUser)
+	}
+	return edges
+}
+
+// AddedIDs returns all IDs (to other nodes) that were added for the given edge
+// name in this mutation.
+func (m *ExternalIdentityMutation) AddedIDs(name string) []ent.Value {
+	switch name {
+	case externalidentity.EdgeUser:
+		if id := m.user; id != nil {
+			return []ent.Value{*id}
+		}
+	}
+	return nil
+}
+
+// RemovedEdges returns all edge names that were removed in this mutation.
+func (m *ExternalIdentityMutation) RemovedEdges() []string {
+	edges := make([]string, 0, 1)
+	return edges
+}
+
+// RemovedIDs returns all IDs (to other nodes) that were removed for the edge with
+// the given name in this mutation.
+func (m *ExternalIdentityMutation) RemovedIDs(name string) []ent.Value {
+	return nil
+}
+
+// ClearedEdges returns all edge names that were cleared in this mutation.
+func (m *ExternalIdentityMutation) ClearedEdges() []string {
+	edges := make([]string, 0, 1)
+	if m.cleareduser {
+		edges = append(edges, externalidentity.EdgeUser)
+	}
+	return edges
+}
+
+// EdgeCleared returns a boolean which indicates if the edge with the given name
+// was cleared in this mutation.
+func (m *ExternalIdentityMutation) EdgeCleared(name string) bool {
+	switch name {
+	case externalidentity.EdgeUser:
+		return m.cleareduser
+	}
+	return false
+}
+
+// ClearEdge clears the value of the edge with the given name. It returns an error
+// if that edge is not defined in the schema.
+func (m *ExternalIdentityMutation) ClearEdge(name string) error {
+	switch name {
+	case externalidentity.EdgeUser:
+		m.ClearUser()
+		return nil
+	}
+	return fmt.Errorf("unknown ExternalIdentity unique edge %s", name)
+}
+
+// ResetEdge resets all changes to the edge with the given name in this mutation.
+// It returns an error if the edge is not defined in the schema.
+func (m *ExternalIdentityMutation) ResetEdge(name string) error {
+	switch name {
+	case externalidentity.EdgeUser:
+		m.ResetUser()
+		return nil
+	}
+	return fmt.Errorf("unknown ExternalIdentity edge %s", name)
 }
 
 // FileMutation represents an operation that mutates the File nodes in the graph.
@@ -10038,6 +10860,1763 @@ func (m *OAuthGrantMutation) ResetEdge(name string) error {
 	return fmt.Errorf("unknown OAuthGrant edge %s", name)
 }
 
+// OpenIDSessionMutation represents an operation that mutates the OpenIDSession nodes in the graph.
+type OpenIDSessionMutation struct {
+	config
+	op             Op
+	typ            string
+	id             *int
+	root_id        *string
+	provider_id    *int
+	addprovider_id *int
+	issuer         *string
+	expires_at     *time.Time
+	revoked_at     *time.Time
+	payload        *[]byte
+	clearedFields  map[string]struct{}
+	user           *int
+	cleareduser    bool
+	done           bool
+	oldValue       func(context.Context) (*OpenIDSession, error)
+	predicates     []predicate.OpenIDSession
+}
+
+var _ ent.Mutation = (*OpenIDSessionMutation)(nil)
+
+// openidsessionOption allows management of the mutation configuration using functional options.
+type openidsessionOption func(*OpenIDSessionMutation)
+
+// newOpenIDSessionMutation creates new mutation for the OpenIDSession entity.
+func newOpenIDSessionMutation(c config, op Op, opts ...openidsessionOption) *OpenIDSessionMutation {
+	m := &OpenIDSessionMutation{
+		config:        c,
+		op:            op,
+		typ:           TypeOpenIDSession,
+		clearedFields: make(map[string]struct{}),
+	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
+}
+
+// withOpenIDSessionID sets the ID field of the mutation.
+func withOpenIDSessionID(id int) openidsessionOption {
+	return func(m *OpenIDSessionMutation) {
+		var (
+			err   error
+			once  sync.Once
+			value *OpenIDSession
+		)
+		m.oldValue = func(ctx context.Context) (*OpenIDSession, error) {
+			once.Do(func() {
+				if m.done {
+					err = errors.New("querying old values post mutation is not allowed")
+				} else {
+					value, err = m.Client().OpenIDSession.Get(ctx, id)
+				}
+			})
+			return value, err
+		}
+		m.id = &id
+	}
+}
+
+// withOpenIDSession sets the old OpenIDSession of the mutation.
+func withOpenIDSession(node *OpenIDSession) openidsessionOption {
+	return func(m *OpenIDSessionMutation) {
+		m.oldValue = func(context.Context) (*OpenIDSession, error) {
+			return node, nil
+		}
+		m.id = &node.ID
+	}
+}
+
+// Client returns a new `ent.Client` from the mutation. If the mutation was
+// executed in a transaction (ent.Tx), a transactional client is returned.
+func (m OpenIDSessionMutation) Client() *Client {
+	client := &Client{config: m.config}
+	client.init()
+	return client
+}
+
+// Tx returns an `ent.Tx` for mutations that were executed in transactions;
+// it returns an error otherwise.
+func (m OpenIDSessionMutation) Tx() (*Tx, error) {
+	if _, ok := m.driver.(*txDriver); !ok {
+		return nil, errors.New("ent: mutation is not running in a transaction")
+	}
+	tx := &Tx{config: m.config}
+	tx.init()
+	return tx, nil
+}
+
+// ID returns the ID value in the mutation. Note that the ID is only available
+// if it was provided to the builder or after it was returned from the database.
+func (m *OpenIDSessionMutation) ID() (id int, exists bool) {
+	if m.id == nil {
+		return
+	}
+	return *m.id, true
+}
+
+// IDs queries the database and returns the entity ids that match the mutation's predicate.
+// That means, if the mutation is applied within a transaction with an isolation level such
+// as sql.LevelSerializable, the returned ids match the ids of the rows that will be updated
+// or updated by the mutation.
+func (m *OpenIDSessionMutation) IDs(ctx context.Context) ([]int, error) {
+	switch {
+	case m.op.Is(OpUpdateOne | OpDeleteOne):
+		id, exists := m.ID()
+		if exists {
+			return []int{id}, nil
+		}
+		fallthrough
+	case m.op.Is(OpUpdate | OpDelete):
+		return m.Client().OpenIDSession.Query().Where(m.predicates...).IDs(ctx)
+	default:
+		return nil, fmt.Errorf("IDs is not allowed on %s operations", m.op)
+	}
+}
+
+// SetRootID sets the "root_id" field.
+func (m *OpenIDSessionMutation) SetRootID(s string) {
+	m.root_id = &s
+}
+
+// RootID returns the value of the "root_id" field in the mutation.
+func (m *OpenIDSessionMutation) RootID() (r string, exists bool) {
+	v := m.root_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldRootID returns the old "root_id" field's value of the OpenIDSession entity.
+// If the OpenIDSession object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *OpenIDSessionMutation) OldRootID(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldRootID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldRootID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldRootID: %w", err)
+	}
+	return oldValue.RootID, nil
+}
+
+// ResetRootID resets all changes to the "root_id" field.
+func (m *OpenIDSessionMutation) ResetRootID() {
+	m.root_id = nil
+}
+
+// SetUserID sets the "user_id" field.
+func (m *OpenIDSessionMutation) SetUserID(i int) {
+	m.user = &i
+}
+
+// UserID returns the value of the "user_id" field in the mutation.
+func (m *OpenIDSessionMutation) UserID() (r int, exists bool) {
+	v := m.user
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldUserID returns the old "user_id" field's value of the OpenIDSession entity.
+// If the OpenIDSession object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *OpenIDSessionMutation) OldUserID(ctx context.Context) (v *int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldUserID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldUserID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldUserID: %w", err)
+	}
+	return oldValue.UserID, nil
+}
+
+// ClearUserID clears the value of the "user_id" field.
+func (m *OpenIDSessionMutation) ClearUserID() {
+	m.user = nil
+	m.clearedFields[openidsession.FieldUserID] = struct{}{}
+}
+
+// UserIDCleared returns if the "user_id" field was cleared in this mutation.
+func (m *OpenIDSessionMutation) UserIDCleared() bool {
+	_, ok := m.clearedFields[openidsession.FieldUserID]
+	return ok
+}
+
+// ResetUserID resets all changes to the "user_id" field.
+func (m *OpenIDSessionMutation) ResetUserID() {
+	m.user = nil
+	delete(m.clearedFields, openidsession.FieldUserID)
+}
+
+// SetProviderID sets the "provider_id" field.
+func (m *OpenIDSessionMutation) SetProviderID(i int) {
+	m.provider_id = &i
+	m.addprovider_id = nil
+}
+
+// ProviderID returns the value of the "provider_id" field in the mutation.
+func (m *OpenIDSessionMutation) ProviderID() (r int, exists bool) {
+	v := m.provider_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldProviderID returns the old "provider_id" field's value of the OpenIDSession entity.
+// If the OpenIDSession object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *OpenIDSessionMutation) OldProviderID(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldProviderID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldProviderID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldProviderID: %w", err)
+	}
+	return oldValue.ProviderID, nil
+}
+
+// AddProviderID adds i to the "provider_id" field.
+func (m *OpenIDSessionMutation) AddProviderID(i int) {
+	if m.addprovider_id != nil {
+		*m.addprovider_id += i
+	} else {
+		m.addprovider_id = &i
+	}
+}
+
+// AddedProviderID returns the value that was added to the "provider_id" field in this mutation.
+func (m *OpenIDSessionMutation) AddedProviderID() (r int, exists bool) {
+	v := m.addprovider_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetProviderID resets all changes to the "provider_id" field.
+func (m *OpenIDSessionMutation) ResetProviderID() {
+	m.provider_id = nil
+	m.addprovider_id = nil
+}
+
+// SetIssuer sets the "issuer" field.
+func (m *OpenIDSessionMutation) SetIssuer(s string) {
+	m.issuer = &s
+}
+
+// Issuer returns the value of the "issuer" field in the mutation.
+func (m *OpenIDSessionMutation) Issuer() (r string, exists bool) {
+	v := m.issuer
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldIssuer returns the old "issuer" field's value of the OpenIDSession entity.
+// If the OpenIDSession object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *OpenIDSessionMutation) OldIssuer(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldIssuer is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldIssuer requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldIssuer: %w", err)
+	}
+	return oldValue.Issuer, nil
+}
+
+// ResetIssuer resets all changes to the "issuer" field.
+func (m *OpenIDSessionMutation) ResetIssuer() {
+	m.issuer = nil
+}
+
+// SetExpiresAt sets the "expires_at" field.
+func (m *OpenIDSessionMutation) SetExpiresAt(t time.Time) {
+	m.expires_at = &t
+}
+
+// ExpiresAt returns the value of the "expires_at" field in the mutation.
+func (m *OpenIDSessionMutation) ExpiresAt() (r time.Time, exists bool) {
+	v := m.expires_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldExpiresAt returns the old "expires_at" field's value of the OpenIDSession entity.
+// If the OpenIDSession object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *OpenIDSessionMutation) OldExpiresAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldExpiresAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldExpiresAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldExpiresAt: %w", err)
+	}
+	return oldValue.ExpiresAt, nil
+}
+
+// ResetExpiresAt resets all changes to the "expires_at" field.
+func (m *OpenIDSessionMutation) ResetExpiresAt() {
+	m.expires_at = nil
+}
+
+// SetRevokedAt sets the "revoked_at" field.
+func (m *OpenIDSessionMutation) SetRevokedAt(t time.Time) {
+	m.revoked_at = &t
+}
+
+// RevokedAt returns the value of the "revoked_at" field in the mutation.
+func (m *OpenIDSessionMutation) RevokedAt() (r time.Time, exists bool) {
+	v := m.revoked_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldRevokedAt returns the old "revoked_at" field's value of the OpenIDSession entity.
+// If the OpenIDSession object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *OpenIDSessionMutation) OldRevokedAt(ctx context.Context) (v *time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldRevokedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldRevokedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldRevokedAt: %w", err)
+	}
+	return oldValue.RevokedAt, nil
+}
+
+// ClearRevokedAt clears the value of the "revoked_at" field.
+func (m *OpenIDSessionMutation) ClearRevokedAt() {
+	m.revoked_at = nil
+	m.clearedFields[openidsession.FieldRevokedAt] = struct{}{}
+}
+
+// RevokedAtCleared returns if the "revoked_at" field was cleared in this mutation.
+func (m *OpenIDSessionMutation) RevokedAtCleared() bool {
+	_, ok := m.clearedFields[openidsession.FieldRevokedAt]
+	return ok
+}
+
+// ResetRevokedAt resets all changes to the "revoked_at" field.
+func (m *OpenIDSessionMutation) ResetRevokedAt() {
+	m.revoked_at = nil
+	delete(m.clearedFields, openidsession.FieldRevokedAt)
+}
+
+// SetPayload sets the "payload" field.
+func (m *OpenIDSessionMutation) SetPayload(b []byte) {
+	m.payload = &b
+}
+
+// Payload returns the value of the "payload" field in the mutation.
+func (m *OpenIDSessionMutation) Payload() (r []byte, exists bool) {
+	v := m.payload
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldPayload returns the old "payload" field's value of the OpenIDSession entity.
+// If the OpenIDSession object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *OpenIDSessionMutation) OldPayload(ctx context.Context) (v []byte, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldPayload is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldPayload requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldPayload: %w", err)
+	}
+	return oldValue.Payload, nil
+}
+
+// ClearPayload clears the value of the "payload" field.
+func (m *OpenIDSessionMutation) ClearPayload() {
+	m.payload = nil
+	m.clearedFields[openidsession.FieldPayload] = struct{}{}
+}
+
+// PayloadCleared returns if the "payload" field was cleared in this mutation.
+func (m *OpenIDSessionMutation) PayloadCleared() bool {
+	_, ok := m.clearedFields[openidsession.FieldPayload]
+	return ok
+}
+
+// ResetPayload resets all changes to the "payload" field.
+func (m *OpenIDSessionMutation) ResetPayload() {
+	m.payload = nil
+	delete(m.clearedFields, openidsession.FieldPayload)
+}
+
+// ClearUser clears the "user" edge to the User entity.
+func (m *OpenIDSessionMutation) ClearUser() {
+	m.cleareduser = true
+	m.clearedFields[openidsession.FieldUserID] = struct{}{}
+}
+
+// UserCleared reports if the "user" edge to the User entity was cleared.
+func (m *OpenIDSessionMutation) UserCleared() bool {
+	return m.UserIDCleared() || m.cleareduser
+}
+
+// UserIDs returns the "user" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// UserID instead. It exists only for internal usage by the builders.
+func (m *OpenIDSessionMutation) UserIDs() (ids []int) {
+	if id := m.user; id != nil {
+		ids = append(ids, *id)
+	}
+	return
+}
+
+// ResetUser resets all changes to the "user" edge.
+func (m *OpenIDSessionMutation) ResetUser() {
+	m.user = nil
+	m.cleareduser = false
+}
+
+// Where appends a list predicates to the OpenIDSessionMutation builder.
+func (m *OpenIDSessionMutation) Where(ps ...predicate.OpenIDSession) {
+	m.predicates = append(m.predicates, ps...)
+}
+
+// WhereP appends storage-level predicates to the OpenIDSessionMutation builder. Using this method,
+// users can use type-assertion to append predicates that do not depend on any generated package.
+func (m *OpenIDSessionMutation) WhereP(ps ...func(*sql.Selector)) {
+	p := make([]predicate.OpenIDSession, len(ps))
+	for i := range ps {
+		p[i] = ps[i]
+	}
+	m.Where(p...)
+}
+
+// Op returns the operation name.
+func (m *OpenIDSessionMutation) Op() Op {
+	return m.op
+}
+
+// SetOp allows setting the mutation operation.
+func (m *OpenIDSessionMutation) SetOp(op Op) {
+	m.op = op
+}
+
+// Type returns the node type of this mutation (OpenIDSession).
+func (m *OpenIDSessionMutation) Type() string {
+	return m.typ
+}
+
+// Fields returns all fields that were changed during this mutation. Note that in
+// order to get all numeric fields that were incremented/decremented, call
+// AddedFields().
+func (m *OpenIDSessionMutation) Fields() []string {
+	fields := make([]string, 0, 7)
+	if m.root_id != nil {
+		fields = append(fields, openidsession.FieldRootID)
+	}
+	if m.user != nil {
+		fields = append(fields, openidsession.FieldUserID)
+	}
+	if m.provider_id != nil {
+		fields = append(fields, openidsession.FieldProviderID)
+	}
+	if m.issuer != nil {
+		fields = append(fields, openidsession.FieldIssuer)
+	}
+	if m.expires_at != nil {
+		fields = append(fields, openidsession.FieldExpiresAt)
+	}
+	if m.revoked_at != nil {
+		fields = append(fields, openidsession.FieldRevokedAt)
+	}
+	if m.payload != nil {
+		fields = append(fields, openidsession.FieldPayload)
+	}
+	return fields
+}
+
+// Field returns the value of a field with the given name. The second boolean
+// return value indicates that this field was not set, or was not defined in the
+// schema.
+func (m *OpenIDSessionMutation) Field(name string) (ent.Value, bool) {
+	switch name {
+	case openidsession.FieldRootID:
+		return m.RootID()
+	case openidsession.FieldUserID:
+		return m.UserID()
+	case openidsession.FieldProviderID:
+		return m.ProviderID()
+	case openidsession.FieldIssuer:
+		return m.Issuer()
+	case openidsession.FieldExpiresAt:
+		return m.ExpiresAt()
+	case openidsession.FieldRevokedAt:
+		return m.RevokedAt()
+	case openidsession.FieldPayload:
+		return m.Payload()
+	}
+	return nil, false
+}
+
+// OldField returns the old value of the field from the database. An error is
+// returned if the mutation operation is not UpdateOne, or the query to the
+// database failed.
+func (m *OpenIDSessionMutation) OldField(ctx context.Context, name string) (ent.Value, error) {
+	switch name {
+	case openidsession.FieldRootID:
+		return m.OldRootID(ctx)
+	case openidsession.FieldUserID:
+		return m.OldUserID(ctx)
+	case openidsession.FieldProviderID:
+		return m.OldProviderID(ctx)
+	case openidsession.FieldIssuer:
+		return m.OldIssuer(ctx)
+	case openidsession.FieldExpiresAt:
+		return m.OldExpiresAt(ctx)
+	case openidsession.FieldRevokedAt:
+		return m.OldRevokedAt(ctx)
+	case openidsession.FieldPayload:
+		return m.OldPayload(ctx)
+	}
+	return nil, fmt.Errorf("unknown OpenIDSession field %s", name)
+}
+
+// SetField sets the value of a field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *OpenIDSessionMutation) SetField(name string, value ent.Value) error {
+	switch name {
+	case openidsession.FieldRootID:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetRootID(v)
+		return nil
+	case openidsession.FieldUserID:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetUserID(v)
+		return nil
+	case openidsession.FieldProviderID:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetProviderID(v)
+		return nil
+	case openidsession.FieldIssuer:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetIssuer(v)
+		return nil
+	case openidsession.FieldExpiresAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetExpiresAt(v)
+		return nil
+	case openidsession.FieldRevokedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetRevokedAt(v)
+		return nil
+	case openidsession.FieldPayload:
+		v, ok := value.([]byte)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetPayload(v)
+		return nil
+	}
+	return fmt.Errorf("unknown OpenIDSession field %s", name)
+}
+
+// AddedFields returns all numeric fields that were incremented/decremented during
+// this mutation.
+func (m *OpenIDSessionMutation) AddedFields() []string {
+	var fields []string
+	if m.addprovider_id != nil {
+		fields = append(fields, openidsession.FieldProviderID)
+	}
+	return fields
+}
+
+// AddedField returns the numeric value that was incremented/decremented on a field
+// with the given name. The second boolean return value indicates that this field
+// was not set, or was not defined in the schema.
+func (m *OpenIDSessionMutation) AddedField(name string) (ent.Value, bool) {
+	switch name {
+	case openidsession.FieldProviderID:
+		return m.AddedProviderID()
+	}
+	return nil, false
+}
+
+// AddField adds the value to the field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *OpenIDSessionMutation) AddField(name string, value ent.Value) error {
+	switch name {
+	case openidsession.FieldProviderID:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddProviderID(v)
+		return nil
+	}
+	return fmt.Errorf("unknown OpenIDSession numeric field %s", name)
+}
+
+// ClearedFields returns all nullable fields that were cleared during this
+// mutation.
+func (m *OpenIDSessionMutation) ClearedFields() []string {
+	var fields []string
+	if m.FieldCleared(openidsession.FieldUserID) {
+		fields = append(fields, openidsession.FieldUserID)
+	}
+	if m.FieldCleared(openidsession.FieldRevokedAt) {
+		fields = append(fields, openidsession.FieldRevokedAt)
+	}
+	if m.FieldCleared(openidsession.FieldPayload) {
+		fields = append(fields, openidsession.FieldPayload)
+	}
+	return fields
+}
+
+// FieldCleared returns a boolean indicating if a field with the given name was
+// cleared in this mutation.
+func (m *OpenIDSessionMutation) FieldCleared(name string) bool {
+	_, ok := m.clearedFields[name]
+	return ok
+}
+
+// ClearField clears the value of the field with the given name. It returns an
+// error if the field is not defined in the schema.
+func (m *OpenIDSessionMutation) ClearField(name string) error {
+	switch name {
+	case openidsession.FieldUserID:
+		m.ClearUserID()
+		return nil
+	case openidsession.FieldRevokedAt:
+		m.ClearRevokedAt()
+		return nil
+	case openidsession.FieldPayload:
+		m.ClearPayload()
+		return nil
+	}
+	return fmt.Errorf("unknown OpenIDSession nullable field %s", name)
+}
+
+// ResetField resets all changes in the mutation for the field with the given name.
+// It returns an error if the field is not defined in the schema.
+func (m *OpenIDSessionMutation) ResetField(name string) error {
+	switch name {
+	case openidsession.FieldRootID:
+		m.ResetRootID()
+		return nil
+	case openidsession.FieldUserID:
+		m.ResetUserID()
+		return nil
+	case openidsession.FieldProviderID:
+		m.ResetProviderID()
+		return nil
+	case openidsession.FieldIssuer:
+		m.ResetIssuer()
+		return nil
+	case openidsession.FieldExpiresAt:
+		m.ResetExpiresAt()
+		return nil
+	case openidsession.FieldRevokedAt:
+		m.ResetRevokedAt()
+		return nil
+	case openidsession.FieldPayload:
+		m.ResetPayload()
+		return nil
+	}
+	return fmt.Errorf("unknown OpenIDSession field %s", name)
+}
+
+// AddedEdges returns all edge names that were set/added in this mutation.
+func (m *OpenIDSessionMutation) AddedEdges() []string {
+	edges := make([]string, 0, 1)
+	if m.user != nil {
+		edges = append(edges, openidsession.EdgeUser)
+	}
+	return edges
+}
+
+// AddedIDs returns all IDs (to other nodes) that were added for the given edge
+// name in this mutation.
+func (m *OpenIDSessionMutation) AddedIDs(name string) []ent.Value {
+	switch name {
+	case openidsession.EdgeUser:
+		if id := m.user; id != nil {
+			return []ent.Value{*id}
+		}
+	}
+	return nil
+}
+
+// RemovedEdges returns all edge names that were removed in this mutation.
+func (m *OpenIDSessionMutation) RemovedEdges() []string {
+	edges := make([]string, 0, 1)
+	return edges
+}
+
+// RemovedIDs returns all IDs (to other nodes) that were removed for the edge with
+// the given name in this mutation.
+func (m *OpenIDSessionMutation) RemovedIDs(name string) []ent.Value {
+	return nil
+}
+
+// ClearedEdges returns all edge names that were cleared in this mutation.
+func (m *OpenIDSessionMutation) ClearedEdges() []string {
+	edges := make([]string, 0, 1)
+	if m.cleareduser {
+		edges = append(edges, openidsession.EdgeUser)
+	}
+	return edges
+}
+
+// EdgeCleared returns a boolean which indicates if the edge with the given name
+// was cleared in this mutation.
+func (m *OpenIDSessionMutation) EdgeCleared(name string) bool {
+	switch name {
+	case openidsession.EdgeUser:
+		return m.cleareduser
+	}
+	return false
+}
+
+// ClearEdge clears the value of the edge with the given name. It returns an error
+// if that edge is not defined in the schema.
+func (m *OpenIDSessionMutation) ClearEdge(name string) error {
+	switch name {
+	case openidsession.EdgeUser:
+		m.ClearUser()
+		return nil
+	}
+	return fmt.Errorf("unknown OpenIDSession unique edge %s", name)
+}
+
+// ResetEdge resets all changes to the edge with the given name in this mutation.
+// It returns an error if the edge is not defined in the schema.
+func (m *OpenIDSessionMutation) ResetEdge(name string) error {
+	switch name {
+	case openidsession.EdgeUser:
+		m.ResetUser()
+		return nil
+	}
+	return fmt.Errorf("unknown OpenIDSession edge %s", name)
+}
+
+// OpenIDTransactionMutation represents an operation that mutates the OpenIDTransaction nodes in the graph.
+type OpenIDTransactionMutation struct {
+	config
+	op              Op
+	typ             string
+	id              *int
+	transaction_key *string
+	kind            *openidtransaction.Kind
+	provider_id     *int
+	addprovider_id  *int
+	browser_proof   *string
+	config_digest   *string
+	expires_at      *time.Time
+	attempts        *int
+	addattempts     *int
+	consumed        *bool
+	payload         *[]byte
+	clearedFields   map[string]struct{}
+	user            *int
+	cleareduser     bool
+	done            bool
+	oldValue        func(context.Context) (*OpenIDTransaction, error)
+	predicates      []predicate.OpenIDTransaction
+}
+
+var _ ent.Mutation = (*OpenIDTransactionMutation)(nil)
+
+// openidtransactionOption allows management of the mutation configuration using functional options.
+type openidtransactionOption func(*OpenIDTransactionMutation)
+
+// newOpenIDTransactionMutation creates new mutation for the OpenIDTransaction entity.
+func newOpenIDTransactionMutation(c config, op Op, opts ...openidtransactionOption) *OpenIDTransactionMutation {
+	m := &OpenIDTransactionMutation{
+		config:        c,
+		op:            op,
+		typ:           TypeOpenIDTransaction,
+		clearedFields: make(map[string]struct{}),
+	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
+}
+
+// withOpenIDTransactionID sets the ID field of the mutation.
+func withOpenIDTransactionID(id int) openidtransactionOption {
+	return func(m *OpenIDTransactionMutation) {
+		var (
+			err   error
+			once  sync.Once
+			value *OpenIDTransaction
+		)
+		m.oldValue = func(ctx context.Context) (*OpenIDTransaction, error) {
+			once.Do(func() {
+				if m.done {
+					err = errors.New("querying old values post mutation is not allowed")
+				} else {
+					value, err = m.Client().OpenIDTransaction.Get(ctx, id)
+				}
+			})
+			return value, err
+		}
+		m.id = &id
+	}
+}
+
+// withOpenIDTransaction sets the old OpenIDTransaction of the mutation.
+func withOpenIDTransaction(node *OpenIDTransaction) openidtransactionOption {
+	return func(m *OpenIDTransactionMutation) {
+		m.oldValue = func(context.Context) (*OpenIDTransaction, error) {
+			return node, nil
+		}
+		m.id = &node.ID
+	}
+}
+
+// Client returns a new `ent.Client` from the mutation. If the mutation was
+// executed in a transaction (ent.Tx), a transactional client is returned.
+func (m OpenIDTransactionMutation) Client() *Client {
+	client := &Client{config: m.config}
+	client.init()
+	return client
+}
+
+// Tx returns an `ent.Tx` for mutations that were executed in transactions;
+// it returns an error otherwise.
+func (m OpenIDTransactionMutation) Tx() (*Tx, error) {
+	if _, ok := m.driver.(*txDriver); !ok {
+		return nil, errors.New("ent: mutation is not running in a transaction")
+	}
+	tx := &Tx{config: m.config}
+	tx.init()
+	return tx, nil
+}
+
+// ID returns the ID value in the mutation. Note that the ID is only available
+// if it was provided to the builder or after it was returned from the database.
+func (m *OpenIDTransactionMutation) ID() (id int, exists bool) {
+	if m.id == nil {
+		return
+	}
+	return *m.id, true
+}
+
+// IDs queries the database and returns the entity ids that match the mutation's predicate.
+// That means, if the mutation is applied within a transaction with an isolation level such
+// as sql.LevelSerializable, the returned ids match the ids of the rows that will be updated
+// or updated by the mutation.
+func (m *OpenIDTransactionMutation) IDs(ctx context.Context) ([]int, error) {
+	switch {
+	case m.op.Is(OpUpdateOne | OpDeleteOne):
+		id, exists := m.ID()
+		if exists {
+			return []int{id}, nil
+		}
+		fallthrough
+	case m.op.Is(OpUpdate | OpDelete):
+		return m.Client().OpenIDTransaction.Query().Where(m.predicates...).IDs(ctx)
+	default:
+		return nil, fmt.Errorf("IDs is not allowed on %s operations", m.op)
+	}
+}
+
+// SetTransactionKey sets the "transaction_key" field.
+func (m *OpenIDTransactionMutation) SetTransactionKey(s string) {
+	m.transaction_key = &s
+}
+
+// TransactionKey returns the value of the "transaction_key" field in the mutation.
+func (m *OpenIDTransactionMutation) TransactionKey() (r string, exists bool) {
+	v := m.transaction_key
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldTransactionKey returns the old "transaction_key" field's value of the OpenIDTransaction entity.
+// If the OpenIDTransaction object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *OpenIDTransactionMutation) OldTransactionKey(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldTransactionKey is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldTransactionKey requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldTransactionKey: %w", err)
+	}
+	return oldValue.TransactionKey, nil
+}
+
+// ResetTransactionKey resets all changes to the "transaction_key" field.
+func (m *OpenIDTransactionMutation) ResetTransactionKey() {
+	m.transaction_key = nil
+}
+
+// SetKind sets the "kind" field.
+func (m *OpenIDTransactionMutation) SetKind(o openidtransaction.Kind) {
+	m.kind = &o
+}
+
+// Kind returns the value of the "kind" field in the mutation.
+func (m *OpenIDTransactionMutation) Kind() (r openidtransaction.Kind, exists bool) {
+	v := m.kind
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldKind returns the old "kind" field's value of the OpenIDTransaction entity.
+// If the OpenIDTransaction object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *OpenIDTransactionMutation) OldKind(ctx context.Context) (v openidtransaction.Kind, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldKind is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldKind requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldKind: %w", err)
+	}
+	return oldValue.Kind, nil
+}
+
+// ResetKind resets all changes to the "kind" field.
+func (m *OpenIDTransactionMutation) ResetKind() {
+	m.kind = nil
+}
+
+// SetProviderID sets the "provider_id" field.
+func (m *OpenIDTransactionMutation) SetProviderID(i int) {
+	m.provider_id = &i
+	m.addprovider_id = nil
+}
+
+// ProviderID returns the value of the "provider_id" field in the mutation.
+func (m *OpenIDTransactionMutation) ProviderID() (r int, exists bool) {
+	v := m.provider_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldProviderID returns the old "provider_id" field's value of the OpenIDTransaction entity.
+// If the OpenIDTransaction object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *OpenIDTransactionMutation) OldProviderID(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldProviderID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldProviderID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldProviderID: %w", err)
+	}
+	return oldValue.ProviderID, nil
+}
+
+// AddProviderID adds i to the "provider_id" field.
+func (m *OpenIDTransactionMutation) AddProviderID(i int) {
+	if m.addprovider_id != nil {
+		*m.addprovider_id += i
+	} else {
+		m.addprovider_id = &i
+	}
+}
+
+// AddedProviderID returns the value that was added to the "provider_id" field in this mutation.
+func (m *OpenIDTransactionMutation) AddedProviderID() (r int, exists bool) {
+	v := m.addprovider_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetProviderID resets all changes to the "provider_id" field.
+func (m *OpenIDTransactionMutation) ResetProviderID() {
+	m.provider_id = nil
+	m.addprovider_id = nil
+}
+
+// SetUserID sets the "user_id" field.
+func (m *OpenIDTransactionMutation) SetUserID(i int) {
+	m.user = &i
+}
+
+// UserID returns the value of the "user_id" field in the mutation.
+func (m *OpenIDTransactionMutation) UserID() (r int, exists bool) {
+	v := m.user
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldUserID returns the old "user_id" field's value of the OpenIDTransaction entity.
+// If the OpenIDTransaction object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *OpenIDTransactionMutation) OldUserID(ctx context.Context) (v *int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldUserID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldUserID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldUserID: %w", err)
+	}
+	return oldValue.UserID, nil
+}
+
+// ClearUserID clears the value of the "user_id" field.
+func (m *OpenIDTransactionMutation) ClearUserID() {
+	m.user = nil
+	m.clearedFields[openidtransaction.FieldUserID] = struct{}{}
+}
+
+// UserIDCleared returns if the "user_id" field was cleared in this mutation.
+func (m *OpenIDTransactionMutation) UserIDCleared() bool {
+	_, ok := m.clearedFields[openidtransaction.FieldUserID]
+	return ok
+}
+
+// ResetUserID resets all changes to the "user_id" field.
+func (m *OpenIDTransactionMutation) ResetUserID() {
+	m.user = nil
+	delete(m.clearedFields, openidtransaction.FieldUserID)
+}
+
+// SetBrowserProof sets the "browser_proof" field.
+func (m *OpenIDTransactionMutation) SetBrowserProof(s string) {
+	m.browser_proof = &s
+}
+
+// BrowserProof returns the value of the "browser_proof" field in the mutation.
+func (m *OpenIDTransactionMutation) BrowserProof() (r string, exists bool) {
+	v := m.browser_proof
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldBrowserProof returns the old "browser_proof" field's value of the OpenIDTransaction entity.
+// If the OpenIDTransaction object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *OpenIDTransactionMutation) OldBrowserProof(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldBrowserProof is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldBrowserProof requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldBrowserProof: %w", err)
+	}
+	return oldValue.BrowserProof, nil
+}
+
+// ResetBrowserProof resets all changes to the "browser_proof" field.
+func (m *OpenIDTransactionMutation) ResetBrowserProof() {
+	m.browser_proof = nil
+}
+
+// SetConfigDigest sets the "config_digest" field.
+func (m *OpenIDTransactionMutation) SetConfigDigest(s string) {
+	m.config_digest = &s
+}
+
+// ConfigDigest returns the value of the "config_digest" field in the mutation.
+func (m *OpenIDTransactionMutation) ConfigDigest() (r string, exists bool) {
+	v := m.config_digest
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldConfigDigest returns the old "config_digest" field's value of the OpenIDTransaction entity.
+// If the OpenIDTransaction object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *OpenIDTransactionMutation) OldConfigDigest(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldConfigDigest is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldConfigDigest requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldConfigDigest: %w", err)
+	}
+	return oldValue.ConfigDigest, nil
+}
+
+// ResetConfigDigest resets all changes to the "config_digest" field.
+func (m *OpenIDTransactionMutation) ResetConfigDigest() {
+	m.config_digest = nil
+}
+
+// SetExpiresAt sets the "expires_at" field.
+func (m *OpenIDTransactionMutation) SetExpiresAt(t time.Time) {
+	m.expires_at = &t
+}
+
+// ExpiresAt returns the value of the "expires_at" field in the mutation.
+func (m *OpenIDTransactionMutation) ExpiresAt() (r time.Time, exists bool) {
+	v := m.expires_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldExpiresAt returns the old "expires_at" field's value of the OpenIDTransaction entity.
+// If the OpenIDTransaction object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *OpenIDTransactionMutation) OldExpiresAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldExpiresAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldExpiresAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldExpiresAt: %w", err)
+	}
+	return oldValue.ExpiresAt, nil
+}
+
+// ResetExpiresAt resets all changes to the "expires_at" field.
+func (m *OpenIDTransactionMutation) ResetExpiresAt() {
+	m.expires_at = nil
+}
+
+// SetAttempts sets the "attempts" field.
+func (m *OpenIDTransactionMutation) SetAttempts(i int) {
+	m.attempts = &i
+	m.addattempts = nil
+}
+
+// Attempts returns the value of the "attempts" field in the mutation.
+func (m *OpenIDTransactionMutation) Attempts() (r int, exists bool) {
+	v := m.attempts
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldAttempts returns the old "attempts" field's value of the OpenIDTransaction entity.
+// If the OpenIDTransaction object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *OpenIDTransactionMutation) OldAttempts(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldAttempts is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldAttempts requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldAttempts: %w", err)
+	}
+	return oldValue.Attempts, nil
+}
+
+// AddAttempts adds i to the "attempts" field.
+func (m *OpenIDTransactionMutation) AddAttempts(i int) {
+	if m.addattempts != nil {
+		*m.addattempts += i
+	} else {
+		m.addattempts = &i
+	}
+}
+
+// AddedAttempts returns the value that was added to the "attempts" field in this mutation.
+func (m *OpenIDTransactionMutation) AddedAttempts() (r int, exists bool) {
+	v := m.addattempts
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetAttempts resets all changes to the "attempts" field.
+func (m *OpenIDTransactionMutation) ResetAttempts() {
+	m.attempts = nil
+	m.addattempts = nil
+}
+
+// SetConsumed sets the "consumed" field.
+func (m *OpenIDTransactionMutation) SetConsumed(b bool) {
+	m.consumed = &b
+}
+
+// Consumed returns the value of the "consumed" field in the mutation.
+func (m *OpenIDTransactionMutation) Consumed() (r bool, exists bool) {
+	v := m.consumed
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldConsumed returns the old "consumed" field's value of the OpenIDTransaction entity.
+// If the OpenIDTransaction object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *OpenIDTransactionMutation) OldConsumed(ctx context.Context) (v bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldConsumed is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldConsumed requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldConsumed: %w", err)
+	}
+	return oldValue.Consumed, nil
+}
+
+// ResetConsumed resets all changes to the "consumed" field.
+func (m *OpenIDTransactionMutation) ResetConsumed() {
+	m.consumed = nil
+}
+
+// SetPayload sets the "payload" field.
+func (m *OpenIDTransactionMutation) SetPayload(b []byte) {
+	m.payload = &b
+}
+
+// Payload returns the value of the "payload" field in the mutation.
+func (m *OpenIDTransactionMutation) Payload() (r []byte, exists bool) {
+	v := m.payload
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldPayload returns the old "payload" field's value of the OpenIDTransaction entity.
+// If the OpenIDTransaction object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *OpenIDTransactionMutation) OldPayload(ctx context.Context) (v []byte, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldPayload is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldPayload requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldPayload: %w", err)
+	}
+	return oldValue.Payload, nil
+}
+
+// ResetPayload resets all changes to the "payload" field.
+func (m *OpenIDTransactionMutation) ResetPayload() {
+	m.payload = nil
+}
+
+// ClearUser clears the "user" edge to the User entity.
+func (m *OpenIDTransactionMutation) ClearUser() {
+	m.cleareduser = true
+	m.clearedFields[openidtransaction.FieldUserID] = struct{}{}
+}
+
+// UserCleared reports if the "user" edge to the User entity was cleared.
+func (m *OpenIDTransactionMutation) UserCleared() bool {
+	return m.UserIDCleared() || m.cleareduser
+}
+
+// UserIDs returns the "user" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// UserID instead. It exists only for internal usage by the builders.
+func (m *OpenIDTransactionMutation) UserIDs() (ids []int) {
+	if id := m.user; id != nil {
+		ids = append(ids, *id)
+	}
+	return
+}
+
+// ResetUser resets all changes to the "user" edge.
+func (m *OpenIDTransactionMutation) ResetUser() {
+	m.user = nil
+	m.cleareduser = false
+}
+
+// Where appends a list predicates to the OpenIDTransactionMutation builder.
+func (m *OpenIDTransactionMutation) Where(ps ...predicate.OpenIDTransaction) {
+	m.predicates = append(m.predicates, ps...)
+}
+
+// WhereP appends storage-level predicates to the OpenIDTransactionMutation builder. Using this method,
+// users can use type-assertion to append predicates that do not depend on any generated package.
+func (m *OpenIDTransactionMutation) WhereP(ps ...func(*sql.Selector)) {
+	p := make([]predicate.OpenIDTransaction, len(ps))
+	for i := range ps {
+		p[i] = ps[i]
+	}
+	m.Where(p...)
+}
+
+// Op returns the operation name.
+func (m *OpenIDTransactionMutation) Op() Op {
+	return m.op
+}
+
+// SetOp allows setting the mutation operation.
+func (m *OpenIDTransactionMutation) SetOp(op Op) {
+	m.op = op
+}
+
+// Type returns the node type of this mutation (OpenIDTransaction).
+func (m *OpenIDTransactionMutation) Type() string {
+	return m.typ
+}
+
+// Fields returns all fields that were changed during this mutation. Note that in
+// order to get all numeric fields that were incremented/decremented, call
+// AddedFields().
+func (m *OpenIDTransactionMutation) Fields() []string {
+	fields := make([]string, 0, 10)
+	if m.transaction_key != nil {
+		fields = append(fields, openidtransaction.FieldTransactionKey)
+	}
+	if m.kind != nil {
+		fields = append(fields, openidtransaction.FieldKind)
+	}
+	if m.provider_id != nil {
+		fields = append(fields, openidtransaction.FieldProviderID)
+	}
+	if m.user != nil {
+		fields = append(fields, openidtransaction.FieldUserID)
+	}
+	if m.browser_proof != nil {
+		fields = append(fields, openidtransaction.FieldBrowserProof)
+	}
+	if m.config_digest != nil {
+		fields = append(fields, openidtransaction.FieldConfigDigest)
+	}
+	if m.expires_at != nil {
+		fields = append(fields, openidtransaction.FieldExpiresAt)
+	}
+	if m.attempts != nil {
+		fields = append(fields, openidtransaction.FieldAttempts)
+	}
+	if m.consumed != nil {
+		fields = append(fields, openidtransaction.FieldConsumed)
+	}
+	if m.payload != nil {
+		fields = append(fields, openidtransaction.FieldPayload)
+	}
+	return fields
+}
+
+// Field returns the value of a field with the given name. The second boolean
+// return value indicates that this field was not set, or was not defined in the
+// schema.
+func (m *OpenIDTransactionMutation) Field(name string) (ent.Value, bool) {
+	switch name {
+	case openidtransaction.FieldTransactionKey:
+		return m.TransactionKey()
+	case openidtransaction.FieldKind:
+		return m.Kind()
+	case openidtransaction.FieldProviderID:
+		return m.ProviderID()
+	case openidtransaction.FieldUserID:
+		return m.UserID()
+	case openidtransaction.FieldBrowserProof:
+		return m.BrowserProof()
+	case openidtransaction.FieldConfigDigest:
+		return m.ConfigDigest()
+	case openidtransaction.FieldExpiresAt:
+		return m.ExpiresAt()
+	case openidtransaction.FieldAttempts:
+		return m.Attempts()
+	case openidtransaction.FieldConsumed:
+		return m.Consumed()
+	case openidtransaction.FieldPayload:
+		return m.Payload()
+	}
+	return nil, false
+}
+
+// OldField returns the old value of the field from the database. An error is
+// returned if the mutation operation is not UpdateOne, or the query to the
+// database failed.
+func (m *OpenIDTransactionMutation) OldField(ctx context.Context, name string) (ent.Value, error) {
+	switch name {
+	case openidtransaction.FieldTransactionKey:
+		return m.OldTransactionKey(ctx)
+	case openidtransaction.FieldKind:
+		return m.OldKind(ctx)
+	case openidtransaction.FieldProviderID:
+		return m.OldProviderID(ctx)
+	case openidtransaction.FieldUserID:
+		return m.OldUserID(ctx)
+	case openidtransaction.FieldBrowserProof:
+		return m.OldBrowserProof(ctx)
+	case openidtransaction.FieldConfigDigest:
+		return m.OldConfigDigest(ctx)
+	case openidtransaction.FieldExpiresAt:
+		return m.OldExpiresAt(ctx)
+	case openidtransaction.FieldAttempts:
+		return m.OldAttempts(ctx)
+	case openidtransaction.FieldConsumed:
+		return m.OldConsumed(ctx)
+	case openidtransaction.FieldPayload:
+		return m.OldPayload(ctx)
+	}
+	return nil, fmt.Errorf("unknown OpenIDTransaction field %s", name)
+}
+
+// SetField sets the value of a field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *OpenIDTransactionMutation) SetField(name string, value ent.Value) error {
+	switch name {
+	case openidtransaction.FieldTransactionKey:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetTransactionKey(v)
+		return nil
+	case openidtransaction.FieldKind:
+		v, ok := value.(openidtransaction.Kind)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetKind(v)
+		return nil
+	case openidtransaction.FieldProviderID:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetProviderID(v)
+		return nil
+	case openidtransaction.FieldUserID:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetUserID(v)
+		return nil
+	case openidtransaction.FieldBrowserProof:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetBrowserProof(v)
+		return nil
+	case openidtransaction.FieldConfigDigest:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetConfigDigest(v)
+		return nil
+	case openidtransaction.FieldExpiresAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetExpiresAt(v)
+		return nil
+	case openidtransaction.FieldAttempts:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetAttempts(v)
+		return nil
+	case openidtransaction.FieldConsumed:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetConsumed(v)
+		return nil
+	case openidtransaction.FieldPayload:
+		v, ok := value.([]byte)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetPayload(v)
+		return nil
+	}
+	return fmt.Errorf("unknown OpenIDTransaction field %s", name)
+}
+
+// AddedFields returns all numeric fields that were incremented/decremented during
+// this mutation.
+func (m *OpenIDTransactionMutation) AddedFields() []string {
+	var fields []string
+	if m.addprovider_id != nil {
+		fields = append(fields, openidtransaction.FieldProviderID)
+	}
+	if m.addattempts != nil {
+		fields = append(fields, openidtransaction.FieldAttempts)
+	}
+	return fields
+}
+
+// AddedField returns the numeric value that was incremented/decremented on a field
+// with the given name. The second boolean return value indicates that this field
+// was not set, or was not defined in the schema.
+func (m *OpenIDTransactionMutation) AddedField(name string) (ent.Value, bool) {
+	switch name {
+	case openidtransaction.FieldProviderID:
+		return m.AddedProviderID()
+	case openidtransaction.FieldAttempts:
+		return m.AddedAttempts()
+	}
+	return nil, false
+}
+
+// AddField adds the value to the field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *OpenIDTransactionMutation) AddField(name string, value ent.Value) error {
+	switch name {
+	case openidtransaction.FieldProviderID:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddProviderID(v)
+		return nil
+	case openidtransaction.FieldAttempts:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddAttempts(v)
+		return nil
+	}
+	return fmt.Errorf("unknown OpenIDTransaction numeric field %s", name)
+}
+
+// ClearedFields returns all nullable fields that were cleared during this
+// mutation.
+func (m *OpenIDTransactionMutation) ClearedFields() []string {
+	var fields []string
+	if m.FieldCleared(openidtransaction.FieldUserID) {
+		fields = append(fields, openidtransaction.FieldUserID)
+	}
+	return fields
+}
+
+// FieldCleared returns a boolean indicating if a field with the given name was
+// cleared in this mutation.
+func (m *OpenIDTransactionMutation) FieldCleared(name string) bool {
+	_, ok := m.clearedFields[name]
+	return ok
+}
+
+// ClearField clears the value of the field with the given name. It returns an
+// error if the field is not defined in the schema.
+func (m *OpenIDTransactionMutation) ClearField(name string) error {
+	switch name {
+	case openidtransaction.FieldUserID:
+		m.ClearUserID()
+		return nil
+	}
+	return fmt.Errorf("unknown OpenIDTransaction nullable field %s", name)
+}
+
+// ResetField resets all changes in the mutation for the field with the given name.
+// It returns an error if the field is not defined in the schema.
+func (m *OpenIDTransactionMutation) ResetField(name string) error {
+	switch name {
+	case openidtransaction.FieldTransactionKey:
+		m.ResetTransactionKey()
+		return nil
+	case openidtransaction.FieldKind:
+		m.ResetKind()
+		return nil
+	case openidtransaction.FieldProviderID:
+		m.ResetProviderID()
+		return nil
+	case openidtransaction.FieldUserID:
+		m.ResetUserID()
+		return nil
+	case openidtransaction.FieldBrowserProof:
+		m.ResetBrowserProof()
+		return nil
+	case openidtransaction.FieldConfigDigest:
+		m.ResetConfigDigest()
+		return nil
+	case openidtransaction.FieldExpiresAt:
+		m.ResetExpiresAt()
+		return nil
+	case openidtransaction.FieldAttempts:
+		m.ResetAttempts()
+		return nil
+	case openidtransaction.FieldConsumed:
+		m.ResetConsumed()
+		return nil
+	case openidtransaction.FieldPayload:
+		m.ResetPayload()
+		return nil
+	}
+	return fmt.Errorf("unknown OpenIDTransaction field %s", name)
+}
+
+// AddedEdges returns all edge names that were set/added in this mutation.
+func (m *OpenIDTransactionMutation) AddedEdges() []string {
+	edges := make([]string, 0, 1)
+	if m.user != nil {
+		edges = append(edges, openidtransaction.EdgeUser)
+	}
+	return edges
+}
+
+// AddedIDs returns all IDs (to other nodes) that were added for the given edge
+// name in this mutation.
+func (m *OpenIDTransactionMutation) AddedIDs(name string) []ent.Value {
+	switch name {
+	case openidtransaction.EdgeUser:
+		if id := m.user; id != nil {
+			return []ent.Value{*id}
+		}
+	}
+	return nil
+}
+
+// RemovedEdges returns all edge names that were removed in this mutation.
+func (m *OpenIDTransactionMutation) RemovedEdges() []string {
+	edges := make([]string, 0, 1)
+	return edges
+}
+
+// RemovedIDs returns all IDs (to other nodes) that were removed for the edge with
+// the given name in this mutation.
+func (m *OpenIDTransactionMutation) RemovedIDs(name string) []ent.Value {
+	return nil
+}
+
+// ClearedEdges returns all edge names that were cleared in this mutation.
+func (m *OpenIDTransactionMutation) ClearedEdges() []string {
+	edges := make([]string, 0, 1)
+	if m.cleareduser {
+		edges = append(edges, openidtransaction.EdgeUser)
+	}
+	return edges
+}
+
+// EdgeCleared returns a boolean which indicates if the edge with the given name
+// was cleared in this mutation.
+func (m *OpenIDTransactionMutation) EdgeCleared(name string) bool {
+	switch name {
+	case openidtransaction.EdgeUser:
+		return m.cleareduser
+	}
+	return false
+}
+
+// ClearEdge clears the value of the edge with the given name. It returns an error
+// if that edge is not defined in the schema.
+func (m *OpenIDTransactionMutation) ClearEdge(name string) error {
+	switch name {
+	case openidtransaction.EdgeUser:
+		m.ClearUser()
+		return nil
+	}
+	return fmt.Errorf("unknown OpenIDTransaction unique edge %s", name)
+}
+
+// ResetEdge resets all changes to the edge with the given name in this mutation.
+// It returns an error if the edge is not defined in the schema.
+func (m *OpenIDTransactionMutation) ResetEdge(name string) error {
+	switch name {
+	case openidtransaction.EdgeUser:
+		m.ResetUser()
+		return nil
+	}
+	return fmt.Errorf("unknown OpenIDTransaction edge %s", name)
+}
+
 // PasskeyMutation represents an operation that mutates the Passkey nodes in the graph.
 type PasskeyMutation struct {
 	config
@@ -15054,51 +17633,61 @@ func (m *TaskMutation) ResetEdge(name string) error {
 // UserMutation represents an operation that mutates the User nodes in the graph.
 type UserMutation struct {
 	config
-	op                  Op
-	typ                 string
-	id                  *int
-	created_at          *time.Time
-	updated_at          *time.Time
-	deleted_at          *time.Time
-	email               *string
-	nick                *string
-	password            *string
-	status              *user.Status
-	storage             *int64
-	addstorage          *int64
-	two_factor_secret   *string
-	avatar              *string
-	settings            **types.UserSetting
-	clearedFields       map[string]struct{}
-	group               *int
-	clearedgroup        bool
-	files               map[int]struct{}
-	removedfiles        map[int]struct{}
-	clearedfiles        bool
-	dav_accounts        map[int]struct{}
-	removeddav_accounts map[int]struct{}
-	cleareddav_accounts bool
-	shares              map[int]struct{}
-	removedshares       map[int]struct{}
-	clearedshares       bool
-	passkey             map[int]struct{}
-	removedpasskey      map[int]struct{}
-	clearedpasskey      bool
-	tasks               map[int]struct{}
-	removedtasks        map[int]struct{}
-	clearedtasks        bool
-	fsevents            map[int]struct{}
-	removedfsevents     map[int]struct{}
-	clearedfsevents     bool
-	entities            map[int]struct{}
-	removedentities     map[int]struct{}
-	clearedentities     bool
-	oauth_grants        map[int]struct{}
-	removedoauth_grants map[int]struct{}
-	clearedoauth_grants bool
-	done                bool
-	oldValue            func(context.Context) (*User, error)
-	predicates          []predicate.User
+	op                         Op
+	typ                        string
+	id                         *int
+	created_at                 *time.Time
+	updated_at                 *time.Time
+	deleted_at                 *time.Time
+	email                      *string
+	nick                       *string
+	password                   *string
+	status                     *user.Status
+	storage                    *int64
+	addstorage                 *int64
+	two_factor_secret          *string
+	avatar                     *string
+	settings                   **types.UserSetting
+	sso_managed                *bool
+	clearedFields              map[string]struct{}
+	group                      *int
+	clearedgroup               bool
+	files                      map[int]struct{}
+	removedfiles               map[int]struct{}
+	clearedfiles               bool
+	dav_accounts               map[int]struct{}
+	removeddav_accounts        map[int]struct{}
+	cleareddav_accounts        bool
+	shares                     map[int]struct{}
+	removedshares              map[int]struct{}
+	clearedshares              bool
+	passkey                    map[int]struct{}
+	removedpasskey             map[int]struct{}
+	clearedpasskey             bool
+	tasks                      map[int]struct{}
+	removedtasks               map[int]struct{}
+	clearedtasks               bool
+	fsevents                   map[int]struct{}
+	removedfsevents            map[int]struct{}
+	clearedfsevents            bool
+	entities                   map[int]struct{}
+	removedentities            map[int]struct{}
+	clearedentities            bool
+	oauth_grants               map[int]struct{}
+	removedoauth_grants        map[int]struct{}
+	clearedoauth_grants        bool
+	external_identities        map[int]struct{}
+	removedexternal_identities map[int]struct{}
+	clearedexternal_identities bool
+	openid_transactions        map[int]struct{}
+	removedopenid_transactions map[int]struct{}
+	clearedopenid_transactions bool
+	openid_sessions            map[int]struct{}
+	removedopenid_sessions     map[int]struct{}
+	clearedopenid_sessions     bool
+	done                       bool
+	oldValue                   func(context.Context) (*User, error)
+	predicates                 []predicate.User
 }
 
 var _ ent.Mutation = (*UserMutation)(nil)
@@ -15716,6 +18305,42 @@ func (m *UserMutation) ResetGroupUsers() {
 	m.group = nil
 }
 
+// SetSSOManaged sets the "sso_managed" field.
+func (m *UserMutation) SetSSOManaged(b bool) {
+	m.sso_managed = &b
+}
+
+// SSOManaged returns the value of the "sso_managed" field in the mutation.
+func (m *UserMutation) SSOManaged() (r bool, exists bool) {
+	v := m.sso_managed
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldSSOManaged returns the old "sso_managed" field's value of the User entity.
+// If the User object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UserMutation) OldSSOManaged(ctx context.Context) (v bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldSSOManaged is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldSSOManaged requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldSSOManaged: %w", err)
+	}
+	return oldValue.SSOManaged, nil
+}
+
+// ResetSSOManaged resets all changes to the "sso_managed" field.
+func (m *UserMutation) ResetSSOManaged() {
+	m.sso_managed = nil
+}
+
 // SetGroupID sets the "group" edge to the Group entity by id.
 func (m *UserMutation) SetGroupID(id int) {
 	m.group = &id
@@ -16188,6 +18813,168 @@ func (m *UserMutation) ResetOauthGrants() {
 	m.removedoauth_grants = nil
 }
 
+// AddExternalIdentityIDs adds the "external_identities" edge to the ExternalIdentity entity by ids.
+func (m *UserMutation) AddExternalIdentityIDs(ids ...int) {
+	if m.external_identities == nil {
+		m.external_identities = make(map[int]struct{})
+	}
+	for i := range ids {
+		m.external_identities[ids[i]] = struct{}{}
+	}
+}
+
+// ClearExternalIdentities clears the "external_identities" edge to the ExternalIdentity entity.
+func (m *UserMutation) ClearExternalIdentities() {
+	m.clearedexternal_identities = true
+}
+
+// ExternalIdentitiesCleared reports if the "external_identities" edge to the ExternalIdentity entity was cleared.
+func (m *UserMutation) ExternalIdentitiesCleared() bool {
+	return m.clearedexternal_identities
+}
+
+// RemoveExternalIdentityIDs removes the "external_identities" edge to the ExternalIdentity entity by IDs.
+func (m *UserMutation) RemoveExternalIdentityIDs(ids ...int) {
+	if m.removedexternal_identities == nil {
+		m.removedexternal_identities = make(map[int]struct{})
+	}
+	for i := range ids {
+		delete(m.external_identities, ids[i])
+		m.removedexternal_identities[ids[i]] = struct{}{}
+	}
+}
+
+// RemovedExternalIdentities returns the removed IDs of the "external_identities" edge to the ExternalIdentity entity.
+func (m *UserMutation) RemovedExternalIdentitiesIDs() (ids []int) {
+	for id := range m.removedexternal_identities {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// ExternalIdentitiesIDs returns the "external_identities" edge IDs in the mutation.
+func (m *UserMutation) ExternalIdentitiesIDs() (ids []int) {
+	for id := range m.external_identities {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// ResetExternalIdentities resets all changes to the "external_identities" edge.
+func (m *UserMutation) ResetExternalIdentities() {
+	m.external_identities = nil
+	m.clearedexternal_identities = false
+	m.removedexternal_identities = nil
+}
+
+// AddOpenidTransactionIDs adds the "openid_transactions" edge to the OpenIDTransaction entity by ids.
+func (m *UserMutation) AddOpenidTransactionIDs(ids ...int) {
+	if m.openid_transactions == nil {
+		m.openid_transactions = make(map[int]struct{})
+	}
+	for i := range ids {
+		m.openid_transactions[ids[i]] = struct{}{}
+	}
+}
+
+// ClearOpenidTransactions clears the "openid_transactions" edge to the OpenIDTransaction entity.
+func (m *UserMutation) ClearOpenidTransactions() {
+	m.clearedopenid_transactions = true
+}
+
+// OpenidTransactionsCleared reports if the "openid_transactions" edge to the OpenIDTransaction entity was cleared.
+func (m *UserMutation) OpenidTransactionsCleared() bool {
+	return m.clearedopenid_transactions
+}
+
+// RemoveOpenidTransactionIDs removes the "openid_transactions" edge to the OpenIDTransaction entity by IDs.
+func (m *UserMutation) RemoveOpenidTransactionIDs(ids ...int) {
+	if m.removedopenid_transactions == nil {
+		m.removedopenid_transactions = make(map[int]struct{})
+	}
+	for i := range ids {
+		delete(m.openid_transactions, ids[i])
+		m.removedopenid_transactions[ids[i]] = struct{}{}
+	}
+}
+
+// RemovedOpenidTransactions returns the removed IDs of the "openid_transactions" edge to the OpenIDTransaction entity.
+func (m *UserMutation) RemovedOpenidTransactionsIDs() (ids []int) {
+	for id := range m.removedopenid_transactions {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// OpenidTransactionsIDs returns the "openid_transactions" edge IDs in the mutation.
+func (m *UserMutation) OpenidTransactionsIDs() (ids []int) {
+	for id := range m.openid_transactions {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// ResetOpenidTransactions resets all changes to the "openid_transactions" edge.
+func (m *UserMutation) ResetOpenidTransactions() {
+	m.openid_transactions = nil
+	m.clearedopenid_transactions = false
+	m.removedopenid_transactions = nil
+}
+
+// AddOpenidSessionIDs adds the "openid_sessions" edge to the OpenIDSession entity by ids.
+func (m *UserMutation) AddOpenidSessionIDs(ids ...int) {
+	if m.openid_sessions == nil {
+		m.openid_sessions = make(map[int]struct{})
+	}
+	for i := range ids {
+		m.openid_sessions[ids[i]] = struct{}{}
+	}
+}
+
+// ClearOpenidSessions clears the "openid_sessions" edge to the OpenIDSession entity.
+func (m *UserMutation) ClearOpenidSessions() {
+	m.clearedopenid_sessions = true
+}
+
+// OpenidSessionsCleared reports if the "openid_sessions" edge to the OpenIDSession entity was cleared.
+func (m *UserMutation) OpenidSessionsCleared() bool {
+	return m.clearedopenid_sessions
+}
+
+// RemoveOpenidSessionIDs removes the "openid_sessions" edge to the OpenIDSession entity by IDs.
+func (m *UserMutation) RemoveOpenidSessionIDs(ids ...int) {
+	if m.removedopenid_sessions == nil {
+		m.removedopenid_sessions = make(map[int]struct{})
+	}
+	for i := range ids {
+		delete(m.openid_sessions, ids[i])
+		m.removedopenid_sessions[ids[i]] = struct{}{}
+	}
+}
+
+// RemovedOpenidSessions returns the removed IDs of the "openid_sessions" edge to the OpenIDSession entity.
+func (m *UserMutation) RemovedOpenidSessionsIDs() (ids []int) {
+	for id := range m.removedopenid_sessions {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// OpenidSessionsIDs returns the "openid_sessions" edge IDs in the mutation.
+func (m *UserMutation) OpenidSessionsIDs() (ids []int) {
+	for id := range m.openid_sessions {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// ResetOpenidSessions resets all changes to the "openid_sessions" edge.
+func (m *UserMutation) ResetOpenidSessions() {
+	m.openid_sessions = nil
+	m.clearedopenid_sessions = false
+	m.removedopenid_sessions = nil
+}
+
 // Where appends a list predicates to the UserMutation builder.
 func (m *UserMutation) Where(ps ...predicate.User) {
 	m.predicates = append(m.predicates, ps...)
@@ -16222,7 +19009,7 @@ func (m *UserMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *UserMutation) Fields() []string {
-	fields := make([]string, 0, 12)
+	fields := make([]string, 0, 13)
 	if m.created_at != nil {
 		fields = append(fields, user.FieldCreatedAt)
 	}
@@ -16259,6 +19046,9 @@ func (m *UserMutation) Fields() []string {
 	if m.group != nil {
 		fields = append(fields, user.FieldGroupUsers)
 	}
+	if m.sso_managed != nil {
+		fields = append(fields, user.FieldSSOManaged)
+	}
 	return fields
 }
 
@@ -16291,6 +19081,8 @@ func (m *UserMutation) Field(name string) (ent.Value, bool) {
 		return m.Settings()
 	case user.FieldGroupUsers:
 		return m.GroupUsers()
+	case user.FieldSSOManaged:
+		return m.SSOManaged()
 	}
 	return nil, false
 }
@@ -16324,6 +19116,8 @@ func (m *UserMutation) OldField(ctx context.Context, name string) (ent.Value, er
 		return m.OldSettings(ctx)
 	case user.FieldGroupUsers:
 		return m.OldGroupUsers(ctx)
+	case user.FieldSSOManaged:
+		return m.OldSSOManaged(ctx)
 	}
 	return nil, fmt.Errorf("unknown User field %s", name)
 }
@@ -16416,6 +19210,13 @@ func (m *UserMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetGroupUsers(v)
+		return nil
+	case user.FieldSSOManaged:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetSSOManaged(v)
 		return nil
 	}
 	return fmt.Errorf("unknown User field %s", name)
@@ -16550,13 +19351,16 @@ func (m *UserMutation) ResetField(name string) error {
 	case user.FieldGroupUsers:
 		m.ResetGroupUsers()
 		return nil
+	case user.FieldSSOManaged:
+		m.ResetSSOManaged()
+		return nil
 	}
 	return fmt.Errorf("unknown User field %s", name)
 }
 
 // AddedEdges returns all edge names that were set/added in this mutation.
 func (m *UserMutation) AddedEdges() []string {
-	edges := make([]string, 0, 9)
+	edges := make([]string, 0, 12)
 	if m.group != nil {
 		edges = append(edges, user.EdgeGroup)
 	}
@@ -16583,6 +19387,15 @@ func (m *UserMutation) AddedEdges() []string {
 	}
 	if m.oauth_grants != nil {
 		edges = append(edges, user.EdgeOauthGrants)
+	}
+	if m.external_identities != nil {
+		edges = append(edges, user.EdgeExternalIdentities)
+	}
+	if m.openid_transactions != nil {
+		edges = append(edges, user.EdgeOpenidTransactions)
+	}
+	if m.openid_sessions != nil {
+		edges = append(edges, user.EdgeOpenidSessions)
 	}
 	return edges
 }
@@ -16643,13 +19456,31 @@ func (m *UserMutation) AddedIDs(name string) []ent.Value {
 			ids = append(ids, id)
 		}
 		return ids
+	case user.EdgeExternalIdentities:
+		ids := make([]ent.Value, 0, len(m.external_identities))
+		for id := range m.external_identities {
+			ids = append(ids, id)
+		}
+		return ids
+	case user.EdgeOpenidTransactions:
+		ids := make([]ent.Value, 0, len(m.openid_transactions))
+		for id := range m.openid_transactions {
+			ids = append(ids, id)
+		}
+		return ids
+	case user.EdgeOpenidSessions:
+		ids := make([]ent.Value, 0, len(m.openid_sessions))
+		for id := range m.openid_sessions {
+			ids = append(ids, id)
+		}
+		return ids
 	}
 	return nil
 }
 
 // RemovedEdges returns all edge names that were removed in this mutation.
 func (m *UserMutation) RemovedEdges() []string {
-	edges := make([]string, 0, 9)
+	edges := make([]string, 0, 12)
 	if m.removedfiles != nil {
 		edges = append(edges, user.EdgeFiles)
 	}
@@ -16673,6 +19504,15 @@ func (m *UserMutation) RemovedEdges() []string {
 	}
 	if m.removedoauth_grants != nil {
 		edges = append(edges, user.EdgeOauthGrants)
+	}
+	if m.removedexternal_identities != nil {
+		edges = append(edges, user.EdgeExternalIdentities)
+	}
+	if m.removedopenid_transactions != nil {
+		edges = append(edges, user.EdgeOpenidTransactions)
+	}
+	if m.removedopenid_sessions != nil {
+		edges = append(edges, user.EdgeOpenidSessions)
 	}
 	return edges
 }
@@ -16729,13 +19569,31 @@ func (m *UserMutation) RemovedIDs(name string) []ent.Value {
 			ids = append(ids, id)
 		}
 		return ids
+	case user.EdgeExternalIdentities:
+		ids := make([]ent.Value, 0, len(m.removedexternal_identities))
+		for id := range m.removedexternal_identities {
+			ids = append(ids, id)
+		}
+		return ids
+	case user.EdgeOpenidTransactions:
+		ids := make([]ent.Value, 0, len(m.removedopenid_transactions))
+		for id := range m.removedopenid_transactions {
+			ids = append(ids, id)
+		}
+		return ids
+	case user.EdgeOpenidSessions:
+		ids := make([]ent.Value, 0, len(m.removedopenid_sessions))
+		for id := range m.removedopenid_sessions {
+			ids = append(ids, id)
+		}
+		return ids
 	}
 	return nil
 }
 
 // ClearedEdges returns all edge names that were cleared in this mutation.
 func (m *UserMutation) ClearedEdges() []string {
-	edges := make([]string, 0, 9)
+	edges := make([]string, 0, 12)
 	if m.clearedgroup {
 		edges = append(edges, user.EdgeGroup)
 	}
@@ -16763,6 +19621,15 @@ func (m *UserMutation) ClearedEdges() []string {
 	if m.clearedoauth_grants {
 		edges = append(edges, user.EdgeOauthGrants)
 	}
+	if m.clearedexternal_identities {
+		edges = append(edges, user.EdgeExternalIdentities)
+	}
+	if m.clearedopenid_transactions {
+		edges = append(edges, user.EdgeOpenidTransactions)
+	}
+	if m.clearedopenid_sessions {
+		edges = append(edges, user.EdgeOpenidSessions)
+	}
 	return edges
 }
 
@@ -16788,6 +19655,12 @@ func (m *UserMutation) EdgeCleared(name string) bool {
 		return m.clearedentities
 	case user.EdgeOauthGrants:
 		return m.clearedoauth_grants
+	case user.EdgeExternalIdentities:
+		return m.clearedexternal_identities
+	case user.EdgeOpenidTransactions:
+		return m.clearedopenid_transactions
+	case user.EdgeOpenidSessions:
+		return m.clearedopenid_sessions
 	}
 	return false
 }
@@ -16833,6 +19706,15 @@ func (m *UserMutation) ResetEdge(name string) error {
 		return nil
 	case user.EdgeOauthGrants:
 		m.ResetOauthGrants()
+		return nil
+	case user.EdgeExternalIdentities:
+		m.ResetExternalIdentities()
+		return nil
+	case user.EdgeOpenidTransactions:
+		m.ResetOpenidTransactions()
+		return nil
+	case user.EdgeOpenidSessions:
+		m.ResetOpenidSessions()
 		return nil
 	}
 	return fmt.Errorf("unknown User edge %s", name)

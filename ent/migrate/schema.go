@@ -102,6 +102,39 @@ var (
 			},
 		},
 	}
+	// ExternalIdentitiesColumns holds the columns for the "external_identities" table.
+	ExternalIdentitiesColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt, Increment: true},
+		{Name: "identity_key", Type: field.TypeString, Unique: true, Size: 64},
+		{Name: "provider_id", Type: field.TypeInt},
+		{Name: "issuer", Type: field.TypeString, Size: 2048},
+		{Name: "subject", Type: field.TypeString, Size: 2048},
+		{Name: "state", Type: field.TypeEnum, Enums: []string{"bound", "unlinked", "deleted"}, Default: "bound"},
+		{Name: "linked_at", Type: field.TypeTime, SchemaType: map[string]string{"mysql": "datetime"}},
+		{Name: "updated_at", Type: field.TypeTime, SchemaType: map[string]string{"mysql": "datetime"}},
+		{Name: "user_id", Type: field.TypeInt, Nullable: true},
+	}
+	// ExternalIdentitiesTable holds the schema information for the "external_identities" table.
+	ExternalIdentitiesTable = &schema.Table{
+		Name:       "external_identities",
+		Columns:    ExternalIdentitiesColumns,
+		PrimaryKey: []*schema.Column{ExternalIdentitiesColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "external_identities_users_external_identities",
+				Columns:    []*schema.Column{ExternalIdentitiesColumns[8]},
+				RefColumns: []*schema.Column{UsersColumns[0]},
+				OnDelete:   schema.SetNull,
+			},
+		},
+		Indexes: []*schema.Index{
+			{
+				Name:    "externalidentity_user_id_provider_id",
+				Unique:  true,
+				Columns: []*schema.Column{ExternalIdentitiesColumns[8], ExternalIdentitiesColumns[2]},
+			},
+		},
+	}
 	// FilesColumns holds the columns for the "files" table.
 	FilesColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt, Increment: true},
@@ -328,6 +361,83 @@ var (
 			},
 		},
 	}
+	// OpenIDSessionsColumns holds the columns for the "open_id_sessions" table.
+	OpenIDSessionsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt, Increment: true},
+		{Name: "root_id", Type: field.TypeString, Unique: true, Size: 36},
+		{Name: "provider_id", Type: field.TypeInt},
+		{Name: "issuer", Type: field.TypeString, Size: 2048},
+		{Name: "expires_at", Type: field.TypeTime, SchemaType: map[string]string{"mysql": "datetime"}},
+		{Name: "revoked_at", Type: field.TypeTime, Nullable: true, SchemaType: map[string]string{"mysql": "datetime"}},
+		{Name: "payload", Type: field.TypeBytes, Nullable: true},
+		{Name: "user_id", Type: field.TypeInt, Nullable: true},
+	}
+	// OpenIDSessionsTable holds the schema information for the "open_id_sessions" table.
+	OpenIDSessionsTable = &schema.Table{
+		Name:       "open_id_sessions",
+		Columns:    OpenIDSessionsColumns,
+		PrimaryKey: []*schema.Column{OpenIDSessionsColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "open_id_sessions_users_openid_sessions",
+				Columns:    []*schema.Column{OpenIDSessionsColumns[7]},
+				RefColumns: []*schema.Column{UsersColumns[0]},
+				OnDelete:   schema.SetNull,
+			},
+		},
+		Indexes: []*schema.Index{
+			{
+				Name:    "openidsession_expires_at",
+				Unique:  false,
+				Columns: []*schema.Column{OpenIDSessionsColumns[4]},
+			},
+			{
+				Name:    "openidsession_user_id",
+				Unique:  false,
+				Columns: []*schema.Column{OpenIDSessionsColumns[7]},
+			},
+		},
+	}
+	// OpenIDTransactionsColumns holds the columns for the "open_id_transactions" table.
+	OpenIDTransactionsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt, Increment: true},
+		{Name: "transaction_key", Type: field.TypeString, Unique: true, Size: 64},
+		{Name: "kind", Type: field.TypeEnum, Enums: []string{"auth", "pending_mfa"}},
+		{Name: "provider_id", Type: field.TypeInt},
+		{Name: "browser_proof", Type: field.TypeString, Size: 64},
+		{Name: "config_digest", Type: field.TypeString, Size: 64},
+		{Name: "expires_at", Type: field.TypeTime, SchemaType: map[string]string{"mysql": "datetime"}},
+		{Name: "attempts", Type: field.TypeInt, Default: 0},
+		{Name: "consumed", Type: field.TypeBool, Default: false},
+		{Name: "payload", Type: field.TypeBytes},
+		{Name: "user_id", Type: field.TypeInt, Nullable: true},
+	}
+	// OpenIDTransactionsTable holds the schema information for the "open_id_transactions" table.
+	OpenIDTransactionsTable = &schema.Table{
+		Name:       "open_id_transactions",
+		Columns:    OpenIDTransactionsColumns,
+		PrimaryKey: []*schema.Column{OpenIDTransactionsColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "open_id_transactions_users_openid_transactions",
+				Columns:    []*schema.Column{OpenIDTransactionsColumns[10]},
+				RefColumns: []*schema.Column{UsersColumns[0]},
+				OnDelete:   schema.SetNull,
+			},
+		},
+		Indexes: []*schema.Index{
+			{
+				Name:    "openidtransaction_expires_at",
+				Unique:  false,
+				Columns: []*schema.Column{OpenIDTransactionsColumns[6]},
+			},
+			{
+				Name:    "openidtransaction_user_id",
+				Unique:  false,
+				Columns: []*schema.Column{OpenIDTransactionsColumns[10]},
+			},
+		},
+	}
 	// PasskeysColumns holds the columns for the "passkeys" table.
 	PasskeysColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt, Increment: true},
@@ -485,6 +595,7 @@ var (
 		{Name: "two_factor_secret", Type: field.TypeString, Nullable: true},
 		{Name: "avatar", Type: field.TypeString, Nullable: true},
 		{Name: "settings", Type: field.TypeJSON, Nullable: true},
+		{Name: "sso_managed", Type: field.TypeBool, Default: false},
 		{Name: "group_users", Type: field.TypeInt},
 	}
 	// UsersTable holds the schema information for the "users" table.
@@ -495,7 +606,7 @@ var (
 		ForeignKeys: []*schema.ForeignKey{
 			{
 				Symbol:     "users_groups_users",
-				Columns:    []*schema.Column{UsersColumns[12]},
+				Columns:    []*schema.Column{UsersColumns[13]},
 				RefColumns: []*schema.Column{GroupsColumns[0]},
 				OnDelete:   schema.NoAction,
 			},
@@ -531,6 +642,7 @@ var (
 		DavAccountsTable,
 		DirectLinksTable,
 		EntitiesTable,
+		ExternalIdentitiesTable,
 		FilesTable,
 		FsEventsTable,
 		GroupsTable,
@@ -538,6 +650,8 @@ var (
 		NodesTable,
 		OauthClientsTable,
 		OauthGrantsTable,
+		OpenIDSessionsTable,
+		OpenIDTransactionsTable,
 		PasskeysTable,
 		SettingsTable,
 		SharesTable,
@@ -553,6 +667,7 @@ func init() {
 	DirectLinksTable.ForeignKeys[0].RefTable = FilesTable
 	EntitiesTable.ForeignKeys[0].RefTable = StoragePoliciesTable
 	EntitiesTable.ForeignKeys[1].RefTable = UsersTable
+	ExternalIdentitiesTable.ForeignKeys[0].RefTable = UsersTable
 	FilesTable.ForeignKeys[0].RefTable = FilesTable
 	FilesTable.ForeignKeys[1].RefTable = StoragePoliciesTable
 	FilesTable.ForeignKeys[2].RefTable = UsersTable
@@ -561,6 +676,8 @@ func init() {
 	MetadataTable.ForeignKeys[0].RefTable = FilesTable
 	OauthGrantsTable.ForeignKeys[0].RefTable = OauthClientsTable
 	OauthGrantsTable.ForeignKeys[1].RefTable = UsersTable
+	OpenIDSessionsTable.ForeignKeys[0].RefTable = UsersTable
+	OpenIDTransactionsTable.ForeignKeys[0].RefTable = UsersTable
 	PasskeysTable.ForeignKeys[0].RefTable = UsersTable
 	SharesTable.ForeignKeys[0].RefTable = FilesTable
 	SharesTable.ForeignKeys[1].RefTable = UsersTable

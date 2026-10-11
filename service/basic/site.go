@@ -7,6 +7,7 @@ import (
 	"github.com/cloudreve/Cloudreve/v4/application/dependency"
 	"github.com/cloudreve/Cloudreve/v4/inventory"
 	"github.com/cloudreve/Cloudreve/v4/inventory/types"
+	"github.com/cloudreve/Cloudreve/v4/pkg/oidc"
 	"github.com/cloudreve/Cloudreve/v4/pkg/setting"
 	"github.com/cloudreve/Cloudreve/v4/pkg/thumb"
 	"github.com/cloudreve/Cloudreve/v4/service/user"
@@ -26,6 +27,8 @@ type SiteConfig struct {
 	LogoLight      string                  `json:"logo_light,omitempty"`
 	CustomNavItems []setting.CustomNavItem `json:"custom_nav_items,omitempty"`
 	CustomHTML     *setting.CustomHTML     `json:"custom_html,omitempty"`
+
+	LoginProviders []oidc.PublicProvider `json:"login_providers,omitempty"`
 
 	// Login Section
 	LoginCaptcha     bool                `json:"login_captcha,omitempty"`
@@ -88,8 +91,13 @@ func (s *GetSettingService) GetSiteConfig(c *gin.Context) (*SiteConfig, error) {
 
 	switch s.Section {
 	case "login":
+		registry, err := settings.ExternalLoginProviders(c)
+		if err != nil {
+			return nil, err
+		}
 		legalDocs := settings.LegalDocuments(c)
 		return &SiteConfig{
+			LoginProviders:   registry.Public(),
 			LoginCaptcha:     settings.LoginCaptchaEnabled(c),
 			RegCaptcha:       settings.RegCaptchaEnabled(c),
 			ForgetCaptcha:    settings.ForgotPasswordCaptchaEnabled(c),

@@ -9,6 +9,7 @@ import (
 	"github.com/cloudreve/Cloudreve/v4/application/dependency"
 	"github.com/cloudreve/Cloudreve/v4/ent"
 	"github.com/cloudreve/Cloudreve/v4/inventory"
+	"github.com/cloudreve/Cloudreve/v4/pkg/authpolicy"
 	"github.com/cloudreve/Cloudreve/v4/pkg/hashid"
 	"github.com/cloudreve/Cloudreve/v4/pkg/serializer"
 	"github.com/cloudreve/Cloudreve/v4/pkg/util"
@@ -125,7 +126,7 @@ func (s *FinishPasskeyLoginService) FinishPasskeyLogin(c *gin.Context) (*ent.Use
 			return nil, serializer.NewError(serializer.CodeDBError, "Failed to get user", err)
 		}
 
-		if inventory.IsAnonymousUser(u) {
+		if inventory.IsAnonymousUser(u) || u.SSOManaged {
 			return nil, errors.New("anonymous user")
 		}
 
@@ -160,6 +161,9 @@ func PreparePasskeyRegister(c *gin.Context) (*protocol.CredentialCreation, error
 	dep := dependency.FromContext(c)
 	userClient := dep.UserClient()
 	u := inventory.UserFromContext(c)
+	if err := (authpolicy.Facts{Managed: u.SSOManaged}).CheckLocalCredential(); err != nil {
+		return nil, serializer.NewError(serializer.CodeNoPermissionErr, err.Error(), nil)
+	}
 
 	existingKeys, err := userClient.ListPasskeys(c, u.ID)
 	if err != nil {
@@ -212,6 +216,9 @@ func (s *FinishPasskeyRegisterService) FinishPasskeyRegister(c *gin.Context) (*P
 	dep := dependency.FromContext(c)
 	kv := dep.KV()
 	u := inventory.UserFromContext(c)
+	if err := (authpolicy.Facts{Managed: u.SSOManaged}).CheckLocalCredential(); err != nil {
+		return nil, serializer.NewError(serializer.CodeNoPermissionErr, err.Error(), nil)
+	}
 
 	sessionDataRaw, ok := kv.Get(fmt.Sprintf("%s%d", authnSessionKey, u.ID))
 	if !ok {

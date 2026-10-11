@@ -44,6 +44,8 @@ type User struct {
 	Settings *types.UserSetting `json:"settings,omitempty"`
 	// GroupUsers holds the value of the "group_users" field.
 	GroupUsers int `json:"group_users,omitempty"`
+	// SSOManaged holds the value of the "sso_managed" field.
+	SSOManaged bool `json:"sso_managed,omitempty"`
 	// Edges holds the relations/edges for other nodes in the graph.
 	// The values are being populated by the UserQuery when eager-loading is set.
 	Edges        UserEdges `json:"edges"`
@@ -70,9 +72,15 @@ type UserEdges struct {
 	Entities []*Entity `json:"entities,omitempty"`
 	// OauthGrants holds the value of the oauth_grants edge.
 	OauthGrants []*OAuthGrant `json:"oauth_grants,omitempty"`
+	// ExternalIdentities holds the value of the external_identities edge.
+	ExternalIdentities []*ExternalIdentity `json:"external_identities,omitempty"`
+	// OpenidTransactions holds the value of the openid_transactions edge.
+	OpenidTransactions []*OpenIDTransaction `json:"openid_transactions,omitempty"`
+	// OpenidSessions holds the value of the openid_sessions edge.
+	OpenidSessions []*OpenIDSession `json:"openid_sessions,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [9]bool
+	loadedTypes [12]bool
 }
 
 // GroupOrErr returns the Group value or an error if the edge
@@ -160,6 +168,33 @@ func (e UserEdges) OauthGrantsOrErr() ([]*OAuthGrant, error) {
 	return nil, &NotLoadedError{edge: "oauth_grants"}
 }
 
+// ExternalIdentitiesOrErr returns the ExternalIdentities value or an error if the edge
+// was not loaded in eager-loading.
+func (e UserEdges) ExternalIdentitiesOrErr() ([]*ExternalIdentity, error) {
+	if e.loadedTypes[9] {
+		return e.ExternalIdentities, nil
+	}
+	return nil, &NotLoadedError{edge: "external_identities"}
+}
+
+// OpenidTransactionsOrErr returns the OpenidTransactions value or an error if the edge
+// was not loaded in eager-loading.
+func (e UserEdges) OpenidTransactionsOrErr() ([]*OpenIDTransaction, error) {
+	if e.loadedTypes[10] {
+		return e.OpenidTransactions, nil
+	}
+	return nil, &NotLoadedError{edge: "openid_transactions"}
+}
+
+// OpenidSessionsOrErr returns the OpenidSessions value or an error if the edge
+// was not loaded in eager-loading.
+func (e UserEdges) OpenidSessionsOrErr() ([]*OpenIDSession, error) {
+	if e.loadedTypes[11] {
+		return e.OpenidSessions, nil
+	}
+	return nil, &NotLoadedError{edge: "openid_sessions"}
+}
+
 // scanValues returns the types for scanning values from sql.Rows.
 func (*User) scanValues(columns []string) ([]any, error) {
 	values := make([]any, len(columns))
@@ -167,6 +202,8 @@ func (*User) scanValues(columns []string) ([]any, error) {
 		switch columns[i] {
 		case user.FieldSettings:
 			values[i] = new([]byte)
+		case user.FieldSSOManaged:
+			values[i] = new(sql.NullBool)
 		case user.FieldID, user.FieldStorage, user.FieldGroupUsers:
 			values[i] = new(sql.NullInt64)
 		case user.FieldEmail, user.FieldNick, user.FieldPassword, user.FieldStatus, user.FieldTwoFactorSecret, user.FieldAvatar:
@@ -269,6 +306,12 @@ func (u *User) assignValues(columns []string, values []any) error {
 			} else if value.Valid {
 				u.GroupUsers = int(value.Int64)
 			}
+		case user.FieldSSOManaged:
+			if value, ok := values[i].(*sql.NullBool); !ok {
+				return fmt.Errorf("unexpected type %T for field sso_managed", values[i])
+			} else if value.Valid {
+				u.SSOManaged = value.Bool
+			}
 		default:
 			u.selectValues.Set(columns[i], values[i])
 		}
@@ -325,6 +368,21 @@ func (u *User) QueryEntities() *EntityQuery {
 // QueryOauthGrants queries the "oauth_grants" edge of the User entity.
 func (u *User) QueryOauthGrants() *OAuthGrantQuery {
 	return NewUserClient(u.config).QueryOauthGrants(u)
+}
+
+// QueryExternalIdentities queries the "external_identities" edge of the User entity.
+func (u *User) QueryExternalIdentities() *ExternalIdentityQuery {
+	return NewUserClient(u.config).QueryExternalIdentities(u)
+}
+
+// QueryOpenidTransactions queries the "openid_transactions" edge of the User entity.
+func (u *User) QueryOpenidTransactions() *OpenIDTransactionQuery {
+	return NewUserClient(u.config).QueryOpenidTransactions(u)
+}
+
+// QueryOpenidSessions queries the "openid_sessions" edge of the User entity.
+func (u *User) QueryOpenidSessions() *OpenIDSessionQuery {
+	return NewUserClient(u.config).QueryOpenidSessions(u)
 }
 
 // Update returns a builder for updating this User.
@@ -385,6 +443,9 @@ func (u *User) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("group_users=")
 	builder.WriteString(fmt.Sprintf("%v", u.GroupUsers))
+	builder.WriteString(", ")
+	builder.WriteString("sso_managed=")
+	builder.WriteString(fmt.Sprintf("%v", u.SSOManaged))
 	builder.WriteByte(')')
 	return builder.String()
 }
@@ -441,6 +502,24 @@ func (e *User) SetEntities(v []*Entity) {
 func (e *User) SetOauthGrants(v []*OAuthGrant) {
 	e.Edges.OauthGrants = v
 	e.Edges.loadedTypes[8] = true
+}
+
+// SetExternalIdentities manually set the edge as loaded state.
+func (e *User) SetExternalIdentities(v []*ExternalIdentity) {
+	e.Edges.ExternalIdentities = v
+	e.Edges.loadedTypes[9] = true
+}
+
+// SetOpenidTransactions manually set the edge as loaded state.
+func (e *User) SetOpenidTransactions(v []*OpenIDTransaction) {
+	e.Edges.OpenidTransactions = v
+	e.Edges.loadedTypes[10] = true
+}
+
+// SetOpenidSessions manually set the edge as loaded state.
+func (e *User) SetOpenidSessions(v []*OpenIDSession) {
+	e.Edges.OpenidSessions = v
+	e.Edges.loadedTypes[11] = true
 }
 
 // Users is a parsable slice of User.

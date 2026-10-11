@@ -282,6 +282,9 @@ func initMasterRouter(dep dependency.Dep) *gin.Engine {
 
 		// User authentication
 		session := v4.Group("session")
+		session.PUT("openid", middleware.RequiredScopes(types.ScopeUserSecurityInfoWrite), controllers.BeginOpenID)
+		session.POST("openid", controllers.FinishOpenID)
+		session.DELETE("openid/:provider_id", middleware.LoginRequired(), middleware.RequiredScopes(types.ScopeUserSecurityInfoWrite), controllers.UnlinkOpenID)
 		{
 			token := session.Group("token")
 			// Token based authentication
@@ -931,6 +934,8 @@ func initMasterRouter(dep dependency.Dep) *gin.Engine {
 				}
 
 				tool := admin.Group("tool")
+				tool.GET("oidc", middleware.RequiredScopes(types.ScopeAdminWrite), controllers.DiscoverOpenID)
+				tool.GET("oidc/callback/:provider_id", middleware.RequiredScopes(types.ScopeAdminWrite), controllers.OpenIDCallbackURI)
 				{
 					tool.GET("wopi",
 						middleware.RequiredScopes(types.ScopeAdminWrite),
@@ -1126,6 +1131,7 @@ func initMasterRouter(dep dependency.Dep) *gin.Engine {
 				}
 
 				user := admin.Group("user")
+				user.POST(":id/release-managed", middleware.RequiredScopes(types.ScopeAdminWrite), controllers.ReleaseManagedAccount)
 				{
 					// 列出用户
 					user.POST("",

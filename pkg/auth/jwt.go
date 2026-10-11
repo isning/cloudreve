@@ -35,6 +35,7 @@ type TokenAuth interface {
 }
 
 type IssueTokenArgs struct {
+	SessionSource      string
 	User               *ent.User
 	RootTokenID        *uuid.UUID
 	ClientID           string
@@ -73,7 +74,8 @@ const (
 )
 
 type Claims struct {
-	TokenType TokenType `json:"token_type"`
+	SessionSource string    `json:"session_source,omitempty"`
+	TokenType     TokenType `json:"token_type"`
 	jwt.RegisteredClaims
 	StateHash   []byte     `json:"state_hash,omitempty"`
 	RootTokenID *uuid.UUID `json:"root_token_id,omitempty"`
@@ -191,6 +193,7 @@ func (t *tokenAuth) Refresh(ctx context.Context, refreshToken string) (*Token, e
 		Scopes:             claims.Scopes,
 		ClientID:           claims.ClientID,
 		RefreshTTLOverride: refreshTTLOverride,
+		SessionSource:      claims.SessionSource,
 	})
 }
 
@@ -266,8 +269,9 @@ func (t *tokenAuth) Issue(ctx context.Context, args *IssueTokenArgs) (*Token, er
 
 	userHash := t.hashUserState(ctx, u)
 	refreshToken, err := jwt.NewWithClaims(jwt.SigningMethodHS256, Claims{
-		TokenType:   TokenTypeRefresh,
-		RootTokenID: rootTokenID,
+		SessionSource: args.SessionSource,
+		TokenType:     TokenTypeRefresh,
+		RootTokenID:   rootTokenID,
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject:   uidEncoded,
 			NotBefore: jwt.NewNumericDate(issueDate),

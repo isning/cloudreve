@@ -82,6 +82,7 @@ func (s *server) Start() error {
 	// TODO: make sure redis is connected in dep before user traffic.
 	if s.config.System().Mode == conf.MasterMode {
 		s.dbClient = s.dep.DBClient()
+		s.dep.OIDC()
 		// TODO: make sure all dep is initialized before server start.
 		s.dep.LockSystem()
 		s.dep.UAParser()
@@ -100,6 +101,12 @@ func (s *server) Start() error {
 			cred.RefreshAll(ctx)
 		})
 
+		crontab.Register(setting.CronType("openid_cleanup"), func(ctx context.Context) {
+			dep := dependency.FromContext(ctx)
+			if err := dep.OIDC().Cleanup(ctx); err != nil {
+				dep.Logger().Warning("External authentication cleanup failed")
+			}
+		})
 		// Initialize email queue before user traffic starts.
 		_ = s.dep.EmailClient(context.Background())
 

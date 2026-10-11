@@ -13,10 +13,13 @@ import (
 	"entgo.io/ent/schema/field"
 	"github.com/cloudreve/Cloudreve/v4/ent/davaccount"
 	"github.com/cloudreve/Cloudreve/v4/ent/entity"
+	"github.com/cloudreve/Cloudreve/v4/ent/externalidentity"
 	"github.com/cloudreve/Cloudreve/v4/ent/file"
 	"github.com/cloudreve/Cloudreve/v4/ent/fsevent"
 	"github.com/cloudreve/Cloudreve/v4/ent/group"
 	"github.com/cloudreve/Cloudreve/v4/ent/oauthgrant"
+	"github.com/cloudreve/Cloudreve/v4/ent/openidsession"
+	"github.com/cloudreve/Cloudreve/v4/ent/openidtransaction"
 	"github.com/cloudreve/Cloudreve/v4/ent/passkey"
 	"github.com/cloudreve/Cloudreve/v4/ent/share"
 	"github.com/cloudreve/Cloudreve/v4/ent/task"
@@ -168,6 +171,20 @@ func (uc *UserCreate) SetGroupUsers(i int) *UserCreate {
 	return uc
 }
 
+// SetSSOManaged sets the "sso_managed" field.
+func (uc *UserCreate) SetSSOManaged(b bool) *UserCreate {
+	uc.mutation.SetSSOManaged(b)
+	return uc
+}
+
+// SetNillableSSOManaged sets the "sso_managed" field if the given value is not nil.
+func (uc *UserCreate) SetNillableSSOManaged(b *bool) *UserCreate {
+	if b != nil {
+		uc.SetSSOManaged(*b)
+	}
+	return uc
+}
+
 // SetGroupID sets the "group" edge to the Group entity by ID.
 func (uc *UserCreate) SetGroupID(id int) *UserCreate {
 	uc.mutation.SetGroupID(id)
@@ -299,6 +316,51 @@ func (uc *UserCreate) AddOauthGrants(o ...*OAuthGrant) *UserCreate {
 	return uc.AddOauthGrantIDs(ids...)
 }
 
+// AddExternalIdentityIDs adds the "external_identities" edge to the ExternalIdentity entity by IDs.
+func (uc *UserCreate) AddExternalIdentityIDs(ids ...int) *UserCreate {
+	uc.mutation.AddExternalIdentityIDs(ids...)
+	return uc
+}
+
+// AddExternalIdentities adds the "external_identities" edges to the ExternalIdentity entity.
+func (uc *UserCreate) AddExternalIdentities(e ...*ExternalIdentity) *UserCreate {
+	ids := make([]int, len(e))
+	for i := range e {
+		ids[i] = e[i].ID
+	}
+	return uc.AddExternalIdentityIDs(ids...)
+}
+
+// AddOpenidTransactionIDs adds the "openid_transactions" edge to the OpenIDTransaction entity by IDs.
+func (uc *UserCreate) AddOpenidTransactionIDs(ids ...int) *UserCreate {
+	uc.mutation.AddOpenidTransactionIDs(ids...)
+	return uc
+}
+
+// AddOpenidTransactions adds the "openid_transactions" edges to the OpenIDTransaction entity.
+func (uc *UserCreate) AddOpenidTransactions(o ...*OpenIDTransaction) *UserCreate {
+	ids := make([]int, len(o))
+	for i := range o {
+		ids[i] = o[i].ID
+	}
+	return uc.AddOpenidTransactionIDs(ids...)
+}
+
+// AddOpenidSessionIDs adds the "openid_sessions" edge to the OpenIDSession entity by IDs.
+func (uc *UserCreate) AddOpenidSessionIDs(ids ...int) *UserCreate {
+	uc.mutation.AddOpenidSessionIDs(ids...)
+	return uc
+}
+
+// AddOpenidSessions adds the "openid_sessions" edges to the OpenIDSession entity.
+func (uc *UserCreate) AddOpenidSessions(o ...*OpenIDSession) *UserCreate {
+	ids := make([]int, len(o))
+	for i := range o {
+		ids[i] = o[i].ID
+	}
+	return uc.AddOpenidSessionIDs(ids...)
+}
+
 // Mutation returns the UserMutation object of the builder.
 func (uc *UserCreate) Mutation() *UserMutation {
 	return uc.mutation
@@ -362,6 +424,10 @@ func (uc *UserCreate) defaults() error {
 		v := user.DefaultSettings
 		uc.mutation.SetSettings(v)
 	}
+	if _, ok := uc.mutation.SSOManaged(); !ok {
+		v := user.DefaultSSOManaged
+		uc.mutation.SetSSOManaged(v)
+	}
 	return nil
 }
 
@@ -402,6 +468,9 @@ func (uc *UserCreate) check() error {
 	}
 	if _, ok := uc.mutation.GroupUsers(); !ok {
 		return &ValidationError{Name: "group_users", err: errors.New(`ent: missing required field "User.group_users"`)}
+	}
+	if _, ok := uc.mutation.SSOManaged(); !ok {
+		return &ValidationError{Name: "sso_managed", err: errors.New(`ent: missing required field "User.sso_managed"`)}
 	}
 	if _, ok := uc.mutation.GroupID(); !ok {
 		return &ValidationError{Name: "group", err: errors.New(`ent: missing required edge "User.group"`)}
@@ -483,6 +552,10 @@ func (uc *UserCreate) createSpec() (*User, *sqlgraph.CreateSpec) {
 	if value, ok := uc.mutation.Settings(); ok {
 		_spec.SetField(user.FieldSettings, field.TypeJSON, value)
 		_node.Settings = value
+	}
+	if value, ok := uc.mutation.SSOManaged(); ok {
+		_spec.SetField(user.FieldSSOManaged, field.TypeBool, value)
+		_node.SSOManaged = value
 	}
 	if nodes := uc.mutation.GroupIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
@@ -622,6 +695,54 @@ func (uc *UserCreate) createSpec() (*User, *sqlgraph.CreateSpec) {
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(oauthgrant.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := uc.mutation.ExternalIdentitiesIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   user.ExternalIdentitiesTable,
+			Columns: []string{user.ExternalIdentitiesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(externalidentity.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := uc.mutation.OpenidTransactionsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   user.OpenidTransactionsTable,
+			Columns: []string{user.OpenidTransactionsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(openidtransaction.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := uc.mutation.OpenidSessionsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   user.OpenidSessionsTable,
+			Columns: []string{user.OpenidSessionsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(openidsession.FieldID, field.TypeInt),
 			},
 		}
 		for _, k := range nodes {
@@ -846,6 +967,18 @@ func (u *UserUpsert) SetGroupUsers(v int) *UserUpsert {
 // UpdateGroupUsers sets the "group_users" field to the value that was provided on create.
 func (u *UserUpsert) UpdateGroupUsers() *UserUpsert {
 	u.SetExcluded(user.FieldGroupUsers)
+	return u
+}
+
+// SetSSOManaged sets the "sso_managed" field.
+func (u *UserUpsert) SetSSOManaged(v bool) *UserUpsert {
+	u.Set(user.FieldSSOManaged, v)
+	return u
+}
+
+// UpdateSSOManaged sets the "sso_managed" field to the value that was provided on create.
+func (u *UserUpsert) UpdateSSOManaged() *UserUpsert {
+	u.SetExcluded(user.FieldSSOManaged)
 	return u
 }
 
@@ -1087,6 +1220,20 @@ func (u *UserUpsertOne) SetGroupUsers(v int) *UserUpsertOne {
 func (u *UserUpsertOne) UpdateGroupUsers() *UserUpsertOne {
 	return u.Update(func(s *UserUpsert) {
 		s.UpdateGroupUsers()
+	})
+}
+
+// SetSSOManaged sets the "sso_managed" field.
+func (u *UserUpsertOne) SetSSOManaged(v bool) *UserUpsertOne {
+	return u.Update(func(s *UserUpsert) {
+		s.SetSSOManaged(v)
+	})
+}
+
+// UpdateSSOManaged sets the "sso_managed" field to the value that was provided on create.
+func (u *UserUpsertOne) UpdateSSOManaged() *UserUpsertOne {
+	return u.Update(func(s *UserUpsert) {
+		s.UpdateSSOManaged()
 	})
 }
 
@@ -1499,6 +1646,20 @@ func (u *UserUpsertBulk) SetGroupUsers(v int) *UserUpsertBulk {
 func (u *UserUpsertBulk) UpdateGroupUsers() *UserUpsertBulk {
 	return u.Update(func(s *UserUpsert) {
 		s.UpdateGroupUsers()
+	})
+}
+
+// SetSSOManaged sets the "sso_managed" field.
+func (u *UserUpsertBulk) SetSSOManaged(v bool) *UserUpsertBulk {
+	return u.Update(func(s *UserUpsert) {
+		s.SetSSOManaged(v)
+	})
+}
+
+// UpdateSSOManaged sets the "sso_managed" field to the value that was provided on create.
+func (u *UserUpsertBulk) UpdateSSOManaged() *UserUpsertBulk {
+	return u.Update(func(s *UserUpsert) {
+		s.UpdateSSOManaged()
 	})
 }
 

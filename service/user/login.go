@@ -9,9 +9,11 @@ import (
 	"github.com/cloudreve/Cloudreve/v4/ent/user"
 	"github.com/cloudreve/Cloudreve/v4/inventory"
 	"github.com/cloudreve/Cloudreve/v4/pkg/auth"
+	"github.com/cloudreve/Cloudreve/v4/pkg/authpolicy"
 	"github.com/cloudreve/Cloudreve/v4/pkg/cluster/routes"
 	"github.com/cloudreve/Cloudreve/v4/pkg/email"
 	"github.com/cloudreve/Cloudreve/v4/pkg/hashid"
+	"github.com/cloudreve/Cloudreve/v4/pkg/oidc"
 	"github.com/cloudreve/Cloudreve/v4/pkg/serializer"
 	"github.com/cloudreve/Cloudreve/v4/pkg/util"
 	"github.com/gin-gonic/gin"
@@ -88,6 +90,9 @@ func (service *UserResetEmailService) Reset(c *gin.Context) error {
 		return serializer.NewError(serializer.CodeUserNotFound, "User not found", err)
 	}
 
+	if err := (authpolicy.Facts{Managed: u.SSOManaged}).CheckLocalCredential(); err != nil {
+		return serializer.NewError(serializer.CodeNoPermissionErr, err.Error(), nil)
+	}
 	if u.Status == user.StatusManualBanned || u.Status == user.StatusSysBanned {
 		return serializer.NewError(serializer.CodeUserBaned, "This user is banned", nil)
 	}
@@ -181,9 +186,9 @@ type RefreshTokenService struct {
 	RefreshToken string `json:"refresh_token" binding:"required"`
 }
 
-func (s *RefreshTokenService) Refresh(c *gin.Context) (*auth.Token, error) {
+func (s *RefreshTokenService) Refresh(c *gin.Context) (*oidc.Token, error) {
 	dep := dependency.FromContext(c)
-	token, err := dep.TokenAuth().Refresh(c, s.RefreshToken)
+	token, err := dep.OIDC().Refresh(c.Request.Context(), s.RefreshToken)
 	if err != nil {
 		return nil, serializer.NewError(serializer.CodeCredentialInvalid, "Failed to issue token pair", err)
 	}
@@ -193,18 +198,7 @@ func (s *RefreshTokenService) Refresh(c *gin.Context) (*auth.Token, error) {
 
 func (s *RefreshTokenService) Delete(c *gin.Context) (string, error) {
 	dep := dependency.FromContext(c)
-	claims, err := dep.TokenAuth().Claims(c, s.RefreshToken)
-	if err != nil {
-		return "", serializer.NewError(serializer.CodeCredentialInvalid, "Failed to parse token", err)
-	}
-
-	// Block root token
-	if claims.RootTokenID != nil {
-		tokenSettings := dep.SettingProvider().TokenAuth(c)
-		dep.KV().Set(fmt.Sprintf("%s%s", auth.RevokeTokenPrefix, claims.RootTokenID.String()), true, int(tokenSettings.RefreshTokenTTL.Seconds()+10))
-	}
-
-	return "", nil
+	return dep.OIDC().Logout(c.Request.Context(), s.RefreshToken)
 }
 
 type (
@@ -258,8 +252,20 @@ func (service *PrepareLoginService) Prepare(c *gin.Context) (*PrepareLoginRespon
 		return nil, serializer.NewError(serializer.CodeNotFound, "User not found", err)
 	}
 
-	return &PrepareLoginResponse{
-		WebAuthnEnabled: len(expectedUser.Edges.Passkey) > 0,
-		PasswordEnabled: expectedUser.Password != "",
-	}, nil
+	registry, err := dep.SettingProvider().ExternalLoginProviders(c)
+	if err != nil {
+		return nil, err
+	}
+	bindings, err := dep.OIDC().View(c, expectedUser.ID)
+	if err != nil {
+		return nil, err
+	}
+	ids := []int{}
+	for _, binding := range bindings {
+		if provider, err := registry.Find(binding.Provider); err == nil && provider.Issuer() == binding.Issuer {
+			ids = append(ids, binding.Provider)
+		}
+	}
+	facts := authpolicy.Facts{Managed: expectedUser.SSOManaged, HasPassword: expectedUser.Password != "", HasPasskey: len(expectedUser.Edges.Passkey) > 0}
+	return &PrepareLoginResponse{WebAuthnEnabled: facts.PasskeyLogin(), PasswordEnabled: facts.PasswordLogin(), OpenIDProviders: ids}, nil
 }

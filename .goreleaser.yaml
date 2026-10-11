@@ -5,6 +5,7 @@ before:
     - go mod tidy
     - chmod +x ./.build/build-assets.sh
     - ./.build/build-assets.sh {{.Version}}
+    - python3 scripts/verify.py --stage backend
 
 builds:
   - env:

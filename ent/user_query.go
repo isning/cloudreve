@@ -13,10 +13,13 @@ import (
 	"entgo.io/ent/schema/field"
 	"github.com/cloudreve/Cloudreve/v4/ent/davaccount"
 	"github.com/cloudreve/Cloudreve/v4/ent/entity"
+	"github.com/cloudreve/Cloudreve/v4/ent/externalidentity"
 	"github.com/cloudreve/Cloudreve/v4/ent/file"
 	"github.com/cloudreve/Cloudreve/v4/ent/fsevent"
 	"github.com/cloudreve/Cloudreve/v4/ent/group"
 	"github.com/cloudreve/Cloudreve/v4/ent/oauthgrant"
+	"github.com/cloudreve/Cloudreve/v4/ent/openidsession"
+	"github.com/cloudreve/Cloudreve/v4/ent/openidtransaction"
 	"github.com/cloudreve/Cloudreve/v4/ent/passkey"
 	"github.com/cloudreve/Cloudreve/v4/ent/predicate"
 	"github.com/cloudreve/Cloudreve/v4/ent/share"
@@ -27,19 +30,22 @@ import (
 // UserQuery is the builder for querying User entities.
 type UserQuery struct {
 	config
-	ctx             *QueryContext
-	order           []user.OrderOption
-	inters          []Interceptor
-	predicates      []predicate.User
-	withGroup       *GroupQuery
-	withFiles       *FileQuery
-	withDavAccounts *DavAccountQuery
-	withShares      *ShareQuery
-	withPasskey     *PasskeyQuery
-	withTasks       *TaskQuery
-	withFsevents    *FsEventQuery
-	withEntities    *EntityQuery
-	withOauthGrants *OAuthGrantQuery
+	ctx                    *QueryContext
+	order                  []user.OrderOption
+	inters                 []Interceptor
+	predicates             []predicate.User
+	withGroup              *GroupQuery
+	withFiles              *FileQuery
+	withDavAccounts        *DavAccountQuery
+	withShares             *ShareQuery
+	withPasskey            *PasskeyQuery
+	withTasks              *TaskQuery
+	withFsevents           *FsEventQuery
+	withEntities           *EntityQuery
+	withOauthGrants        *OAuthGrantQuery
+	withExternalIdentities *ExternalIdentityQuery
+	withOpenidTransactions *OpenIDTransactionQuery
+	withOpenidSessions     *OpenIDSessionQuery
 	// intermediate query (i.e. traversal path).
 	sql  *sql.Selector
 	path func(context.Context) (*sql.Selector, error)
@@ -274,6 +280,72 @@ func (uq *UserQuery) QueryOauthGrants() *OAuthGrantQuery {
 	return query
 }
 
+// QueryExternalIdentities chains the current query on the "external_identities" edge.
+func (uq *UserQuery) QueryExternalIdentities() *ExternalIdentityQuery {
+	query := (&ExternalIdentityClient{config: uq.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := uq.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := uq.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(user.Table, user.FieldID, selector),
+			sqlgraph.To(externalidentity.Table, externalidentity.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, user.ExternalIdentitiesTable, user.ExternalIdentitiesColumn),
+		)
+		fromU = sqlgraph.SetNeighbors(uq.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
+}
+
+// QueryOpenidTransactions chains the current query on the "openid_transactions" edge.
+func (uq *UserQuery) QueryOpenidTransactions() *OpenIDTransactionQuery {
+	query := (&OpenIDTransactionClient{config: uq.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := uq.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := uq.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(user.Table, user.FieldID, selector),
+			sqlgraph.To(openidtransaction.Table, openidtransaction.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, user.OpenidTransactionsTable, user.OpenidTransactionsColumn),
+		)
+		fromU = sqlgraph.SetNeighbors(uq.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
+}
+
+// QueryOpenidSessions chains the current query on the "openid_sessions" edge.
+func (uq *UserQuery) QueryOpenidSessions() *OpenIDSessionQuery {
+	query := (&OpenIDSessionClient{config: uq.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := uq.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := uq.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(user.Table, user.FieldID, selector),
+			sqlgraph.To(openidsession.Table, openidsession.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, user.OpenidSessionsTable, user.OpenidSessionsColumn),
+		)
+		fromU = sqlgraph.SetNeighbors(uq.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
+}
+
 // First returns the first User entity from the query.
 // Returns a *NotFoundError when no User was found.
 func (uq *UserQuery) First(ctx context.Context) (*User, error) {
@@ -461,20 +533,23 @@ func (uq *UserQuery) Clone() *UserQuery {
 		return nil
 	}
 	return &UserQuery{
-		config:          uq.config,
-		ctx:             uq.ctx.Clone(),
-		order:           append([]user.OrderOption{}, uq.order...),
-		inters:          append([]Interceptor{}, uq.inters...),
-		predicates:      append([]predicate.User{}, uq.predicates...),
-		withGroup:       uq.withGroup.Clone(),
-		withFiles:       uq.withFiles.Clone(),
-		withDavAccounts: uq.withDavAccounts.Clone(),
-		withShares:      uq.withShares.Clone(),
-		withPasskey:     uq.withPasskey.Clone(),
-		withTasks:       uq.withTasks.Clone(),
-		withFsevents:    uq.withFsevents.Clone(),
-		withEntities:    uq.withEntities.Clone(),
-		withOauthGrants: uq.withOauthGrants.Clone(),
+		config:                 uq.config,
+		ctx:                    uq.ctx.Clone(),
+		order:                  append([]user.OrderOption{}, uq.order...),
+		inters:                 append([]Interceptor{}, uq.inters...),
+		predicates:             append([]predicate.User{}, uq.predicates...),
+		withGroup:              uq.withGroup.Clone(),
+		withFiles:              uq.withFiles.Clone(),
+		withDavAccounts:        uq.withDavAccounts.Clone(),
+		withShares:             uq.withShares.Clone(),
+		withPasskey:            uq.withPasskey.Clone(),
+		withTasks:              uq.withTasks.Clone(),
+		withFsevents:           uq.withFsevents.Clone(),
+		withEntities:           uq.withEntities.Clone(),
+		withOauthGrants:        uq.withOauthGrants.Clone(),
+		withExternalIdentities: uq.withExternalIdentities.Clone(),
+		withOpenidTransactions: uq.withOpenidTransactions.Clone(),
+		withOpenidSessions:     uq.withOpenidSessions.Clone(),
 		// clone intermediate query.
 		sql:  uq.sql.Clone(),
 		path: uq.path,
@@ -580,6 +655,39 @@ func (uq *UserQuery) WithOauthGrants(opts ...func(*OAuthGrantQuery)) *UserQuery 
 	return uq
 }
 
+// WithExternalIdentities tells the query-builder to eager-load the nodes that are connected to
+// the "external_identities" edge. The optional arguments are used to configure the query builder of the edge.
+func (uq *UserQuery) WithExternalIdentities(opts ...func(*ExternalIdentityQuery)) *UserQuery {
+	query := (&ExternalIdentityClient{config: uq.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	uq.withExternalIdentities = query
+	return uq
+}
+
+// WithOpenidTransactions tells the query-builder to eager-load the nodes that are connected to
+// the "openid_transactions" edge. The optional arguments are used to configure the query builder of the edge.
+func (uq *UserQuery) WithOpenidTransactions(opts ...func(*OpenIDTransactionQuery)) *UserQuery {
+	query := (&OpenIDTransactionClient{config: uq.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	uq.withOpenidTransactions = query
+	return uq
+}
+
+// WithOpenidSessions tells the query-builder to eager-load the nodes that are connected to
+// the "openid_sessions" edge. The optional arguments are used to configure the query builder of the edge.
+func (uq *UserQuery) WithOpenidSessions(opts ...func(*OpenIDSessionQuery)) *UserQuery {
+	query := (&OpenIDSessionClient{config: uq.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	uq.withOpenidSessions = query
+	return uq
+}
+
 // GroupBy is used to group vertices by one or more fields/columns.
 // It is often used with aggregate functions, like: count, max, mean, min, sum.
 //
@@ -658,7 +766,7 @@ func (uq *UserQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*User, e
 	var (
 		nodes       = []*User{}
 		_spec       = uq.querySpec()
-		loadedTypes = [9]bool{
+		loadedTypes = [12]bool{
 			uq.withGroup != nil,
 			uq.withFiles != nil,
 			uq.withDavAccounts != nil,
@@ -668,6 +776,9 @@ func (uq *UserQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*User, e
 			uq.withFsevents != nil,
 			uq.withEntities != nil,
 			uq.withOauthGrants != nil,
+			uq.withExternalIdentities != nil,
+			uq.withOpenidTransactions != nil,
+			uq.withOpenidSessions != nil,
 		}
 	)
 	_spec.ScanValues = func(columns []string) ([]any, error) {
@@ -747,6 +858,29 @@ func (uq *UserQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*User, e
 		if err := uq.loadOauthGrants(ctx, query, nodes,
 			func(n *User) { n.Edges.OauthGrants = []*OAuthGrant{} },
 			func(n *User, e *OAuthGrant) { n.Edges.OauthGrants = append(n.Edges.OauthGrants, e) }); err != nil {
+			return nil, err
+		}
+	}
+	if query := uq.withExternalIdentities; query != nil {
+		if err := uq.loadExternalIdentities(ctx, query, nodes,
+			func(n *User) { n.Edges.ExternalIdentities = []*ExternalIdentity{} },
+			func(n *User, e *ExternalIdentity) { n.Edges.ExternalIdentities = append(n.Edges.ExternalIdentities, e) }); err != nil {
+			return nil, err
+		}
+	}
+	if query := uq.withOpenidTransactions; query != nil {
+		if err := uq.loadOpenidTransactions(ctx, query, nodes,
+			func(n *User) { n.Edges.OpenidTransactions = []*OpenIDTransaction{} },
+			func(n *User, e *OpenIDTransaction) {
+				n.Edges.OpenidTransactions = append(n.Edges.OpenidTransactions, e)
+			}); err != nil {
+			return nil, err
+		}
+	}
+	if query := uq.withOpenidSessions; query != nil {
+		if err := uq.loadOpenidSessions(ctx, query, nodes,
+			func(n *User) { n.Edges.OpenidSessions = []*OpenIDSession{} },
+			func(n *User, e *OpenIDSession) { n.Edges.OpenidSessions = append(n.Edges.OpenidSessions, e) }); err != nil {
 			return nil, err
 		}
 	}
@@ -1018,6 +1152,105 @@ func (uq *UserQuery) loadOauthGrants(ctx context.Context, query *OAuthGrantQuery
 		node, ok := nodeids[fk]
 		if !ok {
 			return fmt.Errorf(`unexpected referenced foreign-key "user_id" returned %v for node %v`, fk, n.ID)
+		}
+		assign(node, n)
+	}
+	return nil
+}
+func (uq *UserQuery) loadExternalIdentities(ctx context.Context, query *ExternalIdentityQuery, nodes []*User, init func(*User), assign func(*User, *ExternalIdentity)) error {
+	fks := make([]driver.Value, 0, len(nodes))
+	nodeids := make(map[int]*User)
+	for i := range nodes {
+		fks = append(fks, nodes[i].ID)
+		nodeids[nodes[i].ID] = nodes[i]
+		if init != nil {
+			init(nodes[i])
+		}
+	}
+	if len(query.ctx.Fields) > 0 {
+		query.ctx.AppendFieldOnce(externalidentity.FieldUserID)
+	}
+	query.Where(predicate.ExternalIdentity(func(s *sql.Selector) {
+		s.Where(sql.InValues(s.C(user.ExternalIdentitiesColumn), fks...))
+	}))
+	neighbors, err := query.All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		fk := n.UserID
+		if fk == nil {
+			return fmt.Errorf(`foreign-key "user_id" is nil for node %v`, n.ID)
+		}
+		node, ok := nodeids[*fk]
+		if !ok {
+			return fmt.Errorf(`unexpected referenced foreign-key "user_id" returned %v for node %v`, *fk, n.ID)
+		}
+		assign(node, n)
+	}
+	return nil
+}
+func (uq *UserQuery) loadOpenidTransactions(ctx context.Context, query *OpenIDTransactionQuery, nodes []*User, init func(*User), assign func(*User, *OpenIDTransaction)) error {
+	fks := make([]driver.Value, 0, len(nodes))
+	nodeids := make(map[int]*User)
+	for i := range nodes {
+		fks = append(fks, nodes[i].ID)
+		nodeids[nodes[i].ID] = nodes[i]
+		if init != nil {
+			init(nodes[i])
+		}
+	}
+	if len(query.ctx.Fields) > 0 {
+		query.ctx.AppendFieldOnce(openidtransaction.FieldUserID)
+	}
+	query.Where(predicate.OpenIDTransaction(func(s *sql.Selector) {
+		s.Where(sql.InValues(s.C(user.OpenidTransactionsColumn), fks...))
+	}))
+	neighbors, err := query.All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		fk := n.UserID
+		if fk == nil {
+			return fmt.Errorf(`foreign-key "user_id" is nil for node %v`, n.ID)
+		}
+		node, ok := nodeids[*fk]
+		if !ok {
+			return fmt.Errorf(`unexpected referenced foreign-key "user_id" returned %v for node %v`, *fk, n.ID)
+		}
+		assign(node, n)
+	}
+	return nil
+}
+func (uq *UserQuery) loadOpenidSessions(ctx context.Context, query *OpenIDSessionQuery, nodes []*User, init func(*User), assign func(*User, *OpenIDSession)) error {
+	fks := make([]driver.Value, 0, len(nodes))
+	nodeids := make(map[int]*User)
+	for i := range nodes {
+		fks = append(fks, nodes[i].ID)
+		nodeids[nodes[i].ID] = nodes[i]
+		if init != nil {
+			init(nodes[i])
+		}
+	}
+	if len(query.ctx.Fields) > 0 {
+		query.ctx.AppendFieldOnce(openidsession.FieldUserID)
+	}
+	query.Where(predicate.OpenIDSession(func(s *sql.Selector) {
+		s.Where(sql.InValues(s.C(user.OpenidSessionsColumn), fks...))
+	}))
+	neighbors, err := query.All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		fk := n.UserID
+		if fk == nil {
+			return fmt.Errorf(`foreign-key "user_id" is nil for node %v`, n.ID)
+		}
+		node, ok := nodeids[*fk]
+		if !ok {
+			return fmt.Errorf(`unexpected referenced foreign-key "user_id" returned %v for node %v`, *fk, n.ID)
 		}
 		assign(node, n)
 	}

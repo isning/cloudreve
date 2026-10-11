@@ -102,6 +102,11 @@ func (service *GetAvatarService) Get(c *gin.Context) error {
 		return nil
 	}
 
+	if strings.HasPrefix(user.Avatar, "https://") || strings.HasPrefix(user.Avatar, "http://") {
+		c.Redirect(http.StatusFound, user.Avatar)
+		return nil
+	}
+
 	// 本地文件头像
 	if user.Avatar == FileAvatar {
 		avatarRoot := util.DataPath(avatarSettings.Path)
@@ -137,7 +142,12 @@ func GetUserSettings(c *gin.Context) (*UserSettings, error) {
 		return nil, serializer.NewError(serializer.CodeDBError, "Failed to get user OAuth grants", err)
 	}
 
-	return BuildUserSettings(u, passkeys, dep.UAParser(), grants), nil
+	result := BuildUserSettings(u, passkeys, dep.UAParser(), grants)
+	result.OpenID, err = dep.OIDC().View(c, u.ID)
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
 
 	// 用户组有效期
 

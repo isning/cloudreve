@@ -84,11 +84,19 @@ func migrateDefaultSettings(l logging.Logger, client *ent.Client, ctx context.Co
 		}
 
 		if override, ok := os.LookupEnv(EnvDefaultOverwritePrefix + k); ok {
-			l.Info("Override default setting %q with env value %q", k, override)
+			if k == "external_login_providers" || k == "secret_key" || k == "secretKey" {
+				l.Info("Override default setting %q with env value [redacted]", k)
+			} else {
+				l.Info("Override default setting %q with env value %q", k, override)
+			}
 			v = override
 		}
 
-		client.Setting.Create().SetName(k).SetValue(v).SaveX(ctx)
+		settingCtx := ctx
+		if k == "external_login_providers" || k == "secret_key" || k == "secretKey" {
+			settingCtx = context.WithValue(ctx, debug.SkipDbLogging{}, true)
+		}
+		client.Setting.Create().SetName(k).SetValue(v).SaveX(settingCtx)
 	}
 }
 

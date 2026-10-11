@@ -69,7 +69,11 @@ func NewEnvOverrideStore(next SettingStoreAdapter, l logging.Logger) SettingStor
 		if strings.HasPrefix(kv[0], EnvSettingOverwritePrefix) {
 			key := strings.TrimPrefix(kv[0], EnvSettingOverwritePrefix)
 			defaults[key] = kv[1]
-			l.Info("Override setting %q with value %q from environment", key, kv[1])
+			if key == "external_login_providers" || key == "secret_key" || key == "secretKey" {
+				l.Info("Override setting %q with value [redacted] from environment", key)
+			} else {
+				l.Info("Override setting %q with value %q from environment", key, kv[1])
+			}
 		}
 	}
 
@@ -102,6 +106,10 @@ type kvSettingStore struct {
 }
 
 func (s *kvSettingStore) Get(ctx context.Context, name string, defaultVal any) any {
+	// Provider changes must be visible across processes with in-memory caches.
+	if name == "external_login_providers" {
+		return s.next.Get(ctx, name, defaultVal)
+	}
 	if val, exist := s.kv.Get(KvSettingPrefix + name); exist {
 		return val
 	}

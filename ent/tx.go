@@ -20,6 +20,8 @@ type Tx struct {
 	DirectLink *DirectLinkClient
 	// Entity is the client for interacting with the Entity builders.
 	Entity *EntityClient
+	// ExternalIdentity is the client for interacting with the ExternalIdentity builders.
+	ExternalIdentity *ExternalIdentityClient
 	// File is the client for interacting with the File builders.
 	File *FileClient
 	// FsEvent is the client for interacting with the FsEvent builders.
@@ -34,6 +36,10 @@ type Tx struct {
 	OAuthClient *OAuthClientClient
 	// OAuthGrant is the client for interacting with the OAuthGrant builders.
 	OAuthGrant *OAuthGrantClient
+	// OpenIDSession is the client for interacting with the OpenIDSession builders.
+	OpenIDSession *OpenIDSessionClient
+	// OpenIDTransaction is the client for interacting with the OpenIDTransaction builders.
+	OpenIDTransaction *OpenIDTransactionClient
 	// Passkey is the client for interacting with the Passkey builders.
 	Passkey *PasskeyClient
 	// Setting is the client for interacting with the Setting builders.
@@ -180,6 +186,7 @@ func (tx *Tx) init() {
 	tx.DavAccount = NewDavAccountClient(tx.config)
 	tx.DirectLink = NewDirectLinkClient(tx.config)
 	tx.Entity = NewEntityClient(tx.config)
+	tx.ExternalIdentity = NewExternalIdentityClient(tx.config)
 	tx.File = NewFileClient(tx.config)
 	tx.FsEvent = NewFsEventClient(tx.config)
 	tx.Group = NewGroupClient(tx.config)
@@ -187,6 +194,8 @@ func (tx *Tx) init() {
 	tx.Node = NewNodeClient(tx.config)
 	tx.OAuthClient = NewOAuthClientClient(tx.config)
 	tx.OAuthGrant = NewOAuthGrantClient(tx.config)
+	tx.OpenIDSession = NewOpenIDSessionClient(tx.config)
+	tx.OpenIDTransaction = NewOpenIDTransactionClient(tx.config)
 	tx.Passkey = NewPasskeyClient(tx.config)
 	tx.Setting = NewSettingClient(tx.config)
 	tx.Share = NewShareClient(tx.config)

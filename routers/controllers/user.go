@@ -5,6 +5,7 @@ import (
 	"github.com/cloudreve/Cloudreve/v4/ent"
 	"github.com/cloudreve/Cloudreve/v4/inventory"
 	"github.com/cloudreve/Cloudreve/v4/pkg/hashid"
+	"github.com/cloudreve/Cloudreve/v4/pkg/oidc"
 	"github.com/cloudreve/Cloudreve/v4/pkg/serializer"
 	"github.com/cloudreve/Cloudreve/v4/pkg/util"
 	"github.com/cloudreve/Cloudreve/v4/service/share"
@@ -96,6 +97,17 @@ func UserLoginValidation(c *gin.Context) {
 // UserLogin2FAValidation validates user OTP code
 func UserLogin2FAValidation(c *gin.Context) {
 	service := ParametersFromContext[*user.OtpValidationService](c, user.OtpValidationParameterCtx{})
+	if oidc.IsExternalChallenge(service.SessionID) {
+		proof, _ := c.Cookie(openIDCookieName(service.SessionID))
+		result, err := dependency.FromContext(c).OIDC().CompleteMFA(c.Request.Context(), service.SessionID, proof, service.OTP)
+		if err != nil {
+			openIDError(c, err)
+		} else {
+			writeOpenIDLogin(c, result)
+		}
+		c.Abort()
+		return
+	}
 	expectedUser, err := service.Verify2FA(c)
 	if err != nil {
 		c.JSON(200, serializer.Err(c, err))

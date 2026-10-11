@@ -13,10 +13,13 @@ import (
 	"entgo.io/ent/schema/field"
 	"github.com/cloudreve/Cloudreve/v4/ent/davaccount"
 	"github.com/cloudreve/Cloudreve/v4/ent/entity"
+	"github.com/cloudreve/Cloudreve/v4/ent/externalidentity"
 	"github.com/cloudreve/Cloudreve/v4/ent/file"
 	"github.com/cloudreve/Cloudreve/v4/ent/fsevent"
 	"github.com/cloudreve/Cloudreve/v4/ent/group"
 	"github.com/cloudreve/Cloudreve/v4/ent/oauthgrant"
+	"github.com/cloudreve/Cloudreve/v4/ent/openidsession"
+	"github.com/cloudreve/Cloudreve/v4/ent/openidtransaction"
 	"github.com/cloudreve/Cloudreve/v4/ent/passkey"
 	"github.com/cloudreve/Cloudreve/v4/ent/predicate"
 	"github.com/cloudreve/Cloudreve/v4/ent/share"
@@ -213,6 +216,20 @@ func (uu *UserUpdate) SetNillableGroupUsers(i *int) *UserUpdate {
 	return uu
 }
 
+// SetSSOManaged sets the "sso_managed" field.
+func (uu *UserUpdate) SetSSOManaged(b bool) *UserUpdate {
+	uu.mutation.SetSSOManaged(b)
+	return uu
+}
+
+// SetNillableSSOManaged sets the "sso_managed" field if the given value is not nil.
+func (uu *UserUpdate) SetNillableSSOManaged(b *bool) *UserUpdate {
+	if b != nil {
+		uu.SetSSOManaged(*b)
+	}
+	return uu
+}
+
 // SetGroupID sets the "group" edge to the Group entity by ID.
 func (uu *UserUpdate) SetGroupID(id int) *UserUpdate {
 	uu.mutation.SetGroupID(id)
@@ -342,6 +359,51 @@ func (uu *UserUpdate) AddOauthGrants(o ...*OAuthGrant) *UserUpdate {
 		ids[i] = o[i].ID
 	}
 	return uu.AddOauthGrantIDs(ids...)
+}
+
+// AddExternalIdentityIDs adds the "external_identities" edge to the ExternalIdentity entity by IDs.
+func (uu *UserUpdate) AddExternalIdentityIDs(ids ...int) *UserUpdate {
+	uu.mutation.AddExternalIdentityIDs(ids...)
+	return uu
+}
+
+// AddExternalIdentities adds the "external_identities" edges to the ExternalIdentity entity.
+func (uu *UserUpdate) AddExternalIdentities(e ...*ExternalIdentity) *UserUpdate {
+	ids := make([]int, len(e))
+	for i := range e {
+		ids[i] = e[i].ID
+	}
+	return uu.AddExternalIdentityIDs(ids...)
+}
+
+// AddOpenidTransactionIDs adds the "openid_transactions" edge to the OpenIDTransaction entity by IDs.
+func (uu *UserUpdate) AddOpenidTransactionIDs(ids ...int) *UserUpdate {
+	uu.mutation.AddOpenidTransactionIDs(ids...)
+	return uu
+}
+
+// AddOpenidTransactions adds the "openid_transactions" edges to the OpenIDTransaction entity.
+func (uu *UserUpdate) AddOpenidTransactions(o ...*OpenIDTransaction) *UserUpdate {
+	ids := make([]int, len(o))
+	for i := range o {
+		ids[i] = o[i].ID
+	}
+	return uu.AddOpenidTransactionIDs(ids...)
+}
+
+// AddOpenidSessionIDs adds the "openid_sessions" edge to the OpenIDSession entity by IDs.
+func (uu *UserUpdate) AddOpenidSessionIDs(ids ...int) *UserUpdate {
+	uu.mutation.AddOpenidSessionIDs(ids...)
+	return uu
+}
+
+// AddOpenidSessions adds the "openid_sessions" edges to the OpenIDSession entity.
+func (uu *UserUpdate) AddOpenidSessions(o ...*OpenIDSession) *UserUpdate {
+	ids := make([]int, len(o))
+	for i := range o {
+		ids[i] = o[i].ID
+	}
+	return uu.AddOpenidSessionIDs(ids...)
 }
 
 // Mutation returns the UserMutation object of the builder.
@@ -523,6 +585,69 @@ func (uu *UserUpdate) RemoveOauthGrants(o ...*OAuthGrant) *UserUpdate {
 	return uu.RemoveOauthGrantIDs(ids...)
 }
 
+// ClearExternalIdentities clears all "external_identities" edges to the ExternalIdentity entity.
+func (uu *UserUpdate) ClearExternalIdentities() *UserUpdate {
+	uu.mutation.ClearExternalIdentities()
+	return uu
+}
+
+// RemoveExternalIdentityIDs removes the "external_identities" edge to ExternalIdentity entities by IDs.
+func (uu *UserUpdate) RemoveExternalIdentityIDs(ids ...int) *UserUpdate {
+	uu.mutation.RemoveExternalIdentityIDs(ids...)
+	return uu
+}
+
+// RemoveExternalIdentities removes "external_identities" edges to ExternalIdentity entities.
+func (uu *UserUpdate) RemoveExternalIdentities(e ...*ExternalIdentity) *UserUpdate {
+	ids := make([]int, len(e))
+	for i := range e {
+		ids[i] = e[i].ID
+	}
+	return uu.RemoveExternalIdentityIDs(ids...)
+}
+
+// ClearOpenidTransactions clears all "openid_transactions" edges to the OpenIDTransaction entity.
+func (uu *UserUpdate) ClearOpenidTransactions() *UserUpdate {
+	uu.mutation.ClearOpenidTransactions()
+	return uu
+}
+
+// RemoveOpenidTransactionIDs removes the "openid_transactions" edge to OpenIDTransaction entities by IDs.
+func (uu *UserUpdate) RemoveOpenidTransactionIDs(ids ...int) *UserUpdate {
+	uu.mutation.RemoveOpenidTransactionIDs(ids...)
+	return uu
+}
+
+// RemoveOpenidTransactions removes "openid_transactions" edges to OpenIDTransaction entities.
+func (uu *UserUpdate) RemoveOpenidTransactions(o ...*OpenIDTransaction) *UserUpdate {
+	ids := make([]int, len(o))
+	for i := range o {
+		ids[i] = o[i].ID
+	}
+	return uu.RemoveOpenidTransactionIDs(ids...)
+}
+
+// ClearOpenidSessions clears all "openid_sessions" edges to the OpenIDSession entity.
+func (uu *UserUpdate) ClearOpenidSessions() *UserUpdate {
+	uu.mutation.ClearOpenidSessions()
+	return uu
+}
+
+// RemoveOpenidSessionIDs removes the "openid_sessions" edge to OpenIDSession entities by IDs.
+func (uu *UserUpdate) RemoveOpenidSessionIDs(ids ...int) *UserUpdate {
+	uu.mutation.RemoveOpenidSessionIDs(ids...)
+	return uu
+}
+
+// RemoveOpenidSessions removes "openid_sessions" edges to OpenIDSession entities.
+func (uu *UserUpdate) RemoveOpenidSessions(o ...*OpenIDSession) *UserUpdate {
+	ids := make([]int, len(o))
+	for i := range o {
+		ids[i] = o[i].ID
+	}
+	return uu.RemoveOpenidSessionIDs(ids...)
+}
+
 // Save executes the query and returns the number of nodes affected by the update operation.
 func (uu *UserUpdate) Save(ctx context.Context) (int, error) {
 	if err := uu.defaults(); err != nil {
@@ -647,6 +772,9 @@ func (uu *UserUpdate) sqlSave(ctx context.Context) (n int, err error) {
 	}
 	if uu.mutation.SettingsCleared() {
 		_spec.ClearField(user.FieldSettings, field.TypeJSON)
+	}
+	if value, ok := uu.mutation.SSOManaged(); ok {
+		_spec.SetField(user.FieldSSOManaged, field.TypeBool, value)
 	}
 	if uu.mutation.GroupCleared() {
 		edge := &sqlgraph.EdgeSpec{
@@ -1037,6 +1165,141 @@ func (uu *UserUpdate) sqlSave(ctx context.Context) (n int, err error) {
 		}
 		_spec.Edges.Add = append(_spec.Edges.Add, edge)
 	}
+	if uu.mutation.ExternalIdentitiesCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   user.ExternalIdentitiesTable,
+			Columns: []string{user.ExternalIdentitiesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(externalidentity.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := uu.mutation.RemovedExternalIdentitiesIDs(); len(nodes) > 0 && !uu.mutation.ExternalIdentitiesCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   user.ExternalIdentitiesTable,
+			Columns: []string{user.ExternalIdentitiesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(externalidentity.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := uu.mutation.ExternalIdentitiesIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   user.ExternalIdentitiesTable,
+			Columns: []string{user.ExternalIdentitiesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(externalidentity.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if uu.mutation.OpenidTransactionsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   user.OpenidTransactionsTable,
+			Columns: []string{user.OpenidTransactionsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(openidtransaction.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := uu.mutation.RemovedOpenidTransactionsIDs(); len(nodes) > 0 && !uu.mutation.OpenidTransactionsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   user.OpenidTransactionsTable,
+			Columns: []string{user.OpenidTransactionsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(openidtransaction.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := uu.mutation.OpenidTransactionsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   user.OpenidTransactionsTable,
+			Columns: []string{user.OpenidTransactionsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(openidtransaction.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if uu.mutation.OpenidSessionsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   user.OpenidSessionsTable,
+			Columns: []string{user.OpenidSessionsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(openidsession.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := uu.mutation.RemovedOpenidSessionsIDs(); len(nodes) > 0 && !uu.mutation.OpenidSessionsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   user.OpenidSessionsTable,
+			Columns: []string{user.OpenidSessionsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(openidsession.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := uu.mutation.OpenidSessionsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   user.OpenidSessionsTable,
+			Columns: []string{user.OpenidSessionsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(openidsession.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
 	if n, err = sqlgraph.UpdateNodes(ctx, uu.driver, _spec); err != nil {
 		if _, ok := err.(*sqlgraph.NotFoundError); ok {
 			err = &NotFoundError{user.Label}
@@ -1232,6 +1495,20 @@ func (uuo *UserUpdateOne) SetNillableGroupUsers(i *int) *UserUpdateOne {
 	return uuo
 }
 
+// SetSSOManaged sets the "sso_managed" field.
+func (uuo *UserUpdateOne) SetSSOManaged(b bool) *UserUpdateOne {
+	uuo.mutation.SetSSOManaged(b)
+	return uuo
+}
+
+// SetNillableSSOManaged sets the "sso_managed" field if the given value is not nil.
+func (uuo *UserUpdateOne) SetNillableSSOManaged(b *bool) *UserUpdateOne {
+	if b != nil {
+		uuo.SetSSOManaged(*b)
+	}
+	return uuo
+}
+
 // SetGroupID sets the "group" edge to the Group entity by ID.
 func (uuo *UserUpdateOne) SetGroupID(id int) *UserUpdateOne {
 	uuo.mutation.SetGroupID(id)
@@ -1361,6 +1638,51 @@ func (uuo *UserUpdateOne) AddOauthGrants(o ...*OAuthGrant) *UserUpdateOne {
 		ids[i] = o[i].ID
 	}
 	return uuo.AddOauthGrantIDs(ids...)
+}
+
+// AddExternalIdentityIDs adds the "external_identities" edge to the ExternalIdentity entity by IDs.
+func (uuo *UserUpdateOne) AddExternalIdentityIDs(ids ...int) *UserUpdateOne {
+	uuo.mutation.AddExternalIdentityIDs(ids...)
+	return uuo
+}
+
+// AddExternalIdentities adds the "external_identities" edges to the ExternalIdentity entity.
+func (uuo *UserUpdateOne) AddExternalIdentities(e ...*ExternalIdentity) *UserUpdateOne {
+	ids := make([]int, len(e))
+	for i := range e {
+		ids[i] = e[i].ID
+	}
+	return uuo.AddExternalIdentityIDs(ids...)
+}
+
+// AddOpenidTransactionIDs adds the "openid_transactions" edge to the OpenIDTransaction entity by IDs.
+func (uuo *UserUpdateOne) AddOpenidTransactionIDs(ids ...int) *UserUpdateOne {
+	uuo.mutation.AddOpenidTransactionIDs(ids...)
+	return uuo
+}
+
+// AddOpenidTransactions adds the "openid_transactions" edges to the OpenIDTransaction entity.
+func (uuo *UserUpdateOne) AddOpenidTransactions(o ...*OpenIDTransaction) *UserUpdateOne {
+	ids := make([]int, len(o))
+	for i := range o {
+		ids[i] = o[i].ID
+	}
+	return uuo.AddOpenidTransactionIDs(ids...)
+}
+
+// AddOpenidSessionIDs adds the "openid_sessions" edge to the OpenIDSession entity by IDs.
+func (uuo *UserUpdateOne) AddOpenidSessionIDs(ids ...int) *UserUpdateOne {
+	uuo.mutation.AddOpenidSessionIDs(ids...)
+	return uuo
+}
+
+// AddOpenidSessions adds the "openid_sessions" edges to the OpenIDSession entity.
+func (uuo *UserUpdateOne) AddOpenidSessions(o ...*OpenIDSession) *UserUpdateOne {
+	ids := make([]int, len(o))
+	for i := range o {
+		ids[i] = o[i].ID
+	}
+	return uuo.AddOpenidSessionIDs(ids...)
 }
 
 // Mutation returns the UserMutation object of the builder.
@@ -1542,6 +1864,69 @@ func (uuo *UserUpdateOne) RemoveOauthGrants(o ...*OAuthGrant) *UserUpdateOne {
 	return uuo.RemoveOauthGrantIDs(ids...)
 }
 
+// ClearExternalIdentities clears all "external_identities" edges to the ExternalIdentity entity.
+func (uuo *UserUpdateOne) ClearExternalIdentities() *UserUpdateOne {
+	uuo.mutation.ClearExternalIdentities()
+	return uuo
+}
+
+// RemoveExternalIdentityIDs removes the "external_identities" edge to ExternalIdentity entities by IDs.
+func (uuo *UserUpdateOne) RemoveExternalIdentityIDs(ids ...int) *UserUpdateOne {
+	uuo.mutation.RemoveExternalIdentityIDs(ids...)
+	return uuo
+}
+
+// RemoveExternalIdentities removes "external_identities" edges to ExternalIdentity entities.
+func (uuo *UserUpdateOne) RemoveExternalIdentities(e ...*ExternalIdentity) *UserUpdateOne {
+	ids := make([]int, len(e))
+	for i := range e {
+		ids[i] = e[i].ID
+	}
+	return uuo.RemoveExternalIdentityIDs(ids...)
+}
+
+// ClearOpenidTransactions clears all "openid_transactions" edges to the OpenIDTransaction entity.
+func (uuo *UserUpdateOne) ClearOpenidTransactions() *UserUpdateOne {
+	uuo.mutation.ClearOpenidTransactions()
+	return uuo
+}
+
+// RemoveOpenidTransactionIDs removes the "openid_transactions" edge to OpenIDTransaction entities by IDs.
+func (uuo *UserUpdateOne) RemoveOpenidTransactionIDs(ids ...int) *UserUpdateOne {
+	uuo.mutation.RemoveOpenidTransactionIDs(ids...)
+	return uuo
+}
+
+// RemoveOpenidTransactions removes "openid_transactions" edges to OpenIDTransaction entities.
+func (uuo *UserUpdateOne) RemoveOpenidTransactions(o ...*OpenIDTransaction) *UserUpdateOne {
+	ids := make([]int, len(o))
+	for i := range o {
+		ids[i] = o[i].ID
+	}
+	return uuo.RemoveOpenidTransactionIDs(ids...)
+}
+
+// ClearOpenidSessions clears all "openid_sessions" edges to the OpenIDSession entity.
+func (uuo *UserUpdateOne) ClearOpenidSessions() *UserUpdateOne {
+	uuo.mutation.ClearOpenidSessions()
+	return uuo
+}
+
+// RemoveOpenidSessionIDs removes the "openid_sessions" edge to OpenIDSession entities by IDs.
+func (uuo *UserUpdateOne) RemoveOpenidSessionIDs(ids ...int) *UserUpdateOne {
+	uuo.mutation.RemoveOpenidSessionIDs(ids...)
+	return uuo
+}
+
+// RemoveOpenidSessions removes "openid_sessions" edges to OpenIDSession entities.
+func (uuo *UserUpdateOne) RemoveOpenidSessions(o ...*OpenIDSession) *UserUpdateOne {
+	ids := make([]int, len(o))
+	for i := range o {
+		ids[i] = o[i].ID
+	}
+	return uuo.RemoveOpenidSessionIDs(ids...)
+}
+
 // Where appends a list predicates to the UserUpdate builder.
 func (uuo *UserUpdateOne) Where(ps ...predicate.User) *UserUpdateOne {
 	uuo.mutation.Where(ps...)
@@ -1696,6 +2081,9 @@ func (uuo *UserUpdateOne) sqlSave(ctx context.Context) (_node *User, err error) 
 	}
 	if uuo.mutation.SettingsCleared() {
 		_spec.ClearField(user.FieldSettings, field.TypeJSON)
+	}
+	if value, ok := uuo.mutation.SSOManaged(); ok {
+		_spec.SetField(user.FieldSSOManaged, field.TypeBool, value)
 	}
 	if uuo.mutation.GroupCleared() {
 		edge := &sqlgraph.EdgeSpec{
@@ -2079,6 +2467,141 @@ func (uuo *UserUpdateOne) sqlSave(ctx context.Context) (_node *User, err error) 
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(oauthgrant.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if uuo.mutation.ExternalIdentitiesCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   user.ExternalIdentitiesTable,
+			Columns: []string{user.ExternalIdentitiesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(externalidentity.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := uuo.mutation.RemovedExternalIdentitiesIDs(); len(nodes) > 0 && !uuo.mutation.ExternalIdentitiesCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   user.ExternalIdentitiesTable,
+			Columns: []string{user.ExternalIdentitiesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(externalidentity.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := uuo.mutation.ExternalIdentitiesIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   user.ExternalIdentitiesTable,
+			Columns: []string{user.ExternalIdentitiesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(externalidentity.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if uuo.mutation.OpenidTransactionsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   user.OpenidTransactionsTable,
+			Columns: []string{user.OpenidTransactionsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(openidtransaction.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := uuo.mutation.RemovedOpenidTransactionsIDs(); len(nodes) > 0 && !uuo.mutation.OpenidTransactionsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   user.OpenidTransactionsTable,
+			Columns: []string{user.OpenidTransactionsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(openidtransaction.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := uuo.mutation.OpenidTransactionsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   user.OpenidTransactionsTable,
+			Columns: []string{user.OpenidTransactionsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(openidtransaction.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if uuo.mutation.OpenidSessionsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   user.OpenidSessionsTable,
+			Columns: []string{user.OpenidSessionsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(openidsession.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := uuo.mutation.RemovedOpenidSessionsIDs(); len(nodes) > 0 && !uuo.mutation.OpenidSessionsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   user.OpenidSessionsTable,
+			Columns: []string{user.OpenidSessionsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(openidsession.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := uuo.mutation.OpenidSessionsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   user.OpenidSessionsTable,
+			Columns: []string{user.OpenidSessionsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(openidsession.FieldID, field.TypeInt),
 			},
 		}
 		for _, k := range nodes {

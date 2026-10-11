@@ -5,6 +5,8 @@ import (
 	rawsql "database/sql"
 	"database/sql/driver"
 	"fmt"
+	"net/url"
+	"strings"
 	"time"
 
 	"entgo.io/ent/dialect/sql"
@@ -111,10 +113,13 @@ func NewRawEntClient(l logging.Logger, config conf.ConfigProvider) (*ent.Client,
 		}
 
 	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to open database: %w", err)
+	}
 	// Set connection pool
 	db := client.DB()
 	db.SetMaxIdleConns(50)
-	if confDBType == "sqlite" || confDBType == "UNSET" {
+	if confDBType == conf.SQLiteDB {
 		db.SetMaxOpenConns(1)
 	} else {
 		db.SetMaxOpenConns(100)
@@ -133,7 +138,22 @@ func NewRawEntClient(l logging.Logger, config conf.ConfigProvider) (*ent.Client,
 		}))
 	}
 
-	return ent.NewClient(driverOpt), nil
+	result := ent.NewClient(driverOpt)
+	lockPath := util.RelativePath(dbConfig.DBFile)
+	if dbConfig.DatabaseURL != "" && (string(confDBType) == "sqlite" || string(confDBType) == "sqlite3") {
+		raw := strings.SplitN(strings.TrimPrefix(dbConfig.DatabaseURL, "file:"), "?", 2)[0]
+		decoded, decodeErr := url.PathUnescape(raw)
+		if decodeErr != nil {
+			return nil, fmt.Errorf("invalid SQLite database path")
+		}
+		if decoded == ":memory:" || strings.Contains(dbConfig.DatabaseURL, "mode=memory") {
+			lockPath = ""
+		} else {
+			lockPath = util.RelativePath(decoded)
+		}
+	}
+	migrationDatabases.Store(result, migrationDatabase{DB: db, Dialect: string(confDBType), SQLitePath: lockPath})
+	return result, nil
 }
 
 type sqlite3Driver struct {

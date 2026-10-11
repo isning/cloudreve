@@ -10,8 +10,10 @@ import (
 	"github.com/cloudreve/Cloudreve/v4/ent/user"
 	"github.com/cloudreve/Cloudreve/v4/inventory/types"
 	"github.com/cloudreve/Cloudreve/v4/pkg/auth"
+	"github.com/cloudreve/Cloudreve/v4/pkg/authpolicy"
 	"github.com/cloudreve/Cloudreve/v4/pkg/boolset"
 	"github.com/cloudreve/Cloudreve/v4/pkg/hashid"
+	"github.com/cloudreve/Cloudreve/v4/pkg/oidc"
 	"github.com/go-webauthn/webauthn/protocol"
 	"github.com/go-webauthn/webauthn/webauthn"
 	"github.com/samber/lo"
@@ -24,19 +26,22 @@ type PreparePasskeyLoginResponse struct {
 }
 
 type UserSettings struct {
-	VersionRetentionEnabled bool         `json:"version_retention_enabled"`
-	VersionRetentionExt     []string     `json:"version_retention_ext,omitempty"`
-	VersionRetentionMax     int          `json:"version_retention_max,omitempty"`
-	Paswordless             bool         `json:"passwordless"`
-	TwoFAEnabled            bool         `json:"two_fa_enabled"`
-	Passkeys                []Passkey    `json:"passkeys,omitempty"`
-	DisableViewSync         bool         `json:"disable_view_sync"`
-	ShareLinksInProfile     string       `json:"share_links_in_profile"`
-	OAuthGrants             []OauthGrant `json:"oauth_grants,omitempty"`
+	OpenID                  []oidc.Binding          `json:"open_id"`
+	CredentialCapabilities  authpolicy.Capabilities `json:"credential_capabilities"`
+	VersionRetentionEnabled bool                    `json:"version_retention_enabled"`
+	VersionRetentionExt     []string                `json:"version_retention_ext,omitempty"`
+	VersionRetentionMax     int                     `json:"version_retention_max,omitempty"`
+	Paswordless             bool                    `json:"passwordless"`
+	TwoFAEnabled            bool                    `json:"two_fa_enabled"`
+	Passkeys                []Passkey               `json:"passkeys,omitempty"`
+	DisableViewSync         bool                    `json:"disable_view_sync"`
+	ShareLinksInProfile     string                  `json:"share_links_in_profile"`
+	OAuthGrants             []OauthGrant            `json:"oauth_grants,omitempty"`
 }
 
 func BuildUserSettings(u *ent.User, passkeys []*ent.Passkey, parser *uaparser.Parser, grants []*ent.OAuthGrant) *UserSettings {
 	return &UserSettings{
+		CredentialCapabilities:  (authpolicy.Facts{Managed: u.SSOManaged, HasPassword: u.Password != "", HasPasskey: len(passkeys) > 0}).Capabilities(),
 		VersionRetentionEnabled: u.Settings.VersionRetention,
 		VersionRetentionExt:     u.Settings.VersionRetentionExt,
 		VersionRetentionMax:     u.Settings.VersionRetentionMax,
@@ -141,8 +146,9 @@ type WebAuthnCredentials struct {
 }
 
 type PrepareLoginResponse struct {
-	WebAuthnEnabled bool `json:"webauthn_enabled"`
-	PasswordEnabled bool `json:"password_enabled"`
+	OpenIDProviders []int `json:"openid_providers"`
+	WebAuthnEnabled bool  `json:"webauthn_enabled"`
+	PasswordEnabled bool  `json:"password_enabled"`
 }
 
 // BuildWebAuthnList 构建设置页面凭证列表

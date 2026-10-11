@@ -36,6 +36,7 @@ func (User) Fields() []ent.Field {
 			Default(&types.UserSetting{}).
 			Optional(),
 		field.Int("group_users"),
+		field.Bool("sso_managed").Default(false),
 	}
 }
 
@@ -54,6 +55,9 @@ func (User) Edges() []ent.Edge {
 		edge.To("fsevents", FsEvent.Type),
 		edge.To("entities", Entity.Type),
 		edge.To("oauth_grants", OAuthGrant.Type),
+		edge.To("external_identities", ExternalIdentity.Type),
+		edge.To("openid_transactions", OpenIDTransaction.Type),
+		edge.To("openid_sessions", OpenIDSession.Type),
 	}
 }
 

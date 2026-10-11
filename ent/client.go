@@ -18,6 +18,7 @@ import (
 	"github.com/cloudreve/Cloudreve/v4/ent/davaccount"
 	"github.com/cloudreve/Cloudreve/v4/ent/directlink"
 	"github.com/cloudreve/Cloudreve/v4/ent/entity"
+	"github.com/cloudreve/Cloudreve/v4/ent/externalidentity"
 	"github.com/cloudreve/Cloudreve/v4/ent/file"
 	"github.com/cloudreve/Cloudreve/v4/ent/fsevent"
 	"github.com/cloudreve/Cloudreve/v4/ent/group"
@@ -25,6 +26,8 @@ import (
 	"github.com/cloudreve/Cloudreve/v4/ent/node"
 	"github.com/cloudreve/Cloudreve/v4/ent/oauthclient"
 	"github.com/cloudreve/Cloudreve/v4/ent/oauthgrant"
+	"github.com/cloudreve/Cloudreve/v4/ent/openidsession"
+	"github.com/cloudreve/Cloudreve/v4/ent/openidtransaction"
 	"github.com/cloudreve/Cloudreve/v4/ent/passkey"
 	"github.com/cloudreve/Cloudreve/v4/ent/setting"
 	"github.com/cloudreve/Cloudreve/v4/ent/share"
@@ -46,6 +49,8 @@ type Client struct {
 	DirectLink *DirectLinkClient
 	// Entity is the client for interacting with the Entity builders.
 	Entity *EntityClient
+	// ExternalIdentity is the client for interacting with the ExternalIdentity builders.
+	ExternalIdentity *ExternalIdentityClient
 	// File is the client for interacting with the File builders.
 	File *FileClient
 	// FsEvent is the client for interacting with the FsEvent builders.
@@ -60,6 +65,10 @@ type Client struct {
 	OAuthClient *OAuthClientClient
 	// OAuthGrant is the client for interacting with the OAuthGrant builders.
 	OAuthGrant *OAuthGrantClient
+	// OpenIDSession is the client for interacting with the OpenIDSession builders.
+	OpenIDSession *OpenIDSessionClient
+	// OpenIDTransaction is the client for interacting with the OpenIDTransaction builders.
+	OpenIDTransaction *OpenIDTransactionClient
 	// Passkey is the client for interacting with the Passkey builders.
 	Passkey *PasskeyClient
 	// Setting is the client for interacting with the Setting builders.
@@ -86,6 +95,7 @@ func (c *Client) init() {
 	c.DavAccount = NewDavAccountClient(c.config)
 	c.DirectLink = NewDirectLinkClient(c.config)
 	c.Entity = NewEntityClient(c.config)
+	c.ExternalIdentity = NewExternalIdentityClient(c.config)
 	c.File = NewFileClient(c.config)
 	c.FsEvent = NewFsEventClient(c.config)
 	c.Group = NewGroupClient(c.config)
@@ -93,6 +103,8 @@ func (c *Client) init() {
 	c.Node = NewNodeClient(c.config)
 	c.OAuthClient = NewOAuthClientClient(c.config)
 	c.OAuthGrant = NewOAuthGrantClient(c.config)
+	c.OpenIDSession = NewOpenIDSessionClient(c.config)
+	c.OpenIDTransaction = NewOpenIDTransactionClient(c.config)
 	c.Passkey = NewPasskeyClient(c.config)
 	c.Setting = NewSettingClient(c.config)
 	c.Share = NewShareClient(c.config)
@@ -189,24 +201,27 @@ func (c *Client) Tx(ctx context.Context) (*Tx, error) {
 	cfg := c.config
 	cfg.driver = tx
 	return &Tx{
-		ctx:           ctx,
-		config:        cfg,
-		DavAccount:    NewDavAccountClient(cfg),
-		DirectLink:    NewDirectLinkClient(cfg),
-		Entity:        NewEntityClient(cfg),
-		File:          NewFileClient(cfg),
-		FsEvent:       NewFsEventClient(cfg),
-		Group:         NewGroupClient(cfg),
-		Metadata:      NewMetadataClient(cfg),
-		Node:          NewNodeClient(cfg),
-		OAuthClient:   NewOAuthClientClient(cfg),
-		OAuthGrant:    NewOAuthGrantClient(cfg),
-		Passkey:       NewPasskeyClient(cfg),
-		Setting:       NewSettingClient(cfg),
-		Share:         NewShareClient(cfg),
-		StoragePolicy: NewStoragePolicyClient(cfg),
-		Task:          NewTaskClient(cfg),
-		User:          NewUserClient(cfg),
+		ctx:               ctx,
+		config:            cfg,
+		DavAccount:        NewDavAccountClient(cfg),
+		DirectLink:        NewDirectLinkClient(cfg),
+		Entity:            NewEntityClient(cfg),
+		ExternalIdentity:  NewExternalIdentityClient(cfg),
+		File:              NewFileClient(cfg),
+		FsEvent:           NewFsEventClient(cfg),
+		Group:             NewGroupClient(cfg),
+		Metadata:          NewMetadataClient(cfg),
+		Node:              NewNodeClient(cfg),
+		OAuthClient:       NewOAuthClientClient(cfg),
+		OAuthGrant:        NewOAuthGrantClient(cfg),
+		OpenIDSession:     NewOpenIDSessionClient(cfg),
+		OpenIDTransaction: NewOpenIDTransactionClient(cfg),
+		Passkey:           NewPasskeyClient(cfg),
+		Setting:           NewSettingClient(cfg),
+		Share:             NewShareClient(cfg),
+		StoragePolicy:     NewStoragePolicyClient(cfg),
+		Task:              NewTaskClient(cfg),
+		User:              NewUserClient(cfg),
 	}, nil
 }
 
@@ -224,24 +239,27 @@ func (c *Client) BeginTx(ctx context.Context, opts *sql.TxOptions) (*Tx, error) 
 	cfg := c.config
 	cfg.driver = &txDriver{tx: tx, drv: c.driver}
 	return &Tx{
-		ctx:           ctx,
-		config:        cfg,
-		DavAccount:    NewDavAccountClient(cfg),
-		DirectLink:    NewDirectLinkClient(cfg),
-		Entity:        NewEntityClient(cfg),
-		File:          NewFileClient(cfg),
-		FsEvent:       NewFsEventClient(cfg),
-		Group:         NewGroupClient(cfg),
-		Metadata:      NewMetadataClient(cfg),
-		Node:          NewNodeClient(cfg),
-		OAuthClient:   NewOAuthClientClient(cfg),
-		OAuthGrant:    NewOAuthGrantClient(cfg),
-		Passkey:       NewPasskeyClient(cfg),
-		Setting:       NewSettingClient(cfg),
-		Share:         NewShareClient(cfg),
-		StoragePolicy: NewStoragePolicyClient(cfg),
-		Task:          NewTaskClient(cfg),
-		User:          NewUserClient(cfg),
+		ctx:               ctx,
+		config:            cfg,
+		DavAccount:        NewDavAccountClient(cfg),
+		DirectLink:        NewDirectLinkClient(cfg),
+		Entity:            NewEntityClient(cfg),
+		ExternalIdentity:  NewExternalIdentityClient(cfg),
+		File:              NewFileClient(cfg),
+		FsEvent:           NewFsEventClient(cfg),
+		Group:             NewGroupClient(cfg),
+		Metadata:          NewMetadataClient(cfg),
+		Node:              NewNodeClient(cfg),
+		OAuthClient:       NewOAuthClientClient(cfg),
+		OAuthGrant:        NewOAuthGrantClient(cfg),
+		OpenIDSession:     NewOpenIDSessionClient(cfg),
+		OpenIDTransaction: NewOpenIDTransactionClient(cfg),
+		Passkey:           NewPasskeyClient(cfg),
+		Setting:           NewSettingClient(cfg),
+		Share:             NewShareClient(cfg),
+		StoragePolicy:     NewStoragePolicyClient(cfg),
+		Task:              NewTaskClient(cfg),
+		User:              NewUserClient(cfg),
 	}, nil
 }
 
@@ -271,9 +289,10 @@ func (c *Client) Close() error {
 // In order to add hooks to a specific client, call: `client.Node.Use(...)`.
 func (c *Client) Use(hooks ...Hook) {
 	for _, n := range []interface{ Use(...Hook) }{
-		c.DavAccount, c.DirectLink, c.Entity, c.File, c.FsEvent, c.Group, c.Metadata,
-		c.Node, c.OAuthClient, c.OAuthGrant, c.Passkey, c.Setting, c.Share,
-		c.StoragePolicy, c.Task, c.User,
+		c.DavAccount, c.DirectLink, c.Entity, c.ExternalIdentity, c.File, c.FsEvent,
+		c.Group, c.Metadata, c.Node, c.OAuthClient, c.OAuthGrant, c.OpenIDSession,
+		c.OpenIDTransaction, c.Passkey, c.Setting, c.Share, c.StoragePolicy, c.Task,
+		c.User,
 	} {
 		n.Use(hooks...)
 	}
@@ -283,9 +302,10 @@ func (c *Client) Use(hooks ...Hook) {
 // In order to add interceptors to a specific client, call: `client.Node.Intercept(...)`.
 func (c *Client) Intercept(interceptors ...Interceptor) {
 	for _, n := range []interface{ Intercept(...Interceptor) }{
-		c.DavAccount, c.DirectLink, c.Entity, c.File, c.FsEvent, c.Group, c.Metadata,
-		c.Node, c.OAuthClient, c.OAuthGrant, c.Passkey, c.Setting, c.Share,
-		c.StoragePolicy, c.Task, c.User,
+		c.DavAccount, c.DirectLink, c.Entity, c.ExternalIdentity, c.File, c.FsEvent,
+		c.Group, c.Metadata, c.Node, c.OAuthClient, c.OAuthGrant, c.OpenIDSession,
+		c.OpenIDTransaction, c.Passkey, c.Setting, c.Share, c.StoragePolicy, c.Task,
+		c.User,
 	} {
 		n.Intercept(interceptors...)
 	}
@@ -300,6 +320,8 @@ func (c *Client) Mutate(ctx context.Context, m Mutation) (Value, error) {
 		return c.DirectLink.mutate(ctx, m)
 	case *EntityMutation:
 		return c.Entity.mutate(ctx, m)
+	case *ExternalIdentityMutation:
+		return c.ExternalIdentity.mutate(ctx, m)
 	case *FileMutation:
 		return c.File.mutate(ctx, m)
 	case *FsEventMutation:
@@ -314,6 +336,10 @@ func (c *Client) Mutate(ctx context.Context, m Mutation) (Value, error) {
 		return c.OAuthClient.mutate(ctx, m)
 	case *OAuthGrantMutation:
 		return c.OAuthGrant.mutate(ctx, m)
+	case *OpenIDSessionMutation:
+		return c.OpenIDSession.mutate(ctx, m)
+	case *OpenIDTransactionMutation:
+		return c.OpenIDTransaction.mutate(ctx, m)
 	case *PasskeyMutation:
 		return c.Passkey.mutate(ctx, m)
 	case *SettingMutation:
@@ -813,6 +839,155 @@ func (c *EntityClient) mutate(ctx context.Context, m *EntityMutation) (Value, er
 		return (&EntityDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
 	default:
 		return nil, fmt.Errorf("ent: unknown Entity mutation op: %q", m.Op())
+	}
+}
+
+// ExternalIdentityClient is a client for the ExternalIdentity schema.
+type ExternalIdentityClient struct {
+	config
+}
+
+// NewExternalIdentityClient returns a client for the ExternalIdentity from the given config.
+func NewExternalIdentityClient(c config) *ExternalIdentityClient {
+	return &ExternalIdentityClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `externalidentity.Hooks(f(g(h())))`.
+func (c *ExternalIdentityClient) Use(hooks ...Hook) {
+	c.hooks.ExternalIdentity = append(c.hooks.ExternalIdentity, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `externalidentity.Intercept(f(g(h())))`.
+func (c *ExternalIdentityClient) Intercept(interceptors ...Interceptor) {
+	c.inters.ExternalIdentity = append(c.inters.ExternalIdentity, interceptors...)
+}
+
+// Create returns a builder for creating a ExternalIdentity entity.
+func (c *ExternalIdentityClient) Create() *ExternalIdentityCreate {
+	mutation := newExternalIdentityMutation(c.config, OpCreate)
+	return &ExternalIdentityCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of ExternalIdentity entities.
+func (c *ExternalIdentityClient) CreateBulk(builders ...*ExternalIdentityCreate) *ExternalIdentityCreateBulk {
+	return &ExternalIdentityCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *ExternalIdentityClient) MapCreateBulk(slice any, setFunc func(*ExternalIdentityCreate, int)) *ExternalIdentityCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &ExternalIdentityCreateBulk{err: fmt.Errorf("calling to ExternalIdentityClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*ExternalIdentityCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &ExternalIdentityCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for ExternalIdentity.
+func (c *ExternalIdentityClient) Update() *ExternalIdentityUpdate {
+	mutation := newExternalIdentityMutation(c.config, OpUpdate)
+	return &ExternalIdentityUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *ExternalIdentityClient) UpdateOne(ei *ExternalIdentity) *ExternalIdentityUpdateOne {
+	mutation := newExternalIdentityMutation(c.config, OpUpdateOne, withExternalIdentity(ei))
+	return &ExternalIdentityUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *ExternalIdentityClient) UpdateOneID(id int) *ExternalIdentityUpdateOne {
+	mutation := newExternalIdentityMutation(c.config, OpUpdateOne, withExternalIdentityID(id))
+	return &ExternalIdentityUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for ExternalIdentity.
+func (c *ExternalIdentityClient) Delete() *ExternalIdentityDelete {
+	mutation := newExternalIdentityMutation(c.config, OpDelete)
+	return &ExternalIdentityDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *ExternalIdentityClient) DeleteOne(ei *ExternalIdentity) *ExternalIdentityDeleteOne {
+	return c.DeleteOneID(ei.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *ExternalIdentityClient) DeleteOneID(id int) *ExternalIdentityDeleteOne {
+	builder := c.Delete().Where(externalidentity.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &ExternalIdentityDeleteOne{builder}
+}
+
+// Query returns a query builder for ExternalIdentity.
+func (c *ExternalIdentityClient) Query() *ExternalIdentityQuery {
+	return &ExternalIdentityQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeExternalIdentity},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a ExternalIdentity entity by its id.
+func (c *ExternalIdentityClient) Get(ctx context.Context, id int) (*ExternalIdentity, error) {
+	return c.Query().Where(externalidentity.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *ExternalIdentityClient) GetX(ctx context.Context, id int) *ExternalIdentity {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// QueryUser queries the user edge of a ExternalIdentity.
+func (c *ExternalIdentityClient) QueryUser(ei *ExternalIdentity) *UserQuery {
+	query := (&UserClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := ei.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(externalidentity.Table, externalidentity.FieldID, id),
+			sqlgraph.To(user.Table, user.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, externalidentity.UserTable, externalidentity.UserColumn),
+		)
+		fromV = sqlgraph.Neighbors(ei.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// Hooks returns the client hooks.
+func (c *ExternalIdentityClient) Hooks() []Hook {
+	return c.hooks.ExternalIdentity
+}
+
+// Interceptors returns the client interceptors.
+func (c *ExternalIdentityClient) Interceptors() []Interceptor {
+	return c.inters.ExternalIdentity
+}
+
+func (c *ExternalIdentityClient) mutate(ctx context.Context, m *ExternalIdentityMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&ExternalIdentityCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&ExternalIdentityUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&ExternalIdentityUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&ExternalIdentityDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown ExternalIdentity mutation op: %q", m.Op())
 	}
 }
 
@@ -2016,6 +2191,304 @@ func (c *OAuthGrantClient) mutate(ctx context.Context, m *OAuthGrantMutation) (V
 	}
 }
 
+// OpenIDSessionClient is a client for the OpenIDSession schema.
+type OpenIDSessionClient struct {
+	config
+}
+
+// NewOpenIDSessionClient returns a client for the OpenIDSession from the given config.
+func NewOpenIDSessionClient(c config) *OpenIDSessionClient {
+	return &OpenIDSessionClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `openidsession.Hooks(f(g(h())))`.
+func (c *OpenIDSessionClient) Use(hooks ...Hook) {
+	c.hooks.OpenIDSession = append(c.hooks.OpenIDSession, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `openidsession.Intercept(f(g(h())))`.
+func (c *OpenIDSessionClient) Intercept(interceptors ...Interceptor) {
+	c.inters.OpenIDSession = append(c.inters.OpenIDSession, interceptors...)
+}
+
+// Create returns a builder for creating a OpenIDSession entity.
+func (c *OpenIDSessionClient) Create() *OpenIDSessionCreate {
+	mutation := newOpenIDSessionMutation(c.config, OpCreate)
+	return &OpenIDSessionCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of OpenIDSession entities.
+func (c *OpenIDSessionClient) CreateBulk(builders ...*OpenIDSessionCreate) *OpenIDSessionCreateBulk {
+	return &OpenIDSessionCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *OpenIDSessionClient) MapCreateBulk(slice any, setFunc func(*OpenIDSessionCreate, int)) *OpenIDSessionCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &OpenIDSessionCreateBulk{err: fmt.Errorf("calling to OpenIDSessionClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*OpenIDSessionCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &OpenIDSessionCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for OpenIDSession.
+func (c *OpenIDSessionClient) Update() *OpenIDSessionUpdate {
+	mutation := newOpenIDSessionMutation(c.config, OpUpdate)
+	return &OpenIDSessionUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *OpenIDSessionClient) UpdateOne(ois *OpenIDSession) *OpenIDSessionUpdateOne {
+	mutation := newOpenIDSessionMutation(c.config, OpUpdateOne, withOpenIDSession(ois))
+	return &OpenIDSessionUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *OpenIDSessionClient) UpdateOneID(id int) *OpenIDSessionUpdateOne {
+	mutation := newOpenIDSessionMutation(c.config, OpUpdateOne, withOpenIDSessionID(id))
+	return &OpenIDSessionUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for OpenIDSession.
+func (c *OpenIDSessionClient) Delete() *OpenIDSessionDelete {
+	mutation := newOpenIDSessionMutation(c.config, OpDelete)
+	return &OpenIDSessionDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *OpenIDSessionClient) DeleteOne(ois *OpenIDSession) *OpenIDSessionDeleteOne {
+	return c.DeleteOneID(ois.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *OpenIDSessionClient) DeleteOneID(id int) *OpenIDSessionDeleteOne {
+	builder := c.Delete().Where(openidsession.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &OpenIDSessionDeleteOne{builder}
+}
+
+// Query returns a query builder for OpenIDSession.
+func (c *OpenIDSessionClient) Query() *OpenIDSessionQuery {
+	return &OpenIDSessionQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeOpenIDSession},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a OpenIDSession entity by its id.
+func (c *OpenIDSessionClient) Get(ctx context.Context, id int) (*OpenIDSession, error) {
+	return c.Query().Where(openidsession.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *OpenIDSessionClient) GetX(ctx context.Context, id int) *OpenIDSession {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// QueryUser queries the user edge of a OpenIDSession.
+func (c *OpenIDSessionClient) QueryUser(ois *OpenIDSession) *UserQuery {
+	query := (&UserClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := ois.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(openidsession.Table, openidsession.FieldID, id),
+			sqlgraph.To(user.Table, user.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, openidsession.UserTable, openidsession.UserColumn),
+		)
+		fromV = sqlgraph.Neighbors(ois.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// Hooks returns the client hooks.
+func (c *OpenIDSessionClient) Hooks() []Hook {
+	return c.hooks.OpenIDSession
+}
+
+// Interceptors returns the client interceptors.
+func (c *OpenIDSessionClient) Interceptors() []Interceptor {
+	return c.inters.OpenIDSession
+}
+
+func (c *OpenIDSessionClient) mutate(ctx context.Context, m *OpenIDSessionMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&OpenIDSessionCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&OpenIDSessionUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&OpenIDSessionUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&OpenIDSessionDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown OpenIDSession mutation op: %q", m.Op())
+	}
+}
+
+// OpenIDTransactionClient is a client for the OpenIDTransaction schema.
+type OpenIDTransactionClient struct {
+	config
+}
+
+// NewOpenIDTransactionClient returns a client for the OpenIDTransaction from the given config.
+func NewOpenIDTransactionClient(c config) *OpenIDTransactionClient {
+	return &OpenIDTransactionClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `openidtransaction.Hooks(f(g(h())))`.
+func (c *OpenIDTransactionClient) Use(hooks ...Hook) {
+	c.hooks.OpenIDTransaction = append(c.hooks.OpenIDTransaction, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `openidtransaction.Intercept(f(g(h())))`.
+func (c *OpenIDTransactionClient) Intercept(interceptors ...Interceptor) {
+	c.inters.OpenIDTransaction = append(c.inters.OpenIDTransaction, interceptors...)
+}
+
+// Create returns a builder for creating a OpenIDTransaction entity.
+func (c *OpenIDTransactionClient) Create() *OpenIDTransactionCreate {
+	mutation := newOpenIDTransactionMutation(c.config, OpCreate)
+	return &OpenIDTransactionCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of OpenIDTransaction entities.
+func (c *OpenIDTransactionClient) CreateBulk(builders ...*OpenIDTransactionCreate) *OpenIDTransactionCreateBulk {
+	return &OpenIDTransactionCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *OpenIDTransactionClient) MapCreateBulk(slice any, setFunc func(*OpenIDTransactionCreate, int)) *OpenIDTransactionCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &OpenIDTransactionCreateBulk{err: fmt.Errorf("calling to OpenIDTransactionClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*OpenIDTransactionCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &OpenIDTransactionCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for OpenIDTransaction.
+func (c *OpenIDTransactionClient) Update() *OpenIDTransactionUpdate {
+	mutation := newOpenIDTransactionMutation(c.config, OpUpdate)
+	return &OpenIDTransactionUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *OpenIDTransactionClient) UpdateOne(oit *OpenIDTransaction) *OpenIDTransactionUpdateOne {
+	mutation := newOpenIDTransactionMutation(c.config, OpUpdateOne, withOpenIDTransaction(oit))
+	return &OpenIDTransactionUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *OpenIDTransactionClient) UpdateOneID(id int) *OpenIDTransactionUpdateOne {
+	mutation := newOpenIDTransactionMutation(c.config, OpUpdateOne, withOpenIDTransactionID(id))
+	return &OpenIDTransactionUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for OpenIDTransaction.
+func (c *OpenIDTransactionClient) Delete() *OpenIDTransactionDelete {
+	mutation := newOpenIDTransactionMutation(c.config, OpDelete)
+	return &OpenIDTransactionDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *OpenIDTransactionClient) DeleteOne(oit *OpenIDTransaction) *OpenIDTransactionDeleteOne {
+	return c.DeleteOneID(oit.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *OpenIDTransactionClient) DeleteOneID(id int) *OpenIDTransactionDeleteOne {
+	builder := c.Delete().Where(openidtransaction.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &OpenIDTransactionDeleteOne{builder}
+}
+
+// Query returns a query builder for OpenIDTransaction.
+func (c *OpenIDTransactionClient) Query() *OpenIDTransactionQuery {
+	return &OpenIDTransactionQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeOpenIDTransaction},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a OpenIDTransaction entity by its id.
+func (c *OpenIDTransactionClient) Get(ctx context.Context, id int) (*OpenIDTransaction, error) {
+	return c.Query().Where(openidtransaction.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *OpenIDTransactionClient) GetX(ctx context.Context, id int) *OpenIDTransaction {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// QueryUser queries the user edge of a OpenIDTransaction.
+func (c *OpenIDTransactionClient) QueryUser(oit *OpenIDTransaction) *UserQuery {
+	query := (&UserClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := oit.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(openidtransaction.Table, openidtransaction.FieldID, id),
+			sqlgraph.To(user.Table, user.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, openidtransaction.UserTable, openidtransaction.UserColumn),
+		)
+		fromV = sqlgraph.Neighbors(oit.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// Hooks returns the client hooks.
+func (c *OpenIDTransactionClient) Hooks() []Hook {
+	return c.hooks.OpenIDTransaction
+}
+
+// Interceptors returns the client interceptors.
+func (c *OpenIDTransactionClient) Interceptors() []Interceptor {
+	return c.inters.OpenIDTransaction
+}
+
+func (c *OpenIDTransactionClient) mutate(ctx context.Context, m *OpenIDTransactionMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&OpenIDTransactionCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&OpenIDTransactionUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&OpenIDTransactionUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&OpenIDTransactionDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown OpenIDTransaction mutation op: %q", m.Op())
+	}
+}
+
 // PasskeyClient is a client for the Passkey schema.
 type PasskeyClient struct {
 	config
@@ -3071,6 +3544,54 @@ func (c *UserClient) QueryOauthGrants(u *User) *OAuthGrantQuery {
 	return query
 }
 
+// QueryExternalIdentities queries the external_identities edge of a User.
+func (c *UserClient) QueryExternalIdentities(u *User) *ExternalIdentityQuery {
+	query := (&ExternalIdentityClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := u.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(user.Table, user.FieldID, id),
+			sqlgraph.To(externalidentity.Table, externalidentity.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, user.ExternalIdentitiesTable, user.ExternalIdentitiesColumn),
+		)
+		fromV = sqlgraph.Neighbors(u.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryOpenidTransactions queries the openid_transactions edge of a User.
+func (c *UserClient) QueryOpenidTransactions(u *User) *OpenIDTransactionQuery {
+	query := (&OpenIDTransactionClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := u.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(user.Table, user.FieldID, id),
+			sqlgraph.To(openidtransaction.Table, openidtransaction.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, user.OpenidTransactionsTable, user.OpenidTransactionsColumn),
+		)
+		fromV = sqlgraph.Neighbors(u.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryOpenidSessions queries the openid_sessions edge of a User.
+func (c *UserClient) QueryOpenidSessions(u *User) *OpenIDSessionQuery {
+	query := (&OpenIDSessionClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := u.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(user.Table, user.FieldID, id),
+			sqlgraph.To(openidsession.Table, openidsession.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, user.OpenidSessionsTable, user.OpenidSessionsColumn),
+		)
+		fromV = sqlgraph.Neighbors(u.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
 // Hooks returns the client hooks.
 func (c *UserClient) Hooks() []Hook {
 	hooks := c.hooks.User
@@ -3101,14 +3622,14 @@ func (c *UserClient) mutate(ctx context.Context, m *UserMutation) (Value, error)
 // hooks and interceptors per client, for fast access.
 type (
 	hooks struct {
-		DavAccount, DirectLink, Entity, File, FsEvent, Group, Metadata, Node,
-		OAuthClient, OAuthGrant, Passkey, Setting, Share, StoragePolicy, Task,
-		User []ent.Hook
+		DavAccount, DirectLink, Entity, ExternalIdentity, File, FsEvent, Group,
+		Metadata, Node, OAuthClient, OAuthGrant, OpenIDSession, OpenIDTransaction,
+		Passkey, Setting, Share, StoragePolicy, Task, User []ent.Hook
 	}
 	inters struct {
-		DavAccount, DirectLink, Entity, File, FsEvent, Group, Metadata, Node,
-		OAuthClient, OAuthGrant, Passkey, Setting, Share, StoragePolicy, Task,
-		User []ent.Interceptor
+		DavAccount, DirectLink, Entity, ExternalIdentity, File, FsEvent, Group,
+		Metadata, Node, OAuthClient, OAuthGrant, OpenIDSession, OpenIDTransaction,
+		Passkey, Setting, Share, StoragePolicy, Task, User []ent.Interceptor
 	}
 )
 
