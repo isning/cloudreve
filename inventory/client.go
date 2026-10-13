@@ -177,6 +177,25 @@ func (d sqlite3Driver) Open(name string) (conn driver.Conn, err error) {
 	_, err = conn.(sqlite3DriverConn).Exec("PRAGMA foreign_keys = ON;", nil)
 	if err != nil {
 		_ = conn.Close()
+		return
+	}
+	// Separate workers can hold short-lived SQLite write/schema locks. Honor
+	// an operator's explicit timeout; otherwise wait within the HTTP deadline
+	// instead of failing valid writes immediately with SQLITE_BUSY.
+	explicitTimeout := false
+	if parts := strings.SplitN(name, "?", 2); len(parts) == 2 {
+		values, _ := url.ParseQuery(parts[1])
+		for _, pragma := range values["_pragma"] {
+			if strings.HasPrefix(strings.ToLower(strings.TrimSpace(pragma)), "busy_timeout") {
+				explicitTimeout = true
+			}
+		}
+	}
+	if !explicitTimeout {
+		_, err = conn.(sqlite3DriverConn).Exec("PRAGMA busy_timeout = 5000;", nil)
+		if err != nil {
+			_ = conn.Close()
+		}
 	}
 	return
 }

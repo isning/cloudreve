@@ -20,6 +20,7 @@ import (
 	"github.com/cloudreve/Cloudreve/v4/application/dependency"
 	"github.com/cloudreve/Cloudreve/v4/ent/grouppolicy"
 	entmigrate "github.com/cloudreve/Cloudreve/v4/ent/migrate"
+	"github.com/cloudreve/Cloudreve/v4/pkg/auth"
 	"github.com/cloudreve/Cloudreve/v4/pkg/cache"
 	"github.com/cloudreve/Cloudreve/v4/pkg/conf"
 	"github.com/cloudreve/Cloudreve/v4/pkg/hashid"
@@ -50,6 +51,7 @@ func TestStorageStartupWorker(t *testing.T) {
 	d := dependency.NewDependency(dependency.WithConfigProvider(cfg), dependency.WithLogger(l), dependency.WithKV(cache.NewMemoStore("", l)),
 		dependency.WithHashIDEncoder(encoder), dependency.WithRequiredDbVersion("4.14.0"))
 	defer d.DBClient().Close()
+
 	defer d.Shutdown(context.Background())
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
@@ -119,6 +121,7 @@ func TestStorageConcurrentStartupPreservesPublicBehavior(t *testing.T) {
 	first := launchStorageWorker(t, f)
 	second := launchStorageWorker(t, f)
 	for _, worker := range []*storageWorker{first, second} {
+
 		f.remote = worker.ready(t)
 		f.login(t)
 		f.oidcLogin(t)
@@ -160,9 +163,10 @@ func (f *storageFixture) oidcLogin(t *testing.T) {
 		var envelope struct {
 			Code int
 			Data json.RawMessage
+			Msg  string
 		}
 		require.NoError(t, json.NewDecoder(res.Body).Decode(&envelope))
-		require.Zero(t, envelope.Code, "native OIDC sign-in failed")
+		require.Zero(t, envelope.Code, "native OIDC sign-in failed: %s", auth.RedactSensitiveValues(envelope.Msg))
 		require.NoError(t, json.Unmarshal(envelope.Data, result))
 	}
 	var authorization string
