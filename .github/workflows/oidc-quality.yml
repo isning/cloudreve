@@ -1,4 +1,4 @@
-name: OIDC release gates
+name: Authentication and storage release gates
 
 on:
   pull_request:
@@ -73,11 +73,49 @@ jobs:
         with:
           name: verified-frontend
           path: application/statics
+      - uses: cachix/install-nix-action@b85815f71a6de0ddee80b8a80a98d43f4bcc66c7 # v31
+      - name: Provision pinned storage test tools
+        run: |
+          mkdir -p .scratch/multi-storage
+          nix build --impure -f scripts/storage-tools.nix -o .scratch/multi-storage/tools
+          echo "CLOUDREVE_S3_TEST_SERVER=$GITHUB_WORKSPACE/.scratch/multi-storage/tools/bin/weed" >> "$GITHUB_ENV"
+          echo "$GITHUB_WORKSPACE/.scratch/multi-storage/tools/bin" >> "$GITHUB_PATH"
       - name: Database HTTP, lifecycle and migration gates
-        run: python3 scripts/verify.py --stage database
+        run: |
+          python3 scripts/verify.py --stage database
+          python3 scripts/verify-storage.py --stage database
         env:
           OIDC_TEST_DRIVER: ${{ matrix.driver }}
           OIDC_TEST_DSN: ${{ matrix.driver == 'postgres' && format('postgres://postgres:test-{0}-{1}@127.0.0.1:{2}/postgres?sslmode=disable', github.run_id, github.run_attempt, job.services.database.ports['5432']) || format('root:test-{0}-{1}@tcp(127.0.0.1:{2})/mysql?parseTime=true', github.run_id, github.run_attempt, job.services.database.ports['3306']) }}
+
+  storage:
+    needs: frontend
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: verified-frontend
+          path: application/statics
+      - uses: cachix/install-nix-action@b85815f71a6de0ddee80b8a80a98d43f4bcc66c7 # v31
+      - name: Provision pinned storage test tools
+        run: |
+          mkdir -p .scratch/multi-storage
+          nix build --impure -f scripts/storage-tools.nix -o .scratch/multi-storage/tools
+          echo "CLOUDREVE_S3_TEST_SERVER=$GITHUB_WORKSPACE/.scratch/multi-storage/tools/bin/weed" >> "$GITHUB_ENV"
+          echo "$GITHUB_WORKSPACE/.scratch/multi-storage/tools/bin" >> "$GITHUB_PATH"
+      - name: Native HTTP, S3, recovery and lifecycle acceptance
+        run: python3 scripts/verify-storage.py --stage native --shards 4 --shard "$STORAGE_SHARD"
+        env:
+          STORAGE_SHARD: ${{ matrix.shard }}
 
   frontend:
     runs-on: ubuntu-24.04
@@ -125,6 +163,17 @@ jobs:
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: go.mod
+      - uses: cachix/install-nix-action@b85815f71a6de0ddee80b8a80a98d43f4bcc66c7 # v31
+      - name: Provision pinned storage test tools
+        run: |
+          mkdir -p .scratch/multi-storage
+          nix build --impure -f scripts/storage-tools.nix -o .scratch/multi-storage/tools
+          echo "CLOUDREVE_S3_TEST_SERVER=$GITHUB_WORKSPACE/.scratch/multi-storage/tools/bin/weed" >> "$GITHUB_ENV"
+          echo "$GITHUB_WORKSPACE/.scratch/multi-storage/tools/bin" >> "$GITHUB_PATH"
+      - name: Native browser, HTTP and S3 acceptance
+        run: python3 scripts/verify-storage.py --stage browser
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.scratch/oidc-pro/tmp/playwright
       - name: Build the deliverable with embedded assets
         run: go build -o .scratch/oidc-pro/tmp/cloudreve .
         env:
@@ -137,7 +186,7 @@ jobs:
 
   image:
     if: github.event_name == 'push' && github.ref_type == 'tag'
-    needs: [frontend, backend, databases]
+    needs: [frontend, backend, databases, storage]
     permissions:
       contents: read
       packages: write
@@ -199,6 +248,18 @@ jobs:
             org.opencontainers.image.version=${{ github.ref_name }}
           cache-from: type=gha,scope=cloudreve-image-${{ matrix.arch }}
           cache-to: type=gha,mode=max,scope=cloudreve-image-${{ matrix.arch }}
+      - uses: cachix/install-nix-action@b85815f71a6de0ddee80b8a80a98d43f4bcc66c7 # v31
+      - name: Provision pinned storage test tools
+        run: |
+          mkdir -p .scratch/multi-storage
+          nix build --impure -f scripts/storage-tools.nix -o .scratch/multi-storage/tools
+          echo "CLOUDREVE_S3_TEST_SERVER=$GITHUB_WORKSPACE/.scratch/multi-storage/tools/bin/weed" >> "$GITHUB_ENV"
+          echo "$GITHUB_WORKSPACE/.scratch/multi-storage/tools/bin" >> "$GITHUB_PATH"
+      - name: Verify runtime image storage behavior
+        run: python3 scripts/verify-storage.py --stage image
+        env:
+          CLOUDREVE_STORAGE_IMAGE: cloudreve-ci:${{ matrix.arch }}
+          CLOUDREVE_CONTAINER_ENGINE: docker
       - name: Verify packaged startup and frontend/backend versions
         run: python3 scripts/verify-image.py --image "$SMOKE_IMAGE" --version "$RELEASE_TAG"
         env:
