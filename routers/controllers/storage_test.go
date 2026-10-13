@@ -301,7 +301,9 @@ func storageRouter(d dependency.Dep, l logging.Logger) *gin.Engine {
 	r.POST("/api/v4/session/openid", ctl.FinishOpenID)
 	r.GET("/api/v4/callback/s3/:sessionID/:key", middleware.UseUploadSession(types.PolicyTypeS3), ctl.ProcessCallback(http.StatusBadRequest, false))
 	authenticated := r.Group("/api/v4", middleware.LoginRequired())
+	authenticated.Use(middleware.ContextHint())
 	authenticated.GET("/file", ctl.FromQuery[explorer.ListFileService](explorer.ListFileParameterCtx{}), ctl.ListDirectory)
+	authenticated.DELETE("/file", ctl.FromJSON[explorer.DeleteFileService](explorer.DeleteFileParameterCtx{}), ctl.Delete)
 	authenticated.POST("/workflow/import", middleware.IsAdmin(), ctl.FromJSON[explorer.ImportWorkflowService](explorer.CreateImportParamCtx{}), ctl.ImportFiles)
 	authenticated.PUT("/file/upload", ctl.FromJSON[explorer.CreateUploadSessionService](explorer.CreateUploadSessionParameterCtx{}), ctl.CreateUploadSession)
 	authenticated.POST("/file/url", ctl.FromJSON[explorer.FileURLService](explorer.FileURLParameterCtx{}), ctl.FileURL)
@@ -409,6 +411,12 @@ func (f *storageFixture) upload(t *testing.T, uri string, data []byte, policy an
 	}
 	var session explorer.UploadSessionResponse
 	f.request(t, http.MethodPut, "/api/v4/file/upload", body, &session)
+	f.finishUpload(t, session, data)
+	return session
+}
+
+func (f *storageFixture) finishUpload(t *testing.T, session explorer.UploadSessionResponse, data []byte) {
+	t.Helper()
 	require.Len(t, session.UploadURLs, 1)
 	part, _ := storageHTTP(t, http.MethodPut, session.UploadURLs[0], data)
 	complete := struct {
@@ -427,7 +435,6 @@ func (f *storageFixture) upload(t *testing.T, uri string, data []byte, policy an
 	_, receipt := storageHTTP(t, http.MethodPost, session.CompleteURL, xmlBody)
 	require.NotContains(t, string(receipt), "<Error>", "multipart transport success must include a successful business receipt")
 	f.request(t, http.MethodGet, "/api/v4/callback/s3/"+session.SessionID+"/"+session.CallbackSecret, nil, nil)
-	return session
 }
 
 func TestStorageLegacyS3UploadAndRead(t *testing.T) {
