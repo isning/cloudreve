@@ -191,7 +191,7 @@ func prepareStorageFixture(t *testing.T, legacy bool) *storageFixture {
 		require.NoError(t, err)
 		var tables []*schema.Table
 		for _, table := range entmigrate.Tables {
-			if table.Name != "group_policies" {
+			if table.Name != "group_policies" && table.Name != "relocation_items" && table.Name != "relocation_attempts" {
 				tables = append(tables, table)
 			}
 		}

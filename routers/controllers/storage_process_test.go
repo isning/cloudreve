@@ -20,6 +20,9 @@ import (
 	"github.com/cloudreve/Cloudreve/v4/application/dependency"
 	"github.com/cloudreve/Cloudreve/v4/ent/grouppolicy"
 	entmigrate "github.com/cloudreve/Cloudreve/v4/ent/migrate"
+	"github.com/cloudreve/Cloudreve/v4/ent/setting"
+	"github.com/cloudreve/Cloudreve/v4/inventory"
+	"github.com/cloudreve/Cloudreve/v4/inventory/types"
 	"github.com/cloudreve/Cloudreve/v4/pkg/auth"
 	"github.com/cloudreve/Cloudreve/v4/pkg/cache"
 	"github.com/cloudreve/Cloudreve/v4/pkg/conf"
@@ -145,6 +148,15 @@ func TestStorageConcurrentStartupPreservesPublicBehavior(t *testing.T) {
 		var preferences usersvc.UserSettings
 		f.request(t, http.MethodGet, "/api/v4/user/setting", nil, &preferences)
 		require.Len(t, preferences.OpenID, 1)
+		// Startup must add both durable journal tables independently of the
+		// already-installed upstream and OIDC markers.
+		_, err := f.db.RelocationItem.Query().Count(context.Background())
+		require.NoError(t, err)
+		_, err = f.db.RelocationAttempt.Query().Count(context.Background())
+		require.NoError(t, err)
+		marker, err := f.db.Setting.Query().Where(setting.Name(inventory.StorageSchemaVersion)).Only(context.Background())
+		require.NoError(t, err)
+		require.Equal(t, "complete", marker.Value)
 	}
 	f.remote = first.ready(t)
 	f.login(t)
@@ -225,4 +237,58 @@ func TestStoragePartialInitializationRecoversAfterRestart(t *testing.T) {
 	f.request(t, http.MethodPost, "/api/v4/file/url", map[string]any{"uris": []string{"cloudreve://my/existing.txt"}}, &links)
 	_, data := storageHTTP(t, http.MethodGet, links.Urls[0].Url, nil)
 	require.Equal(t, "persisted object before storage extension", string(data))
+}
+
+func TestStoragePartialRelocationJournalUpgradeRecoversFromV2(t *testing.T) {
+	f := prepareStorageFixture(t, true)
+	ctx := context.Background()
+	partial := *entmigrate.RelocationItemsTable
+	partial.Indexes = nil
+	require.NoError(t, entmigrate.Create(ctx, f.db.Schema, []*schema.Table{entmigrate.GroupPoliciesTable, &partial}, schema.WithAtlas(false)))
+	_, err := f.db.Setting.Create().SetName("storage_extension_schema_v2").SetValue("complete").Save(ctx)
+	require.NoError(t, err)
+	var duplicateID int
+	for i := 0; i < 2; i++ {
+		item, err := f.db.RelocationItem.Create().SetTaskID(999).SetOwnerID(2).SetSourceEntityID(1).
+			SetSourcePolicyID(f.policies[0].ID).SetSourceKey("legacy-object").SetSourceLocation("owned-fixture-location").
+			SetDestinationPolicyID(f.policies[0].ID).SetDestinationLocation("owned-fixture-location").
+			SetSnapshot(&types.RelocationSnapshot{Type: int(types.EntityTypeVersion), Size: 0}).SetReferences([]types.RelocationReference{}).Save(ctx)
+		require.NoError(t, err)
+		duplicateID = item.ID
+	}
+	failed := launchStorageWorker(t, f)
+	select {
+	case err := <-failed.done:
+		require.Error(t, err, "duplicate journal identity must prevent a false successful upgrade")
+		failed.done <- err
+	case <-time.After(20 * time.Second):
+		t.Fatal("partial journal initialization did not fail promptly")
+	}
+	complete, err := f.db.Setting.Query().Where(setting.Name(inventory.StorageSchemaVersion), setting.Value("complete")).Exist(ctx)
+	require.NoError(t, err)
+	require.False(t, complete)
+	// Repair only the deliberately duplicated fixture row, which owns no I/O.
+	require.NoError(t, f.db.RelocationItem.DeleteOneID(duplicateID).Exec(ctx))
+	recovered := launchStorageWorkerWithWorkflows(t, f)
+	f.remote = recovered.ready(t)
+	f.login(t)
+	f.oidcLogin(t)
+	require.Equal(t, []byte("persisted object before storage extension"), f.readFile(t, "cloudreve://my/existing.txt"))
+	f.enableMigration(t, true)
+	var accepted explorer.TaskResponse
+	f.request(t, http.MethodPost, "/api/v4/workflow/reloacte", map[string]any{"src": []string{"cloudreve://my/existing.txt"}, "dst_policy_id": hashid.EncodePolicyID(f.dep.HashIDEncoder(), f.policies[0].ID)}, &accepted)
+	// Restart after accepting the command to exercise persisted native work
+	// and completion rather than relying on its in-memory queue state.
+	recovered.stop(t)
+	restarted := launchStorageWorkerWithWorkflows(t, f)
+	f.remote = restarted.ready(t)
+	f.login(t)
+	f.waitForStorageTask(t, accepted.ID, "completed")
+	count, err := f.db.RelocationItem.Query().Count(ctx)
+	require.NoError(t, err)
+	require.Equal(t, 2, count, "the repaired prior plan and one no-op plan survive upgrades")
+	_, err = f.db.RelocationAttempt.Query().Count(ctx)
+	require.NoError(t, err)
+	_, err = f.db.Setting.Query().Where(setting.Name("storage_extension_schema_v2"), setting.Value("complete")).Only(ctx)
+	require.NoError(t, err)
 }

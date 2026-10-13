@@ -23,6 +23,8 @@ type Plan struct {
 	Owner       *ent.User
 	Destination *ent.StoragePolicy
 	FileIDs     []int
+	Entity      *ent.Entity
+	References  []types.RelocationReference
 }
 
 // PlanNoop is the first migration slice: a complete, unencrypted, exclusively
@@ -65,5 +67,5 @@ func PlanNoop(ctx context.Context, dep dependency.Dep, ownerID int, src []string
 	if entity.Type() != types.EntityTypeVersion || entity.UploadSessionID() != nil || entity.Encrypted() || entity.ReferenceCount() != 1 || entity.PolicyID() != destination.ID {
 		return nil, serializer.NewError(serializer.CodeNoPermissionErr, "This migration source or transfer is not supported yet", nil)
 	}
-	return &Plan{Owner: owner, Destination: destination, FileIDs: []int{file.ID()}}, nil
+	return &Plan{Owner: owner, Destination: destination, FileIDs: []int{file.ID()}, Entity: entity.Model(), References: []types.RelocationReference{{FileID: file.ID(), PrimaryEntityID: file.PrimaryEntity().ID(), UpdatedAt: file.UpdatedAt()}}}, nil
 }

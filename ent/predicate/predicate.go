@@ -51,6 +51,12 @@ type OpenIDTransaction func(*sql.Selector)
 // Passkey is the predicate function for passkey builders.
 type Passkey func(*sql.Selector)
 
+// RelocationAttempt is the predicate function for relocationattempt builders.
+type RelocationAttempt func(*sql.Selector)
+
+// RelocationItem is the predicate function for relocationitem builders.
+type RelocationItem func(*sql.Selector)
+
 // Setting is the predicate function for setting builders.
 type Setting func(*sql.Selector)
 

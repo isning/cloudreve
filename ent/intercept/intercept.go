@@ -24,6 +24,8 @@ import (
 	"github.com/cloudreve/Cloudreve/v4/ent/openidtransaction"
 	"github.com/cloudreve/Cloudreve/v4/ent/passkey"
 	"github.com/cloudreve/Cloudreve/v4/ent/predicate"
+	"github.com/cloudreve/Cloudreve/v4/ent/relocationattempt"
+	"github.com/cloudreve/Cloudreve/v4/ent/relocationitem"
 	"github.com/cloudreve/Cloudreve/v4/ent/setting"
 	"github.com/cloudreve/Cloudreve/v4/ent/share"
 	"github.com/cloudreve/Cloudreve/v4/ent/storagepolicy"
@@ -492,6 +494,60 @@ func (f TraversePasskey) Traverse(ctx context.Context, q ent.Query) error {
 	return fmt.Errorf("unexpected query type %T. expect *ent.PasskeyQuery", q)
 }
 
+// The RelocationAttemptFunc type is an adapter to allow the use of ordinary function as a Querier.
+type RelocationAttemptFunc func(context.Context, *ent.RelocationAttemptQuery) (ent.Value, error)
+
+// Query calls f(ctx, q).
+func (f RelocationAttemptFunc) Query(ctx context.Context, q ent.Query) (ent.Value, error) {
+	if q, ok := q.(*ent.RelocationAttemptQuery); ok {
+		return f(ctx, q)
+	}
+	return nil, fmt.Errorf("unexpected query type %T. expect *ent.RelocationAttemptQuery", q)
+}
+
+// The TraverseRelocationAttempt type is an adapter to allow the use of ordinary function as Traverser.
+type TraverseRelocationAttempt func(context.Context, *ent.RelocationAttemptQuery) error
+
+// Intercept is a dummy implementation of Intercept that returns the next Querier in the pipeline.
+func (f TraverseRelocationAttempt) Intercept(next ent.Querier) ent.Querier {
+	return next
+}
+
+// Traverse calls f(ctx, q).
+func (f TraverseRelocationAttempt) Traverse(ctx context.Context, q ent.Query) error {
+	if q, ok := q.(*ent.RelocationAttemptQuery); ok {
+		return f(ctx, q)
+	}
+	return fmt.Errorf("unexpected query type %T. expect *ent.RelocationAttemptQuery", q)
+}
+
+// The RelocationItemFunc type is an adapter to allow the use of ordinary function as a Querier.
+type RelocationItemFunc func(context.Context, *ent.RelocationItemQuery) (ent.Value, error)
+
+// Query calls f(ctx, q).
+func (f RelocationItemFunc) Query(ctx context.Context, q ent.Query) (ent.Value, error) {
+	if q, ok := q.(*ent.RelocationItemQuery); ok {
+		return f(ctx, q)
+	}
+	return nil, fmt.Errorf("unexpected query type %T. expect *ent.RelocationItemQuery", q)
+}
+
+// The TraverseRelocationItem type is an adapter to allow the use of ordinary function as Traverser.
+type TraverseRelocationItem func(context.Context, *ent.RelocationItemQuery) error
+
+// Intercept is a dummy implementation of Intercept that returns the next Querier in the pipeline.
+func (f TraverseRelocationItem) Intercept(next ent.Querier) ent.Querier {
+	return next
+}
+
+// Traverse calls f(ctx, q).
+func (f TraverseRelocationItem) Traverse(ctx context.Context, q ent.Query) error {
+	if q, ok := q.(*ent.RelocationItemQuery); ok {
+		return f(ctx, q)
+	}
+	return fmt.Errorf("unexpected query type %T. expect *ent.RelocationItemQuery", q)
+}
+
 // The SettingFunc type is an adapter to allow the use of ordinary function as a Querier.
 type SettingFunc func(context.Context, *ent.SettingQuery) (ent.Value, error)
 
@@ -660,6 +716,10 @@ func NewQuery(q ent.Query) (Query, error) {
 		return &query[*ent.OpenIDTransactionQuery, predicate.OpenIDTransaction, openidtransaction.OrderOption]{typ: ent.TypeOpenIDTransaction, tq: q}, nil
 	case *ent.PasskeyQuery:
 		return &query[*ent.PasskeyQuery, predicate.Passkey, passkey.OrderOption]{typ: ent.TypePasskey, tq: q}, nil
+	case *ent.RelocationAttemptQuery:
+		return &query[*ent.RelocationAttemptQuery, predicate.RelocationAttempt, relocationattempt.OrderOption]{typ: ent.TypeRelocationAttempt, tq: q}, nil
+	case *ent.RelocationItemQuery:
+		return &query[*ent.RelocationItemQuery, predicate.RelocationItem, relocationitem.OrderOption]{typ: ent.TypeRelocationItem, tq: q}, nil
 	case *ent.SettingQuery:
 		return &query[*ent.SettingQuery, predicate.Setting, setting.OrderOption]{typ: ent.TypeSetting, tq: q}, nil
 	case *ent.ShareQuery:

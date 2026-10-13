@@ -510,6 +510,100 @@ var (
 			},
 		},
 	}
+	// RelocationAttemptsColumns holds the columns for the "relocation_attempts" table.
+	RelocationAttemptsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt, Increment: true},
+		{Name: "created_at", Type: field.TypeTime},
+		{Name: "updated_at", Type: field.TypeTime},
+		{Name: "fence", Type: field.TypeInt64},
+		{Name: "target_key", Type: field.TypeString, Size: 2147483647},
+		{Name: "io_state", Type: field.TypeEnum, Enums: []string{"not_started", "in_flight", "unknown", "ended"}, Default: "not_started"},
+		{Name: "verified_size", Type: field.TypeInt64, Default: 0},
+		{Name: "verified_digest", Type: field.TypeString, Default: ""},
+		{Name: "verified", Type: field.TypeBool, Default: false},
+		{Name: "cleanup", Type: field.TypeEnum, Enums: []string{"pending", "retained", "cleaned"}, Default: "pending"},
+		{Name: "error", Type: field.TypeString, Size: 2147483647, Default: ""},
+		{Name: "item_id", Type: field.TypeInt},
+	}
+	// RelocationAttemptsTable holds the schema information for the "relocation_attempts" table.
+	RelocationAttemptsTable = &schema.Table{
+		Name:       "relocation_attempts",
+		Columns:    RelocationAttemptsColumns,
+		PrimaryKey: []*schema.Column{RelocationAttemptsColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "relocation_attempts_relocation_items_attempts",
+				Columns:    []*schema.Column{RelocationAttemptsColumns[11]},
+				RefColumns: []*schema.Column{RelocationItemsColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+		},
+		Indexes: []*schema.Index{
+			{
+				Name:    "relocationattempt_item_id_fence",
+				Unique:  true,
+				Columns: []*schema.Column{RelocationAttemptsColumns[11], RelocationAttemptsColumns[3]},
+			},
+			{
+				Name:    "relocationattempt_cleanup_io_state",
+				Unique:  false,
+				Columns: []*schema.Column{RelocationAttemptsColumns[9], RelocationAttemptsColumns[5]},
+			},
+		},
+	}
+	// RelocationItemsColumns holds the columns for the "relocation_items" table.
+	RelocationItemsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt, Increment: true},
+		{Name: "created_at", Type: field.TypeTime},
+		{Name: "updated_at", Type: field.TypeTime},
+		{Name: "task_id", Type: field.TypeInt},
+		{Name: "owner_id", Type: field.TypeInt},
+		{Name: "source_entity_id", Type: field.TypeInt},
+		{Name: "source_policy_id", Type: field.TypeInt},
+		{Name: "source_key", Type: field.TypeString, Size: 2147483647},
+		{Name: "source_location", Type: field.TypeString},
+		{Name: "destination_policy_id", Type: field.TypeInt},
+		{Name: "destination_location", Type: field.TypeString},
+		{Name: "snapshot", Type: field.TypeJSON},
+		{Name: "references", Type: field.TypeJSON},
+		{Name: "state", Type: field.TypeEnum, Enums: []string{"planned", "copying", "verified", "committed", "noop", "failed"}, Default: "planned"},
+		{Name: "fence", Type: field.TypeInt64, Default: 0},
+		{Name: "lease_owner", Type: field.TypeString, Default: ""},
+		{Name: "lease_until", Type: field.TypeTime, Nullable: true},
+		{Name: "active_attempt_id", Type: field.TypeInt, Nullable: true},
+		{Name: "target_entity_id", Type: field.TypeInt, Nullable: true},
+		{Name: "source_read_finished", Type: field.TypeBool, Default: false},
+		{Name: "source_cleanup", Type: field.TypeEnum, Enums: []string{"pending", "retained", "cleaned", "unneeded"}, Default: "pending"},
+		{Name: "error", Type: field.TypeString, Size: 2147483647, Default: ""},
+	}
+	// RelocationItemsTable holds the schema information for the "relocation_items" table.
+	RelocationItemsTable = &schema.Table{
+		Name:       "relocation_items",
+		Columns:    RelocationItemsColumns,
+		PrimaryKey: []*schema.Column{RelocationItemsColumns[0]},
+		Indexes: []*schema.Index{
+			{
+				Name:    "relocationitem_task_id_source_entity_id",
+				Unique:  true,
+				Columns: []*schema.Column{RelocationItemsColumns[3], RelocationItemsColumns[5]},
+			},
+			{
+				Name:    "relocationitem_source_policy_id_source_cleanup",
+				Unique:  false,
+				Columns: []*schema.Column{RelocationItemsColumns[6], RelocationItemsColumns[20]},
+			},
+			{
+				Name:    "relocationitem_destination_policy_id_state",
+				Unique:  false,
+				Columns: []*schema.Column{RelocationItemsColumns[9], RelocationItemsColumns[13]},
+			},
+			{
+				Name:    "relocationitem_state_lease_until",
+				Unique:  false,
+				Columns: []*schema.Column{RelocationItemsColumns[13], RelocationItemsColumns[16]},
+			},
+		},
+	}
 	// SettingsColumns holds the columns for the "settings" table.
 	SettingsColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt, Increment: true},
@@ -693,6 +787,8 @@ var (
 		OpenIDSessionsTable,
 		OpenIDTransactionsTable,
 		PasskeysTable,
+		RelocationAttemptsTable,
+		RelocationItemsTable,
 		SettingsTable,
 		SharesTable,
 		StoragePoliciesTable,
@@ -721,6 +817,7 @@ func init() {
 	OpenIDSessionsTable.ForeignKeys[0].RefTable = UsersTable
 	OpenIDTransactionsTable.ForeignKeys[0].RefTable = UsersTable
 	PasskeysTable.ForeignKeys[0].RefTable = UsersTable
+	RelocationAttemptsTable.ForeignKeys[0].RefTable = RelocationItemsTable
 	SharesTable.ForeignKeys[0].RefTable = FilesTable
 	SharesTable.ForeignKeys[1].RefTable = UsersTable
 	StoragePoliciesTable.ForeignKeys[0].RefTable = NodesTable

@@ -1,10 +1,12 @@
 package controllers_test
 
 import (
+	"context"
 	"net/http"
 	"testing"
 	"time"
 
+	"github.com/cloudreve/Cloudreve/v4/ent/relocationitem"
 	"github.com/cloudreve/Cloudreve/v4/pkg/boolset"
 	"github.com/cloudreve/Cloudreve/v4/pkg/filemanager/fs"
 	"github.com/cloudreve/Cloudreve/v4/pkg/hashid"
@@ -94,6 +96,13 @@ func TestStorageSamePolicyRelocationPersistsAndCompletesAfterWorkerRestart(t *te
 	f.login(t)
 	f.waitForStorageTask(t, accepted.ID, "completed")
 	require.Equal(t, data, f.readFile(t, uri))
+	jobID, err := f.dep.HashIDEncoder().Decode(accepted.ID, hashid.TaskID)
+	require.NoError(t, err)
+	items, err := f.db.RelocationItem.Query().Where(relocationitem.TaskID(jobID)).All(context.Background())
+	require.NoError(t, err)
+	require.Len(t, items, 1, "restarting cannot duplicate the authoritative item")
+	require.Equal(t, relocationitem.StateNoop, items[0].State)
+	require.Equal(t, relocationitem.SourceCleanupUnneeded, items[0].SourceCleanup)
 }
 
 func TestStorageMigrationPermissionIsIndependentOfAllocatedPolicies(t *testing.T) {

@@ -189,6 +189,30 @@ func (f PasskeyFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, err
 	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.PasskeyMutation", m)
 }
 
+// The RelocationAttemptFunc type is an adapter to allow the use of ordinary
+// function as RelocationAttempt mutator.
+type RelocationAttemptFunc func(context.Context, *ent.RelocationAttemptMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f RelocationAttemptFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.RelocationAttemptMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.RelocationAttemptMutation", m)
+}
+
+// The RelocationItemFunc type is an adapter to allow the use of ordinary
+// function as RelocationItem mutator.
+type RelocationItemFunc func(context.Context, *ent.RelocationItemMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f RelocationItemFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.RelocationItemMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.RelocationItemMutation", m)
+}
+
 // The SettingFunc type is an adapter to allow the use of ordinary
 // function as Setting mutator.
 type SettingFunc func(context.Context, *ent.SettingMutation) (ent.Value, error)

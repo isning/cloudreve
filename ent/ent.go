@@ -27,6 +27,8 @@ import (
 	"github.com/cloudreve/Cloudreve/v4/ent/openidsession"
 	"github.com/cloudreve/Cloudreve/v4/ent/openidtransaction"
 	"github.com/cloudreve/Cloudreve/v4/ent/passkey"
+	"github.com/cloudreve/Cloudreve/v4/ent/relocationattempt"
+	"github.com/cloudreve/Cloudreve/v4/ent/relocationitem"
 	"github.com/cloudreve/Cloudreve/v4/ent/setting"
 	"github.com/cloudreve/Cloudreve/v4/ent/share"
 	"github.com/cloudreve/Cloudreve/v4/ent/storagepolicy"
@@ -107,6 +109,8 @@ func checkColumn(table, column string) error {
 			openidsession.Table:     openidsession.ValidColumn,
 			openidtransaction.Table: openidtransaction.ValidColumn,
 			passkey.Table:           passkey.ValidColumn,
+			relocationattempt.Table: relocationattempt.ValidColumn,
+			relocationitem.Table:    relocationitem.ValidColumn,
 			setting.Table:           setting.ValidColumn,
 			share.Table:             share.ValidColumn,
 			storagepolicy.Table:     storagepolicy.ValidColumn,

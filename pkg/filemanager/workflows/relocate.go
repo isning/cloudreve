@@ -52,7 +52,8 @@ func (t *RelocateTask) Do(ctx context.Context) (task.Status, error) {
 		return task.StatusError, fmt.Errorf("migration owner is unavailable: %w", queue.CriticalErr)
 	}
 	dep := dependency.FromContext(ctx)
-	if _, err := relocation.PlanNoop(ctx, dep, owner.ID, command.Sources, command.DestinationID); err != nil {
+	plan, err := relocation.PlanNoop(ctx, dep, owner.ID, command.Sources, command.DestinationID)
+	if err != nil {
 		return task.StatusError, fmt.Errorf("migration planning failed: %s: %w", err.Error(), queue.CriticalErr)
 	}
 	state := NodeState{NodeID: command.NodeID}
@@ -61,6 +62,9 @@ func (t *RelocateTask) Do(ctx context.Context) (task.Status, error) {
 		return task.StatusError, fmt.Errorf("no supported migration execution node: %w", queue.CriticalErr)
 	}
 	command.NodeID = state.NodeID
+	if err := relocation.RecordNoop(ctx, dep.DBClient(), t.ID(), plan); err != nil {
+		return task.StatusError, fmt.Errorf("failed to persist migration plan: %w", err)
+	}
 	command.Phase = "completed"
 	encoded, err := json.Marshal(command)
 	if err != nil {

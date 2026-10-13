@@ -20,6 +20,8 @@ import (
 	"github.com/cloudreve/Cloudreve/v4/ent/openidsession"
 	"github.com/cloudreve/Cloudreve/v4/ent/openidtransaction"
 	"github.com/cloudreve/Cloudreve/v4/ent/passkey"
+	"github.com/cloudreve/Cloudreve/v4/ent/relocationattempt"
+	"github.com/cloudreve/Cloudreve/v4/ent/relocationitem"
 	"github.com/cloudreve/Cloudreve/v4/ent/schema"
 	"github.com/cloudreve/Cloudreve/v4/ent/setting"
 	"github.com/cloudreve/Cloudreve/v4/ent/share"
@@ -361,6 +363,94 @@ func init() {
 	passkey.DefaultUpdatedAt = passkeyDescUpdatedAt.Default.(func() time.Time)
 	// passkey.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
 	passkey.UpdateDefaultUpdatedAt = passkeyDescUpdatedAt.UpdateDefault.(func() time.Time)
+	relocationattemptFields := schema.RelocationAttempt{}.Fields()
+	_ = relocationattemptFields
+	// relocationattemptDescCreatedAt is the schema descriptor for created_at field.
+	relocationattemptDescCreatedAt := relocationattemptFields[0].Descriptor()
+	// relocationattempt.DefaultCreatedAt holds the default value on creation for the created_at field.
+	relocationattempt.DefaultCreatedAt = relocationattemptDescCreatedAt.Default.(func() time.Time)
+	// relocationattemptDescUpdatedAt is the schema descriptor for updated_at field.
+	relocationattemptDescUpdatedAt := relocationattemptFields[1].Descriptor()
+	// relocationattempt.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	relocationattempt.DefaultUpdatedAt = relocationattemptDescUpdatedAt.Default.(func() time.Time)
+	// relocationattempt.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	relocationattempt.UpdateDefaultUpdatedAt = relocationattemptDescUpdatedAt.UpdateDefault.(func() time.Time)
+	// relocationattemptDescItemID is the schema descriptor for item_id field.
+	relocationattemptDescItemID := relocationattemptFields[2].Descriptor()
+	// relocationattempt.ItemIDValidator is a validator for the "item_id" field. It is called by the builders before save.
+	relocationattempt.ItemIDValidator = relocationattemptDescItemID.Validators[0].(func(int) error)
+	// relocationattemptDescFence is the schema descriptor for fence field.
+	relocationattemptDescFence := relocationattemptFields[3].Descriptor()
+	// relocationattempt.FenceValidator is a validator for the "fence" field. It is called by the builders before save.
+	relocationattempt.FenceValidator = relocationattemptDescFence.Validators[0].(func(int64) error)
+	// relocationattemptDescVerifiedSize is the schema descriptor for verified_size field.
+	relocationattemptDescVerifiedSize := relocationattemptFields[6].Descriptor()
+	// relocationattempt.DefaultVerifiedSize holds the default value on creation for the verified_size field.
+	relocationattempt.DefaultVerifiedSize = relocationattemptDescVerifiedSize.Default.(int64)
+	// relocationattempt.VerifiedSizeValidator is a validator for the "verified_size" field. It is called by the builders before save.
+	relocationattempt.VerifiedSizeValidator = relocationattemptDescVerifiedSize.Validators[0].(func(int64) error)
+	// relocationattemptDescVerifiedDigest is the schema descriptor for verified_digest field.
+	relocationattemptDescVerifiedDigest := relocationattemptFields[7].Descriptor()
+	// relocationattempt.DefaultVerifiedDigest holds the default value on creation for the verified_digest field.
+	relocationattempt.DefaultVerifiedDigest = relocationattemptDescVerifiedDigest.Default.(string)
+	// relocationattemptDescVerified is the schema descriptor for verified field.
+	relocationattemptDescVerified := relocationattemptFields[8].Descriptor()
+	// relocationattempt.DefaultVerified holds the default value on creation for the verified field.
+	relocationattempt.DefaultVerified = relocationattemptDescVerified.Default.(bool)
+	// relocationattemptDescError is the schema descriptor for error field.
+	relocationattemptDescError := relocationattemptFields[10].Descriptor()
+	// relocationattempt.DefaultError holds the default value on creation for the error field.
+	relocationattempt.DefaultError = relocationattemptDescError.Default.(string)
+	relocationitemFields := schema.RelocationItem{}.Fields()
+	_ = relocationitemFields
+	// relocationitemDescCreatedAt is the schema descriptor for created_at field.
+	relocationitemDescCreatedAt := relocationitemFields[0].Descriptor()
+	// relocationitem.DefaultCreatedAt holds the default value on creation for the created_at field.
+	relocationitem.DefaultCreatedAt = relocationitemDescCreatedAt.Default.(func() time.Time)
+	// relocationitemDescUpdatedAt is the schema descriptor for updated_at field.
+	relocationitemDescUpdatedAt := relocationitemFields[1].Descriptor()
+	// relocationitem.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	relocationitem.DefaultUpdatedAt = relocationitemDescUpdatedAt.Default.(func() time.Time)
+	// relocationitem.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	relocationitem.UpdateDefaultUpdatedAt = relocationitemDescUpdatedAt.UpdateDefault.(func() time.Time)
+	// relocationitemDescTaskID is the schema descriptor for task_id field.
+	relocationitemDescTaskID := relocationitemFields[2].Descriptor()
+	// relocationitem.TaskIDValidator is a validator for the "task_id" field. It is called by the builders before save.
+	relocationitem.TaskIDValidator = relocationitemDescTaskID.Validators[0].(func(int) error)
+	// relocationitemDescOwnerID is the schema descriptor for owner_id field.
+	relocationitemDescOwnerID := relocationitemFields[3].Descriptor()
+	// relocationitem.OwnerIDValidator is a validator for the "owner_id" field. It is called by the builders before save.
+	relocationitem.OwnerIDValidator = relocationitemDescOwnerID.Validators[0].(func(int) error)
+	// relocationitemDescSourceEntityID is the schema descriptor for source_entity_id field.
+	relocationitemDescSourceEntityID := relocationitemFields[4].Descriptor()
+	// relocationitem.SourceEntityIDValidator is a validator for the "source_entity_id" field. It is called by the builders before save.
+	relocationitem.SourceEntityIDValidator = relocationitemDescSourceEntityID.Validators[0].(func(int) error)
+	// relocationitemDescSourcePolicyID is the schema descriptor for source_policy_id field.
+	relocationitemDescSourcePolicyID := relocationitemFields[5].Descriptor()
+	// relocationitem.SourcePolicyIDValidator is a validator for the "source_policy_id" field. It is called by the builders before save.
+	relocationitem.SourcePolicyIDValidator = relocationitemDescSourcePolicyID.Validators[0].(func(int) error)
+	// relocationitemDescDestinationPolicyID is the schema descriptor for destination_policy_id field.
+	relocationitemDescDestinationPolicyID := relocationitemFields[8].Descriptor()
+	// relocationitem.DestinationPolicyIDValidator is a validator for the "destination_policy_id" field. It is called by the builders before save.
+	relocationitem.DestinationPolicyIDValidator = relocationitemDescDestinationPolicyID.Validators[0].(func(int) error)
+	// relocationitemDescFence is the schema descriptor for fence field.
+	relocationitemDescFence := relocationitemFields[13].Descriptor()
+	// relocationitem.DefaultFence holds the default value on creation for the fence field.
+	relocationitem.DefaultFence = relocationitemDescFence.Default.(int64)
+	// relocationitem.FenceValidator is a validator for the "fence" field. It is called by the builders before save.
+	relocationitem.FenceValidator = relocationitemDescFence.Validators[0].(func(int64) error)
+	// relocationitemDescLeaseOwner is the schema descriptor for lease_owner field.
+	relocationitemDescLeaseOwner := relocationitemFields[14].Descriptor()
+	// relocationitem.DefaultLeaseOwner holds the default value on creation for the lease_owner field.
+	relocationitem.DefaultLeaseOwner = relocationitemDescLeaseOwner.Default.(string)
+	// relocationitemDescSourceReadFinished is the schema descriptor for source_read_finished field.
+	relocationitemDescSourceReadFinished := relocationitemFields[18].Descriptor()
+	// relocationitem.DefaultSourceReadFinished holds the default value on creation for the source_read_finished field.
+	relocationitem.DefaultSourceReadFinished = relocationitemDescSourceReadFinished.Default.(bool)
+	// relocationitemDescError is the schema descriptor for error field.
+	relocationitemDescError := relocationitemFields[20].Descriptor()
+	// relocationitem.DefaultError holds the default value on creation for the error field.
+	relocationitem.DefaultError = relocationitemDescError.Default.(string)
 	settingMixin := schema.Setting{}.Mixin()
 	settingMixinHooks0 := settingMixin[0].Hooks()
 	setting.Hooks[0] = settingMixinHooks0[0]
