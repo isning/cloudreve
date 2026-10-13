@@ -34,6 +34,8 @@ type (
 		CountUsers(ctx context.Context, id int) (int, error)
 		// Upsert upserts a group.
 		Upsert(ctx context.Context, group *ent.Group) (*ent.Group, error)
+		// UpsertWithPolicies atomically maintains ordered grants and the legacy default.
+		UpsertWithPolicies(ctx context.Context, group *ent.Group, policyIDs *[]int, defaultPolicyID *int) (*ent.Group, error)
 		// Delete deletes a group.
 		Delete(ctx context.Context, id int) error
 	}

@@ -4,12 +4,13 @@ import argparse
 import functools
 import http.server
 import pathlib
+import os
 import urllib.parse
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--port', type=int, default=43181)
 args = parser.parse_args()
-build = pathlib.Path(__file__).resolve().parents[1] / 'assets/build'
+build = pathlib.Path(os.environ.get('CLOUDREVE_FRONTEND_BUILD', pathlib.Path(__file__).resolve().parents[1] / 'assets/build'))
 if not (build / 'index.html').is_file():
     raise SystemExit('Build the production frontend before browser verification')
 

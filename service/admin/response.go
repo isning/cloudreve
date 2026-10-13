@@ -76,7 +76,9 @@ type GetNodeResponse struct {
 
 type GetGroupResponse struct {
 	*ent.Group
-	TotalUsers int `json:"total_users"`
+	GroupObject *ent.Group `json:"group"`
+	PolicyIDs   []int      `json:"policy_ids"`
+	TotalUsers  int        `json:"total_users"`
 }
 
 type OauthCredentialStatus struct {

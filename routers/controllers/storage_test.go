@@ -42,6 +42,7 @@ import (
 	"github.com/cloudreve/Cloudreve/v4/pkg/oidc"
 	"github.com/cloudreve/Cloudreve/v4/pkg/setting"
 	ctl "github.com/cloudreve/Cloudreve/v4/routers/controllers"
+	adminsvc "github.com/cloudreve/Cloudreve/v4/service/admin"
 	"github.com/cloudreve/Cloudreve/v4/service/explorer"
 	usersvc "github.com/cloudreve/Cloudreve/v4/service/user"
 	"github.com/gin-gonic/gin"
@@ -51,16 +52,17 @@ import (
 // Only the external S3 service is provisioned by this fixture. Authentication,
 // database, filesystem, upload sessions and callbacks use production components.
 type storageFixture struct {
-	db       *ent.Client
-	dep      dependency.Dep
-	router   *gin.Engine
-	policies []*ent.StoragePolicy
-	token    string
-	s3       *s3.S3
-	password string
-	database conf.Database
-	remote   string
-	idp      *testIDP
+	db            *ent.Client
+	dep           dependency.Dep
+	router        *gin.Engine
+	policies      []*ent.StoragePolicy
+	token         string
+	s3            *s3.S3
+	password      string
+	adminPassword string
+	database      conf.Database
+	remote        string
+	idp           *testIDP
 }
 
 type storageS3Service struct {
@@ -237,13 +239,18 @@ func prepareStorageFixture(t *testing.T, legacy bool) *storageFixture {
 		f.policies = append(f.policies, policy)
 	}
 	for i := 0; i < 3; i++ {
-		_, err := db.Group.Create().SetName(fmt.Sprintf("Storage group %d", i+1)).SetPermissions(&boolset.BooleanSet{}).
+		permissions := &boolset.BooleanSet{}
+		if i == 0 {
+			boolset.Set(types.GroupPermissionIsAdmin, true, permissions)
+		}
+		_, err := db.Group.Create().SetName(fmt.Sprintf("Storage group %d", i+1)).SetPermissions(permissions).
 			SetMaxStorage(1 << 20).SetStoragePolicyID(f.policies[0].ID).Save(ctx)
 		require.NoError(t, err)
 	}
 	password := storageRandom(t)
+	f.adminPassword = storageRandom(t)
 	users := inventory.NewUserClient(db)
-	_, err = users.Create(ctx, &inventory.NewUserArgs{Email: "storage-admin@example.com", PlainPassword: storageRandom(t), GroupID: 1, Status: entuser.StatusActive, SkipBootstrap: true})
+	_, err = users.Create(ctx, &inventory.NewUserArgs{Email: "storage-admin@example.com", PlainPassword: f.adminPassword, GroupID: 1, Status: entuser.StatusActive, SkipBootstrap: true})
 	require.NoError(t, err)
 	member, err := users.Create(ctx, &inventory.NewUserArgs{Email: "storage@example.com", PlainPassword: password, GroupID: 2, Status: entuser.StatusActive, SkipBootstrap: true})
 	require.NoError(t, err)
@@ -300,19 +307,46 @@ func storageRouter(d dependency.Dep, l logging.Logger) *gin.Engine {
 	authenticated.GET("/user/capacity", ctl.UserStorage)
 	authenticated.GET("/user/setting", ctl.UserSetting)
 	authenticated.GET("/user/setting/policies", ctl.UserAvailableStoragePolicies)
+	admin := authenticated.Group("/admin", middleware.IsAdmin())
+	admin.GET("/group/:id", ctl.FromUri[adminsvc.SingleGroupService](adminsvc.SingleGroupParamCtx{}), ctl.AdminGetGroup)
+	admin.PUT("/group/:id", ctl.FromJSON[adminsvc.UpsertGroupService](adminsvc.UpsertGroupParamCtx{}), ctl.AdminUpdateGroup)
 	return r
 }
 
 func (f *storageFixture) login(t *testing.T) {
+	f.loginAs(t, "storage@example.com", f.password)
+}
+
+func (f *storageFixture) loginAs(t *testing.T, email, password string) {
 	t.Helper()
 	var login struct {
 		Token struct {
 			AccessToken string `json:"access_token"`
 		} `json:"token"`
 	}
-	f.request(t, http.MethodPost, "/api/v4/session/token", map[string]string{"email": "storage@example.com", "password": f.password}, &login)
+	f.request(t, http.MethodPost, "/api/v4/session/token", map[string]string{"email": email, "password": password}, &login)
 	f.token = login.Token.AccessToken
 	require.NotEmpty(t, f.token)
+}
+
+func TestStorageAdministratorAssignsAndReopensTwoPolicies(t *testing.T) {
+	f := newStorageFixture(t)
+	f.loginAs(t, "storage-admin@example.com", f.adminPassword)
+	var detail map[string]any
+	f.request(t, http.MethodGet, "/api/v4/admin/group/2", nil, &detail)
+	delete(detail, "edges")
+	delete(detail, "storage_policy_id")
+	f.request(t, http.MethodPut, "/api/v4/admin/group/2", map[string]any{"group": detail, "policy_ids": []int{f.policies[0].ID, f.policies[1].ID}}, &detail)
+	f.request(t, http.MethodGet, "/api/v4/admin/group/2", nil, &detail)
+	require.Equal(t, []any{float64(f.policies[0].ID), float64(f.policies[1].ID)}, detail["policy_ids"])
+	require.EqualValues(t, 2, detail["id"], "legacy flattened detail remains available")
+	require.NotNil(t, detail["group"], "extended clients can use the explicit group object")
+	f.login(t)
+	var policies []explorer.StoragePolicy
+	f.request(t, http.MethodGet, "/api/v4/user/setting/policies", nil, &policies)
+	require.Len(t, policies, 2)
+	require.Equal(t, f.policies[0].Name, policies[0].Name)
+	require.Equal(t, f.policies[1].Name, policies[1].Name)
 }
 
 func (f *storageFixture) request(t *testing.T, method, path string, body, result any) {
