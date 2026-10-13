@@ -17,6 +17,7 @@ import (
 	"github.com/cloudreve/Cloudreve/v4/pkg/hashid"
 	"github.com/cloudreve/Cloudreve/v4/pkg/logging"
 	"github.com/cloudreve/Cloudreve/v4/pkg/queue"
+	"github.com/cloudreve/Cloudreve/v4/pkg/setting"
 	"github.com/gofrs/uuid"
 )
 
@@ -88,7 +89,21 @@ func (t *RelocateTask) Do(ctx context.Context) (task.Status, error) {
 		}
 	}
 
+	if errors.Is(err, relocation.ErrRetryableIO) && t.Retried() < dep.SettingProvider().Queue(ctx, setting.QueueTypeIOIntense).MaxRetry {
+		dep.Logger().Warning("Migration I/O temporarily unavailable; native retry scheduled")
+		command.Phase = "transferring"
+		command.Progress, _ = relocation.ReadProgress(ctx, dep.DBClient(), t.ID(), false)
+		if saveErr := t.saveCommand(command); saveErr != nil {
+			return task.StatusError, saveErr
+		}
+		return task.StatusError, err
+	}
 	if err != nil {
+		if errors.Is(err, relocation.ErrRetryableIO) {
+			if stopErr := relocation.StopRetrying(ctx, dep.DBClient(), t.ID()); stopErr != nil {
+				return task.StatusError, stopErr
+			}
+		}
 		command.Phase = "failed"
 		reportCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		command.Progress, _ = relocation.ReadProgress(reportCtx, dep.DBClient(), t.ID(), true)

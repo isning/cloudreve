@@ -24,6 +24,8 @@ func TestStorageRelocationRedactsProviderFailuresAndRecoveryDiagnostics(t *testi
 	f := newStorageFixtureWithLegacy(t, true)
 	f.assignPolicies(t, f.policies[0].ID, f.policies[1].ID)
 	f.enableMigration(t, true)
+	_, err := f.db.Setting.Create().SetName("queue_io_intense_max_retry").SetValue("0").Save(context.Background())
+	require.NoError(t, err)
 	uri := "cloudreve://my/redacted.txt"
 	f.upload(t, uri, []byte("safe public diagnostics"), nil)
 	before := f.fileInfo(t, uri)

@@ -31,6 +31,7 @@ import (
 	"github.com/cloudreve/Cloudreve/v4/pkg/filemanager/fs"
 	"github.com/cloudreve/Cloudreve/v4/pkg/filemanager/manager"
 	"github.com/cloudreve/Cloudreve/v4/pkg/filemanager/manager/entitysource"
+	"github.com/cloudreve/Cloudreve/v4/pkg/securelog"
 	"github.com/cloudreve/Cloudreve/v4/pkg/storagepolicy"
 	"github.com/cloudreve/Cloudreve/v4/pkg/util"
 	"github.com/gofrs/uuid"
@@ -163,8 +164,14 @@ func recoverVerification(ctx context.Context, dep dependency.Dep, fm manager.Fil
 	if attempt.IoState != relocationattempt.IoStateEnded {
 		return false, nil
 	}
-	if attempt.Verified && attempt.VerifiedSize == source.Size && verifyTarget(ctx, fm, source, b, attempt) == nil {
-		return true, nil
+	if attempt.Verified && attempt.VerifiedSize == source.Size {
+		checkErr := verifyTarget(ctx, fm, source, b, attempt)
+		if checkErr == nil {
+			return true, nil
+		}
+		if errors.Is(checkErr, ErrRetryableIO) {
+			return false, checkErr
+		}
 	}
 	r, err := rawSource(ctx, fm, source, a)
 	if err != nil {
@@ -173,12 +180,18 @@ func recoverVerification(ctx context.Context, dep dependency.Dep, fm manager.Fil
 	h := sha256.New()
 	n, err := io.Copy(h, io.LimitReader(r, source.Size+1))
 	r.Close()
+	if retryableIO(err) {
+		return false, ErrRetryableIO
+	}
 	if err != nil || n != source.Size {
 		return false, errors.New("migration verification source length mismatch")
 	}
 	attempt.VerifiedDigest = hex.EncodeToString(h.Sum(nil))
 	attempt.VerifiedSize = n
 	if err := verifyTarget(ctx, fm, source, b, attempt); err != nil {
+		if errors.Is(err, ErrRetryableIO) {
+			return false, err
+		}
 		return false, nil
 	}
 	tx, err := db.Tx(ctx)
@@ -440,10 +453,14 @@ type digestReader struct {
 	progress   func(int64)
 	reported   int64
 	lastReport time.Time
+	readErr    error
 }
 
 func (r *digestReader) Read(p []byte) (int, error) {
 	n, err := r.Reader.Read(p)
+	if err != nil {
+		r.readErr = err
+	}
 	r.size += int64(n)
 	r.hash.Write(p[:n])
 	if n > 0 && r.progress != nil && (r.size-r.reported >= 1<<20 || time.Since(r.lastReport) >= time.Second) {
@@ -471,11 +488,17 @@ func rawSource(ctx context.Context, fm manager.FileManager, entity *ent.Entity, 
 	if err != nil {
 		return nil, err
 	}
-	r, err := fm.GetEntitySource(ctx, 0, fs.WithEntity(fs.NewEntity(entity)), fs.WithPolicy(policy))
+	dep := dependency.FromContext(ctx)
+	safeCtx := dep.ForkWithLogger(ctx, securelog.New(dep.Logger(), policy.AccessKey, policy.SecretKey, entity.Source))
+	readFM := manager.NewFileManager(dependency.FromContext(safeCtx), inventory.UserFromContext(ctx))
+	r, err := readFM.GetEntitySource(safeCtx, 0, fs.WithEntity(fs.NewEntity(entity)), fs.WithPolicy(policy))
 	if err != nil {
 		finish()
+		readFM.Recycle()
 		return nil, err
 	}
+	originalFinish := finish
+	finish = func() { originalFinish(); readFM.Recycle() }
 	r.Apply(entitysource.WithDisableCryptor())
 	return &protectedSource{EntitySource: r, finish: finish}, nil
 }
@@ -514,7 +537,10 @@ func copySingle(ctx context.Context, dep dependency.Dep, fm manager.FileManager,
 		defer cancel()
 		_ = db.RelocationAttempt.UpdateOneID(attempt.ID).SetSourceReadFinished(true).Exec(recordCtx)
 	}()
-	d, err := fm.GetStorageDriver(ctx, b)
+	safeCtx := dep.ForkWithLogger(ctx, securelog.New(dep.Logger(), a.AccessKey, a.SecretKey, b.AccessKey, b.SecretKey, source.Source, key))
+	writeFM := manager.NewFileManager(dependency.FromContext(safeCtx), inventory.UserFromContext(ctx))
+	defer writeFM.Recycle()
+	d, err := writeFM.GetStorageDriver(safeCtx, b)
 	if err != nil {
 		return errors.New("failed to open migration destination")
 	}
@@ -526,9 +552,9 @@ func copySingle(ctx context.Context, dep dependency.Dep, fm manager.FileManager,
 		defer cancel()
 		_ = db.RelocationAttempt.UpdateOneID(attempt.ID).SetTransferredSize(size).Exec(progressCtx)
 	}}
-	err = d.Put(ctx, &fs.UploadRequest{File: io.NopCloser(digest), Props: &fs.UploadProps{Uri: uri, SavePath: key, Size: source.Size}})
+	err = d.Put(safeCtx, &fs.UploadRequest{File: io.NopCloser(digest), Props: &fs.UploadProps{Uri: uri, SavePath: key, Size: source.Size}})
 	ioState := relocationattempt.IoStateEnded
-	if err != nil {
+	if err != nil && b.Type != types.PolicyTypeLocal && !providerRejectedWrite(err) {
 		ioState = relocationattempt.IoStateUnknown
 	}
 	recordCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
@@ -538,6 +564,9 @@ func copySingle(ctx context.Context, dep dependency.Dep, fm manager.FileManager,
 		return errors.New("failed to record migration I/O result")
 	}
 	if err != nil {
+		if retryableIO(err) || retryableIO(digest.readErr) {
+			return ErrRetryableIO
+		}
 		return errors.New("migration copy failed")
 	}
 	if digest.size != source.Size {
@@ -597,6 +626,9 @@ func verifyTarget(ctx context.Context, fm manager.FileManager, source *ent.Entit
 	defer r.Close()
 	h := sha256.New()
 	n, err := io.Copy(h, io.LimitReader(r, source.Size+1))
+	if retryableIO(err) {
+		return ErrRetryableIO
+	}
 	if err != nil || n != source.Size || n != attempt.VerifiedSize || hex.EncodeToString(h.Sum(nil)) != attempt.VerifiedDigest {
 		return errors.New("migration target verification failed")
 	}
@@ -702,6 +734,9 @@ func lockSourceEntity(ctx context.Context, db *ent.Client, id int) error {
 }
 
 func failItem(ctx context.Context, db *ent.Client, item *ent.RelocationItem, cause error) error {
+	if errors.Is(cause, ErrRetryableIO) {
+		return releaseIOFailure(ctx, db, item)
+	}
 	recordCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
 	n, err := db.RelocationItem.Update().Where(relocationitem.ID(item.ID), relocationitem.Fence(item.Fence), relocationitem.LeaseOwner(item.LeaseOwner), relocationitem.LeaseUntilGT(time.Now()), relocationitem.StateNotIn(relocationitem.StateCommitted, relocationitem.StateNoop)).SetState(relocationitem.StateFailed).SetError(cause.Error()).SetLeaseOwner("").ClearLeaseUntil().Save(recordCtx)
