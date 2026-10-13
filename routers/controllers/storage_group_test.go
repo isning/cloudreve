@@ -1,13 +1,16 @@
 package controllers_test
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/url"
 	"testing"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/s3"
+	"github.com/cloudreve/Cloudreve/v4/ent/grouppolicy"
 	"github.com/cloudreve/Cloudreve/v4/pkg/filemanager/fs"
 	"github.com/cloudreve/Cloudreve/v4/pkg/hashid"
 	"github.com/cloudreve/Cloudreve/v4/pkg/serializer"
@@ -169,4 +172,28 @@ func TestStorageLegacyDefaultChangesRetainOtherGrants(t *testing.T) {
 	f.request(t, http.MethodGet, "/api/v4/user/setting/policies", nil, &policies)
 	require.Len(t, policies, 1)
 	require.Equal(t, hashid.EncodePolicyID(f.dep.HashIDEncoder(), b), policies[0].ID)
+}
+
+func TestStorageRetiredGroupReleasesPolicyGrants(t *testing.T) {
+	f := newStorageFixture(t)
+	f.loginAs(t, "storage-admin@example.com", f.adminPassword)
+	var created struct {
+		ID int `json:"id"`
+	}
+	group := f.groupDetail(t)
+	group["name"] = "Disposable unused group"
+	group["id"] = 0
+	f.request(t, http.MethodPut, "/api/v4/admin/group", map[string]any{"group": group, "policy_ids": []int{f.policies[0].ID, f.policies[1].ID}}, &created)
+	require.Greater(t, created.ID, 3)
+	policyPath := fmt.Sprintf("/api/v4/admin/policy/%d", f.policies[1].ID)
+	require.NotZero(t, f.responseCode(t, http.MethodDelete, policyPath, nil), "a live extra grant prevents deleting its policy")
+	f.request(t, http.MethodDelete, fmt.Sprintf("/api/v4/admin/group/%d", created.ID), nil, nil)
+	grants, err := f.db.GroupPolicy.Query().Where(grouppolicy.GroupID(created.ID)).Count(context.Background())
+	require.NoError(t, err)
+	require.Zero(t, grants, "retired groups release formal grants")
+	require.NotZero(t, f.responseCode(t, http.MethodGet, fmt.Sprintf("/api/v4/admin/group/%d", created.ID), nil))
+	f.request(t, http.MethodDelete, policyPath, nil, nil)
+	require.NotZero(t, f.responseCode(t, http.MethodDelete, "/api/v4/admin/group/1", nil), "system group remains protected")
+	require.NotZero(t, f.responseCode(t, http.MethodDelete, "/api/v4/admin/group/2", nil), "a group with members remains protected")
+	require.NotZero(t, f.responseCode(t, http.MethodDelete, "/api/v4/admin/policy/1", nil), "system/default policy remains protected")
 }

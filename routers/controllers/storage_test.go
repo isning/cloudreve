@@ -314,6 +314,8 @@ func storageRouter(d dependency.Dep, l logging.Logger) *gin.Engine {
 	admin := authenticated.Group("/admin", middleware.IsAdmin())
 	admin.GET("/group/:id", ctl.FromUri[adminsvc.SingleGroupService](adminsvc.SingleGroupParamCtx{}), ctl.AdminGetGroup)
 	admin.PUT("/group/:id", ctl.FromJSON[adminsvc.UpsertGroupService](adminsvc.UpsertGroupParamCtx{}), ctl.AdminUpdateGroup)
+	admin.PUT("/group", ctl.FromJSON[adminsvc.UpsertGroupService](adminsvc.UpsertGroupParamCtx{}), ctl.AdminCreateGroup)
+	admin.DELETE("/group/:id", ctl.FromUri[adminsvc.SingleGroupService](adminsvc.SingleGroupParamCtx{}), ctl.AdminDeleteGroup)
 	admin.GET("/policy/:id", ctl.FromUri[adminsvc.SingleStoragePolicyService](adminsvc.GetStoragePolicyParamCtx{}), ctl.AdminGetPolicy)
 	admin.PUT("/policy/:id", ctl.FromJSON[adminsvc.UpdateStoragePolicyService](adminsvc.UpdateStoragePolicyParamCtx{}), ctl.AdminUpdatePolicy)
 	admin.DELETE("/policy/:id", ctl.FromUri[adminsvc.SingleStoragePolicyService](adminsvc.GetStoragePolicyParamCtx{}), ctl.AdminDeletePolicy)

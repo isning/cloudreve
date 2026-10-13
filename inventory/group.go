@@ -6,6 +6,7 @@ import (
 
 	"github.com/cloudreve/Cloudreve/v4/ent"
 	"github.com/cloudreve/Cloudreve/v4/ent/group"
+	"github.com/cloudreve/Cloudreve/v4/ent/grouppolicy"
 	"github.com/cloudreve/Cloudreve/v4/pkg/cache"
 	"github.com/cloudreve/Cloudreve/v4/pkg/conf"
 )
@@ -115,11 +116,18 @@ func (c *groupClient) Upsert(ctx context.Context, group *ent.Group) (*ent.Group,
 }
 
 func (c *groupClient) Delete(ctx context.Context, id int) error {
-	if err := c.client.Group.DeleteOneID(id).Exec(ctx); err != nil {
+	gc, tx, ctx, err := WithTx(ctx, c)
+	if err != nil {
+		return err
+	}
+	defer Rollback(tx)
+	if _, err := gc.client.GroupPolicy.Delete().Where(grouppolicy.GroupID(id)).Exec(ctx); err != nil {
+		return fmt.Errorf("failed to release group policy grants: %w", err)
+	}
+	if err := gc.client.Group.DeleteOneID(id).Exec(ctx); err != nil {
 		return fmt.Errorf("failed to delete group: %w", err)
 	}
-
-	return nil
+	return Commit(tx)
 }
 
 func (c *groupClient) ListGroups(ctx context.Context, args *ListGroupParameters) (*ListGroupResult, error) {
