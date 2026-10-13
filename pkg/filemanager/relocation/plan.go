@@ -95,7 +95,7 @@ func validateEntities(file *ent.File) error {
 	}
 	for _, model := range file.Edges.Entities {
 		e := fs.NewEntity(model)
-		if (e.Type() != types.EntityTypeVersion && e.Type() != types.EntityTypeThumbnail && e.Type() != types.EntityTypeLivePhoto) || e.UploadSessionID() != nil || e.ReferenceCount() < 1 {
+		if (e.Type() != types.EntityTypeVersion && e.Type() != types.EntityTypeThumbnail && e.Type() != types.EntityTypeLivePhoto) || e.UploadSessionID() != nil || e.ReferenceCount() < 1 || e.Size() < 0 {
 			return serializer.NewError(serializer.CodeNoPermissionErr, "Migration contains an unsupported or incomplete entity", nil)
 		}
 	}

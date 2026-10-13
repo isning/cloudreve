@@ -1,6 +1,7 @@
 package explorer
 
 import (
+	"context"
 	"encoding/gob"
 	"github.com/cloudreve/Cloudreve/v4/pkg/hashid"
 	"time"
@@ -367,6 +368,11 @@ func (service *ListTaskService) ListTasks(c *gin.Context) (*TaskListResponse, er
 			return nil, serializer.NewError(serializer.CodeDBError, "Failed to parse task", err)
 		}
 
+		if durable, ok := task.(interface{ RefreshSummary(context.Context) error }); ok {
+			if err := durable.RefreshSummary(c); err != nil {
+				return nil, serializer.NewError(serializer.CodeDBError, "Failed to load task summary", err)
+			}
+		}
 		summary := task.Summarize(hasher)
 		if summary != nil && summary.NodeID > 0 {
 			if _, ok := nodeMap[summary.NodeID]; !ok {
@@ -392,13 +398,32 @@ func (service *ListTaskService) ListTasks(c *gin.Context) (*TaskListResponse, er
 func TaskPhaseProgress(c *gin.Context, taskID int) (queue.Progresses, error) {
 	dep := dependency.FromContext(c)
 	u := inventory.UserFromContext(c)
-	r := dep.TaskRegistry()
-	t, found := r.Get(taskID)
-	if !found || (t.Owner().ID != u.ID && !u.Edges.Group.Permissions.Enabled(int(types.GroupPermissionIsAdmin))) {
+	if t, found := dep.TaskRegistry().Get(taskID); found {
+		if t.Owner().ID != u.ID && !u.Edges.Group.Permissions.Enabled(int(types.GroupPermissionIsAdmin)) {
+			return queue.Progresses{}, nil
+		}
+		if durable, ok := t.(interface {
+			DurableProgress(context.Context) (queue.Progresses, error)
+		}); ok {
+			return durable.DurableProgress(c)
+		}
+		return t.Progress(c), nil
+	}
+	// Persistent migrations remain queryable after leaving the native registry.
+	model, err := dep.TaskClient().GetTaskByID(c, taskID)
+	if err != nil {
+		if ent.IsNotFound(err) {
+			return queue.Progresses{}, nil
+		}
+		return nil, serializer.NewError(serializer.CodeDBError, "Failed to load task progress", err)
+	}
+	if model.Type != queue.RelocateTaskType || (model.UserTasks != u.ID && !u.Edges.Group.Permissions.Enabled(int(types.GroupPermissionIsAdmin))) {
 		return queue.Progresses{}, nil
 	}
-
-	return t.Progress(c), nil
+	t := workflows.NewRelocateTaskFromModel(model)
+	return t.(interface {
+		DurableProgress(context.Context) (queue.Progresses, error)
+	}).DurableProgress(c)
 }
 
 func CancelDownloadTask(c *gin.Context, taskID int) error {

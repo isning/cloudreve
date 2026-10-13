@@ -22,6 +22,7 @@ func (RelocationAttempt) Fields() []ent.Field {
 		field.Text("target_key").Immutable(),
 		field.Enum("io_state").Values("not_started", "in_flight", "unknown", "ended").Default("not_started"),
 		field.Bool("source_read_finished").Default(false),
+		field.Int64("transferred_size").NonNegative().Default(0),
 		field.Int64("verified_size").NonNegative().Default(0),
 		field.String("verified_digest").Default(""),
 		field.Bool("verified").Default(false),

@@ -97,6 +97,20 @@ func (rac *RelocationAttemptCreate) SetNillableSourceReadFinished(b *bool) *Relo
 	return rac
 }
 
+// SetTransferredSize sets the "transferred_size" field.
+func (rac *RelocationAttemptCreate) SetTransferredSize(i int64) *RelocationAttemptCreate {
+	rac.mutation.SetTransferredSize(i)
+	return rac
+}
+
+// SetNillableTransferredSize sets the "transferred_size" field if the given value is not nil.
+func (rac *RelocationAttemptCreate) SetNillableTransferredSize(i *int64) *RelocationAttemptCreate {
+	if i != nil {
+		rac.SetTransferredSize(*i)
+	}
+	return rac
+}
+
 // SetVerifiedSize sets the "verified_size" field.
 func (rac *RelocationAttemptCreate) SetVerifiedSize(i int64) *RelocationAttemptCreate {
 	rac.mutation.SetVerifiedSize(i)
@@ -223,6 +237,10 @@ func (rac *RelocationAttemptCreate) defaults() {
 		v := relocationattempt.DefaultSourceReadFinished
 		rac.mutation.SetSourceReadFinished(v)
 	}
+	if _, ok := rac.mutation.TransferredSize(); !ok {
+		v := relocationattempt.DefaultTransferredSize
+		rac.mutation.SetTransferredSize(v)
+	}
 	if _, ok := rac.mutation.VerifiedSize(); !ok {
 		v := relocationattempt.DefaultVerifiedSize
 		rac.mutation.SetVerifiedSize(v)
@@ -282,6 +300,14 @@ func (rac *RelocationAttemptCreate) check() error {
 	}
 	if _, ok := rac.mutation.SourceReadFinished(); !ok {
 		return &ValidationError{Name: "source_read_finished", err: errors.New(`ent: missing required field "RelocationAttempt.source_read_finished"`)}
+	}
+	if _, ok := rac.mutation.TransferredSize(); !ok {
+		return &ValidationError{Name: "transferred_size", err: errors.New(`ent: missing required field "RelocationAttempt.transferred_size"`)}
+	}
+	if v, ok := rac.mutation.TransferredSize(); ok {
+		if err := relocationattempt.TransferredSizeValidator(v); err != nil {
+			return &ValidationError{Name: "transferred_size", err: fmt.Errorf(`ent: validator failed for field "RelocationAttempt.transferred_size": %w`, err)}
+		}
 	}
 	if _, ok := rac.mutation.VerifiedSize(); !ok {
 		return &ValidationError{Name: "verified_size", err: errors.New(`ent: missing required field "RelocationAttempt.verified_size"`)}
@@ -368,6 +394,10 @@ func (rac *RelocationAttemptCreate) createSpec() (*RelocationAttempt, *sqlgraph.
 	if value, ok := rac.mutation.SourceReadFinished(); ok {
 		_spec.SetField(relocationattempt.FieldSourceReadFinished, field.TypeBool, value)
 		_node.SourceReadFinished = value
+	}
+	if value, ok := rac.mutation.TransferredSize(); ok {
+		_spec.SetField(relocationattempt.FieldTransferredSize, field.TypeInt64, value)
+		_node.TransferredSize = value
 	}
 	if value, ok := rac.mutation.VerifiedSize(); ok {
 		_spec.SetField(relocationattempt.FieldVerifiedSize, field.TypeInt64, value)
@@ -491,6 +521,24 @@ func (u *RelocationAttemptUpsert) SetSourceReadFinished(v bool) *RelocationAttem
 // UpdateSourceReadFinished sets the "source_read_finished" field to the value that was provided on create.
 func (u *RelocationAttemptUpsert) UpdateSourceReadFinished() *RelocationAttemptUpsert {
 	u.SetExcluded(relocationattempt.FieldSourceReadFinished)
+	return u
+}
+
+// SetTransferredSize sets the "transferred_size" field.
+func (u *RelocationAttemptUpsert) SetTransferredSize(v int64) *RelocationAttemptUpsert {
+	u.Set(relocationattempt.FieldTransferredSize, v)
+	return u
+}
+
+// UpdateTransferredSize sets the "transferred_size" field to the value that was provided on create.
+func (u *RelocationAttemptUpsert) UpdateTransferredSize() *RelocationAttemptUpsert {
+	u.SetExcluded(relocationattempt.FieldTransferredSize)
+	return u
+}
+
+// AddTransferredSize adds v to the "transferred_size" field.
+func (u *RelocationAttemptUpsert) AddTransferredSize(v int64) *RelocationAttemptUpsert {
+	u.Add(relocationattempt.FieldTransferredSize, v)
 	return u
 }
 
@@ -653,6 +701,27 @@ func (u *RelocationAttemptUpsertOne) SetSourceReadFinished(v bool) *RelocationAt
 func (u *RelocationAttemptUpsertOne) UpdateSourceReadFinished() *RelocationAttemptUpsertOne {
 	return u.Update(func(s *RelocationAttemptUpsert) {
 		s.UpdateSourceReadFinished()
+	})
+}
+
+// SetTransferredSize sets the "transferred_size" field.
+func (u *RelocationAttemptUpsertOne) SetTransferredSize(v int64) *RelocationAttemptUpsertOne {
+	return u.Update(func(s *RelocationAttemptUpsert) {
+		s.SetTransferredSize(v)
+	})
+}
+
+// AddTransferredSize adds v to the "transferred_size" field.
+func (u *RelocationAttemptUpsertOne) AddTransferredSize(v int64) *RelocationAttemptUpsertOne {
+	return u.Update(func(s *RelocationAttemptUpsert) {
+		s.AddTransferredSize(v)
+	})
+}
+
+// UpdateTransferredSize sets the "transferred_size" field to the value that was provided on create.
+func (u *RelocationAttemptUpsertOne) UpdateTransferredSize() *RelocationAttemptUpsertOne {
+	return u.Update(func(s *RelocationAttemptUpsert) {
+		s.UpdateTransferredSize()
 	})
 }
 
@@ -997,6 +1066,27 @@ func (u *RelocationAttemptUpsertBulk) SetSourceReadFinished(v bool) *RelocationA
 func (u *RelocationAttemptUpsertBulk) UpdateSourceReadFinished() *RelocationAttemptUpsertBulk {
 	return u.Update(func(s *RelocationAttemptUpsert) {
 		s.UpdateSourceReadFinished()
+	})
+}
+
+// SetTransferredSize sets the "transferred_size" field.
+func (u *RelocationAttemptUpsertBulk) SetTransferredSize(v int64) *RelocationAttemptUpsertBulk {
+	return u.Update(func(s *RelocationAttemptUpsert) {
+		s.SetTransferredSize(v)
+	})
+}
+
+// AddTransferredSize adds v to the "transferred_size" field.
+func (u *RelocationAttemptUpsertBulk) AddTransferredSize(v int64) *RelocationAttemptUpsertBulk {
+	return u.Update(func(s *RelocationAttemptUpsert) {
+		s.AddTransferredSize(v)
+	})
+}
+
+// UpdateTransferredSize sets the "transferred_size" field to the value that was provided on create.
+func (u *RelocationAttemptUpsertBulk) UpdateTransferredSize() *RelocationAttemptUpsertBulk {
+	return u.Update(func(s *RelocationAttemptUpsert) {
+		s.UpdateTransferredSize()
 	})
 }
 

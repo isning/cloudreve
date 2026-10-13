@@ -24,11 +24,12 @@ type RelocateTask struct{ *queue.DBTask }
 func (*RelocateTask) CancellationDrainTimeout() time.Duration { return 5 * time.Second }
 
 type RelocateCommand struct {
-	Sources         []string `json:"sources"`
-	DestinationID   int      `json:"destination_id"`
-	DestinationName string   `json:"destination_name"`
-	NodeID          int      `json:"node_id"`
-	Phase           string   `json:"phase"`
+	Sources         []string             `json:"sources"`
+	DestinationID   int                  `json:"destination_id"`
+	DestinationName string               `json:"destination_name"`
+	NodeID          int                  `json:"node_id"`
+	Phase           string               `json:"phase"`
+	Progress        *relocation.Progress `json:"progress,omitempty"`
 }
 
 func init() { queue.RegisterResumableTaskFactory(queue.RelocateTaskType, NewRelocateTaskFromModel) }
@@ -69,19 +70,24 @@ func (t *RelocateTask) Do(ctx context.Context) (task.Status, error) {
 		return task.StatusSuspending, nil
 	}
 	if err != nil {
+		command.Phase = "failed"
+		reportCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		command.Progress, _ = relocation.ReadProgress(reportCtx, dep.DBClient(), t.ID(), true)
+		cancel()
+		t.saveCommand(command)
 		return task.StatusError, fmt.Errorf("%s: %w", err.Error(), queue.CriticalErr)
 	}
 	command.Phase = "transferring"
 	if done {
 		command.Phase = "completed"
 	}
-	encoded, err := json.Marshal(command)
+	command.Progress, err = relocation.ReadProgress(ctx, dep.DBClient(), t.ID(), false)
 	if err != nil {
 		return task.StatusError, err
 	}
-	t.Lock()
-	t.Task.PrivateState = string(encoded)
-	t.Unlock()
+	if err := t.saveCommand(command); err != nil {
+		return task.StatusError, err
+	}
 	if done {
 		return task.StatusCompleted, nil
 	}
@@ -93,5 +99,60 @@ func (t *RelocateTask) Summarize(encoder hashid.Encoder) *queue.Summary {
 	if err := json.Unmarshal([]byte(t.State()), &command); err != nil {
 		return nil
 	}
-	return &queue.Summary{NodeID: command.NodeID, Phase: command.Phase, Props: map[string]any{"src_multiple": command.Sources, "dst_policy_id": hashid.EncodePolicyID(encoder, command.DestinationID), "dst_policy_name": command.DestinationName}}
+	props := map[string]any{"src_multiple": command.Sources, "dst_policy_id": hashid.EncodePolicyID(encoder, command.DestinationID), "dst_policy_name": command.DestinationName}
+	if p := command.Progress; p != nil {
+		command.Phase = p.Phase
+		props["entities_total"], props["entities_completed"], props["entities_failed"] = p.Total, p.Completed, p.Failed
+		props["bytes_total"], props["bytes_copied"] = p.Bytes, p.Copied
+	}
+	return &queue.Summary{NodeID: command.NodeID, Phase: command.Phase, Props: props}
+}
+
+func (t *RelocateTask) saveCommand(command RelocateCommand) error {
+	encoded, err := json.Marshal(command)
+	if err != nil {
+		return err
+	}
+	t.Lock()
+	t.Task.PrivateState = string(encoded)
+	t.Unlock()
+	return nil
+}
+
+// RefreshSummary reconstructs facts even if Task state persistence was interrupted.
+func (t *RelocateTask) RefreshSummary(ctx context.Context) error {
+	var command RelocateCommand
+	if err := json.Unmarshal([]byte(t.State()), &command); err != nil {
+		return errors.New("invalid migration summary")
+	}
+	t.Lock()
+	failed := t.Task.Status == task.StatusError
+	t.Unlock()
+	progress, err := relocation.ReadProgress(ctx, dependency.FromContext(ctx).DBClient(), t.ID(), failed)
+	if err != nil {
+		return err
+	}
+	command.Progress = progress
+	command.Phase = progress.Phase
+	return t.saveCommand(command)
+}
+
+func (t *RelocateTask) DurableProgress(ctx context.Context) (queue.Progresses, error) {
+	t.Lock()
+	failed := t.Task.Status == task.StatusError
+	t.Unlock()
+	p, err := relocation.ReadProgress(ctx, dependency.FromContext(ctx).DBClient(), t.ID(), failed)
+	if err != nil {
+		return nil, err
+	}
+	return queue.Progresses{
+		"relocate_count":  {Total: p.Total, Current: p.Completed},
+		"relocate_size":   {Total: p.Bytes, Current: p.Copied},
+		"relocate_failed": {Total: p.Total, Current: p.Failed},
+	}, nil
+}
+
+func (t *RelocateTask) Progress(ctx context.Context) queue.Progresses {
+	p, _ := t.DurableProgress(ctx)
+	return p
 }

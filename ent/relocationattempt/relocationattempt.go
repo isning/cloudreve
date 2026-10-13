@@ -29,6 +29,8 @@ const (
 	FieldIoState = "io_state"
 	// FieldSourceReadFinished holds the string denoting the source_read_finished field in the database.
 	FieldSourceReadFinished = "source_read_finished"
+	// FieldTransferredSize holds the string denoting the transferred_size field in the database.
+	FieldTransferredSize = "transferred_size"
 	// FieldVerifiedSize holds the string denoting the verified_size field in the database.
 	FieldVerifiedSize = "verified_size"
 	// FieldVerifiedDigest holds the string denoting the verified_digest field in the database.
@@ -62,6 +64,7 @@ var Columns = []string{
 	FieldTargetKey,
 	FieldIoState,
 	FieldSourceReadFinished,
+	FieldTransferredSize,
 	FieldVerifiedSize,
 	FieldVerifiedDigest,
 	FieldVerified,
@@ -92,6 +95,10 @@ var (
 	FenceValidator func(int64) error
 	// DefaultSourceReadFinished holds the default value on creation for the "source_read_finished" field.
 	DefaultSourceReadFinished bool
+	// DefaultTransferredSize holds the default value on creation for the "transferred_size" field.
+	DefaultTransferredSize int64
+	// TransferredSizeValidator is a validator for the "transferred_size" field. It is called by the builders before save.
+	TransferredSizeValidator func(int64) error
 	// DefaultVerifiedSize holds the default value on creation for the "verified_size" field.
 	DefaultVerifiedSize int64
 	// VerifiedSizeValidator is a validator for the "verified_size" field. It is called by the builders before save.
@@ -200,6 +207,11 @@ func ByIoState(opts ...sql.OrderTermOption) OrderOption {
 // BySourceReadFinished orders the results by the source_read_finished field.
 func BySourceReadFinished(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldSourceReadFinished, opts...).ToFunc()
+}
+
+// ByTransferredSize orders the results by the transferred_size field.
+func ByTransferredSize(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldTransferredSize, opts...).ToFunc()
 }
 
 // ByVerifiedSize orders the results by the verified_size field.

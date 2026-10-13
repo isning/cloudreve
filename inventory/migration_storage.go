@@ -15,7 +15,7 @@ import (
 	"github.com/cloudreve/Cloudreve/v4/pkg/boolset"
 )
 
-const StorageSchemaVersion = "storage_extension_schema_v5"
+const StorageSchemaVersion = "storage_extension_schema_v6"
 
 // EnsureStorageSchema extends existing installations independently of the
 // upstream version marker. It shares the existing extension DDL lock so storage

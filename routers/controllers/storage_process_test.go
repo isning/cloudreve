@@ -300,7 +300,7 @@ func TestStorageV3JournalUpgradePreservesUnknownAttempts(t *testing.T) {
 	prior := *entmigrate.RelocationAttemptsTable
 	prior.Columns = nil
 	for _, column := range entmigrate.RelocationAttemptsTable.Columns {
-		if column.Name != "source_read_finished" {
+		if column.Name != "source_read_finished" && column.Name != "transferred_size" {
 			prior.Columns = append(prior.Columns, column)
 		}
 	}
@@ -323,6 +323,7 @@ func TestStorageV3JournalUpgradePreservesUnknownAttempts(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "prior-owned-target", attempt.TargetKey)
 	require.Equal(t, "unknown", string(attempt.IoState))
+	require.Zero(t, attempt.TransferredSize, "prior attempts gain an additive zero byte counter")
 	require.False(t, attempt.SourceReadFinished, "prior unknown readers must remain conservatively unresolved")
 	_, err = f.db.Setting.Query().Where(setting.Name("storage_extension_schema_v3"), setting.Value("complete")).Only(ctx)
 	require.NoError(t, err)

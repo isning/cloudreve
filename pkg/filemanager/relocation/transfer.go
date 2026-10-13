@@ -434,14 +434,22 @@ func currentSource(ctx context.Context, db *ent.Client, item *ent.RelocationItem
 
 type digestReader struct {
 	io.Reader
-	hash hash.Hash
-	size int64
+	hash       hash.Hash
+	size       int64
+	progress   func(int64)
+	reported   int64
+	lastReport time.Time
 }
 
 func (r *digestReader) Read(p []byte) (int, error) {
 	n, err := r.Reader.Read(p)
 	r.size += int64(n)
 	r.hash.Write(p[:n])
+	if n > 0 && r.progress != nil && (r.size-r.reported >= 1<<20 || time.Since(r.lastReport) >= time.Second) {
+		r.progress(r.size)
+		r.reported = r.size
+		r.lastReport = time.Now()
+	}
 	return n, err
 }
 
@@ -494,14 +502,18 @@ func copySingle(ctx context.Context, dep dependency.Dep, fm manager.FileManager,
 	if err := beginIO(ctx, db, item, attempt); err != nil {
 		return errors.New("failed to record migration I/O")
 	}
-	digest := &digestReader{Reader: r, hash: sha256.New()}
+	digest := &digestReader{Reader: r, hash: sha256.New(), lastReport: time.Now(), progress: func(size int64) {
+		progressCtx, cancel := context.WithTimeout(ctx, time.Second)
+		defer cancel()
+		_ = db.RelocationAttempt.UpdateOneID(attempt.ID).SetTransferredSize(size).Exec(progressCtx)
+	}}
 	err = d.Put(ctx, &fs.UploadRequest{File: io.NopCloser(digest), Props: &fs.UploadProps{Uri: uri, SavePath: key, Size: source.Size}})
 	ioState := relocationattempt.IoStateEnded
 	if err != nil {
 		ioState = relocationattempt.IoStateUnknown
 	}
 	recordCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-	recordErr := db.RelocationAttempt.UpdateOneID(attempt.ID).SetIoState(ioState).Exec(recordCtx)
+	recordErr := db.RelocationAttempt.UpdateOneID(attempt.ID).SetIoState(ioState).SetTransferredSize(digest.size).Exec(recordCtx)
 	cancel()
 	if recordErr != nil {
 		return errors.New("failed to record migration I/O result")

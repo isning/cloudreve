@@ -32,6 +32,8 @@ type RelocationAttempt struct {
 	IoState relocationattempt.IoState `json:"io_state,omitempty"`
 	// SourceReadFinished holds the value of the "source_read_finished" field.
 	SourceReadFinished bool `json:"source_read_finished,omitempty"`
+	// TransferredSize holds the value of the "transferred_size" field.
+	TransferredSize int64 `json:"transferred_size,omitempty"`
 	// VerifiedSize holds the value of the "verified_size" field.
 	VerifiedSize int64 `json:"verified_size,omitempty"`
 	// VerifiedDigest holds the value of the "verified_digest" field.
@@ -77,7 +79,7 @@ func (*RelocationAttempt) scanValues(columns []string) ([]any, error) {
 		switch columns[i] {
 		case relocationattempt.FieldSourceReadFinished, relocationattempt.FieldVerified:
 			values[i] = new(sql.NullBool)
-		case relocationattempt.FieldID, relocationattempt.FieldItemID, relocationattempt.FieldFence, relocationattempt.FieldVerifiedSize:
+		case relocationattempt.FieldID, relocationattempt.FieldItemID, relocationattempt.FieldFence, relocationattempt.FieldTransferredSize, relocationattempt.FieldVerifiedSize:
 			values[i] = new(sql.NullInt64)
 		case relocationattempt.FieldTargetKey, relocationattempt.FieldIoState, relocationattempt.FieldVerifiedDigest, relocationattempt.FieldCleanup, relocationattempt.FieldError:
 			values[i] = new(sql.NullString)
@@ -145,6 +147,12 @@ func (ra *RelocationAttempt) assignValues(columns []string, values []any) error 
 				return fmt.Errorf("unexpected type %T for field source_read_finished", values[i])
 			} else if value.Valid {
 				ra.SourceReadFinished = value.Bool
+			}
+		case relocationattempt.FieldTransferredSize:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field transferred_size", values[i])
+			} else if value.Valid {
+				ra.TransferredSize = value.Int64
 			}
 		case relocationattempt.FieldVerifiedSize:
 			if value, ok := values[i].(*sql.NullInt64); !ok {
@@ -237,6 +245,9 @@ func (ra *RelocationAttempt) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("source_read_finished=")
 	builder.WriteString(fmt.Sprintf("%v", ra.SourceReadFinished))
+	builder.WriteString(", ")
+	builder.WriteString("transferred_size=")
+	builder.WriteString(fmt.Sprintf("%v", ra.TransferredSize))
 	builder.WriteString(", ")
 	builder.WriteString("verified_size=")
 	builder.WriteString(fmt.Sprintf("%v", ra.VerifiedSize))

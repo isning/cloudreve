@@ -85,6 +85,11 @@ func SourceReadFinished(v bool) predicate.RelocationAttempt {
 	return predicate.RelocationAttempt(sql.FieldEQ(FieldSourceReadFinished, v))
 }
 
+// TransferredSize applies equality check predicate on the "transferred_size" field. It's identical to TransferredSizeEQ.
+func TransferredSize(v int64) predicate.RelocationAttempt {
+	return predicate.RelocationAttempt(sql.FieldEQ(FieldTransferredSize, v))
+}
+
 // VerifiedSize applies equality check predicate on the "verified_size" field. It's identical to VerifiedSizeEQ.
 func VerifiedSize(v int64) predicate.RelocationAttempt {
 	return predicate.RelocationAttempt(sql.FieldEQ(FieldVerifiedSize, v))
@@ -338,6 +343,46 @@ func SourceReadFinishedEQ(v bool) predicate.RelocationAttempt {
 // SourceReadFinishedNEQ applies the NEQ predicate on the "source_read_finished" field.
 func SourceReadFinishedNEQ(v bool) predicate.RelocationAttempt {
 	return predicate.RelocationAttempt(sql.FieldNEQ(FieldSourceReadFinished, v))
+}
+
+// TransferredSizeEQ applies the EQ predicate on the "transferred_size" field.
+func TransferredSizeEQ(v int64) predicate.RelocationAttempt {
+	return predicate.RelocationAttempt(sql.FieldEQ(FieldTransferredSize, v))
+}
+
+// TransferredSizeNEQ applies the NEQ predicate on the "transferred_size" field.
+func TransferredSizeNEQ(v int64) predicate.RelocationAttempt {
+	return predicate.RelocationAttempt(sql.FieldNEQ(FieldTransferredSize, v))
+}
+
+// TransferredSizeIn applies the In predicate on the "transferred_size" field.
+func TransferredSizeIn(vs ...int64) predicate.RelocationAttempt {
+	return predicate.RelocationAttempt(sql.FieldIn(FieldTransferredSize, vs...))
+}
+
+// TransferredSizeNotIn applies the NotIn predicate on the "transferred_size" field.
+func TransferredSizeNotIn(vs ...int64) predicate.RelocationAttempt {
+	return predicate.RelocationAttempt(sql.FieldNotIn(FieldTransferredSize, vs...))
+}
+
+// TransferredSizeGT applies the GT predicate on the "transferred_size" field.
+func TransferredSizeGT(v int64) predicate.RelocationAttempt {
+	return predicate.RelocationAttempt(sql.FieldGT(FieldTransferredSize, v))
+}
+
+// TransferredSizeGTE applies the GTE predicate on the "transferred_size" field.
+func TransferredSizeGTE(v int64) predicate.RelocationAttempt {
+	return predicate.RelocationAttempt(sql.FieldGTE(FieldTransferredSize, v))
+}
+
+// TransferredSizeLT applies the LT predicate on the "transferred_size" field.
+func TransferredSizeLT(v int64) predicate.RelocationAttempt {
+	return predicate.RelocationAttempt(sql.FieldLT(FieldTransferredSize, v))
+}
+
+// TransferredSizeLTE applies the LTE predicate on the "transferred_size" field.
+func TransferredSizeLTE(v int64) predicate.RelocationAttempt {
+	return predicate.RelocationAttempt(sql.FieldLTE(FieldTransferredSize, v))
 }
 
 // VerifiedSizeEQ applies the EQ predicate on the "verified_size" field.

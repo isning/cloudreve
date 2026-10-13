@@ -62,6 +62,27 @@ func (rau *RelocationAttemptUpdate) SetNillableSourceReadFinished(b *bool) *Relo
 	return rau
 }
 
+// SetTransferredSize sets the "transferred_size" field.
+func (rau *RelocationAttemptUpdate) SetTransferredSize(i int64) *RelocationAttemptUpdate {
+	rau.mutation.ResetTransferredSize()
+	rau.mutation.SetTransferredSize(i)
+	return rau
+}
+
+// SetNillableTransferredSize sets the "transferred_size" field if the given value is not nil.
+func (rau *RelocationAttemptUpdate) SetNillableTransferredSize(i *int64) *RelocationAttemptUpdate {
+	if i != nil {
+		rau.SetTransferredSize(*i)
+	}
+	return rau
+}
+
+// AddTransferredSize adds i to the "transferred_size" field.
+func (rau *RelocationAttemptUpdate) AddTransferredSize(i int64) *RelocationAttemptUpdate {
+	rau.mutation.AddTransferredSize(i)
+	return rau
+}
+
 // SetVerifiedSize sets the "verified_size" field.
 func (rau *RelocationAttemptUpdate) SetVerifiedSize(i int64) *RelocationAttemptUpdate {
 	rau.mutation.ResetVerifiedSize()
@@ -187,6 +208,11 @@ func (rau *RelocationAttemptUpdate) check() error {
 			return &ValidationError{Name: "io_state", err: fmt.Errorf(`ent: validator failed for field "RelocationAttempt.io_state": %w`, err)}
 		}
 	}
+	if v, ok := rau.mutation.TransferredSize(); ok {
+		if err := relocationattempt.TransferredSizeValidator(v); err != nil {
+			return &ValidationError{Name: "transferred_size", err: fmt.Errorf(`ent: validator failed for field "RelocationAttempt.transferred_size": %w`, err)}
+		}
+	}
 	if v, ok := rau.mutation.VerifiedSize(); ok {
 		if err := relocationattempt.VerifiedSizeValidator(v); err != nil {
 			return &ValidationError{Name: "verified_size", err: fmt.Errorf(`ent: validator failed for field "RelocationAttempt.verified_size": %w`, err)}
@@ -223,6 +249,12 @@ func (rau *RelocationAttemptUpdate) sqlSave(ctx context.Context) (n int, err err
 	}
 	if value, ok := rau.mutation.SourceReadFinished(); ok {
 		_spec.SetField(relocationattempt.FieldSourceReadFinished, field.TypeBool, value)
+	}
+	if value, ok := rau.mutation.TransferredSize(); ok {
+		_spec.SetField(relocationattempt.FieldTransferredSize, field.TypeInt64, value)
+	}
+	if value, ok := rau.mutation.AddedTransferredSize(); ok {
+		_spec.AddField(relocationattempt.FieldTransferredSize, field.TypeInt64, value)
 	}
 	if value, ok := rau.mutation.VerifiedSize(); ok {
 		_spec.SetField(relocationattempt.FieldVerifiedSize, field.TypeInt64, value)
@@ -293,6 +325,27 @@ func (rauo *RelocationAttemptUpdateOne) SetNillableSourceReadFinished(b *bool) *
 	if b != nil {
 		rauo.SetSourceReadFinished(*b)
 	}
+	return rauo
+}
+
+// SetTransferredSize sets the "transferred_size" field.
+func (rauo *RelocationAttemptUpdateOne) SetTransferredSize(i int64) *RelocationAttemptUpdateOne {
+	rauo.mutation.ResetTransferredSize()
+	rauo.mutation.SetTransferredSize(i)
+	return rauo
+}
+
+// SetNillableTransferredSize sets the "transferred_size" field if the given value is not nil.
+func (rauo *RelocationAttemptUpdateOne) SetNillableTransferredSize(i *int64) *RelocationAttemptUpdateOne {
+	if i != nil {
+		rauo.SetTransferredSize(*i)
+	}
+	return rauo
+}
+
+// AddTransferredSize adds i to the "transferred_size" field.
+func (rauo *RelocationAttemptUpdateOne) AddTransferredSize(i int64) *RelocationAttemptUpdateOne {
+	rauo.mutation.AddTransferredSize(i)
 	return rauo
 }
 
@@ -434,6 +487,11 @@ func (rauo *RelocationAttemptUpdateOne) check() error {
 			return &ValidationError{Name: "io_state", err: fmt.Errorf(`ent: validator failed for field "RelocationAttempt.io_state": %w`, err)}
 		}
 	}
+	if v, ok := rauo.mutation.TransferredSize(); ok {
+		if err := relocationattempt.TransferredSizeValidator(v); err != nil {
+			return &ValidationError{Name: "transferred_size", err: fmt.Errorf(`ent: validator failed for field "RelocationAttempt.transferred_size": %w`, err)}
+		}
+	}
 	if v, ok := rauo.mutation.VerifiedSize(); ok {
 		if err := relocationattempt.VerifiedSizeValidator(v); err != nil {
 			return &ValidationError{Name: "verified_size", err: fmt.Errorf(`ent: validator failed for field "RelocationAttempt.verified_size": %w`, err)}
@@ -487,6 +545,12 @@ func (rauo *RelocationAttemptUpdateOne) sqlSave(ctx context.Context) (_node *Rel
 	}
 	if value, ok := rauo.mutation.SourceReadFinished(); ok {
 		_spec.SetField(relocationattempt.FieldSourceReadFinished, field.TypeBool, value)
+	}
+	if value, ok := rauo.mutation.TransferredSize(); ok {
+		_spec.SetField(relocationattempt.FieldTransferredSize, field.TypeInt64, value)
+	}
+	if value, ok := rauo.mutation.AddedTransferredSize(); ok {
+		_spec.AddField(relocationattempt.FieldTransferredSize, field.TypeInt64, value)
 	}
 	if value, ok := rauo.mutation.VerifiedSize(); ok {
 		_spec.SetField(relocationattempt.FieldVerifiedSize, field.TypeInt64, value)

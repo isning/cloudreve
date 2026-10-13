@@ -14093,6 +14093,8 @@ type RelocationAttemptMutation struct {
 	target_key           *string
 	io_state             *relocationattempt.IoState
 	source_read_finished *bool
+	transferred_size     *int64
+	addtransferred_size  *int64
 	verified_size        *int64
 	addverified_size     *int64
 	verified_digest      *string
@@ -14477,6 +14479,62 @@ func (m *RelocationAttemptMutation) ResetSourceReadFinished() {
 	m.source_read_finished = nil
 }
 
+// SetTransferredSize sets the "transferred_size" field.
+func (m *RelocationAttemptMutation) SetTransferredSize(i int64) {
+	m.transferred_size = &i
+	m.addtransferred_size = nil
+}
+
+// TransferredSize returns the value of the "transferred_size" field in the mutation.
+func (m *RelocationAttemptMutation) TransferredSize() (r int64, exists bool) {
+	v := m.transferred_size
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldTransferredSize returns the old "transferred_size" field's value of the RelocationAttempt entity.
+// If the RelocationAttempt object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *RelocationAttemptMutation) OldTransferredSize(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldTransferredSize is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldTransferredSize requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldTransferredSize: %w", err)
+	}
+	return oldValue.TransferredSize, nil
+}
+
+// AddTransferredSize adds i to the "transferred_size" field.
+func (m *RelocationAttemptMutation) AddTransferredSize(i int64) {
+	if m.addtransferred_size != nil {
+		*m.addtransferred_size += i
+	} else {
+		m.addtransferred_size = &i
+	}
+}
+
+// AddedTransferredSize returns the value that was added to the "transferred_size" field in this mutation.
+func (m *RelocationAttemptMutation) AddedTransferredSize() (r int64, exists bool) {
+	v := m.addtransferred_size
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetTransferredSize resets all changes to the "transferred_size" field.
+func (m *RelocationAttemptMutation) ResetTransferredSize() {
+	m.transferred_size = nil
+	m.addtransferred_size = nil
+}
+
 // SetVerifiedSize sets the "verified_size" field.
 func (m *RelocationAttemptMutation) SetVerifiedSize(i int64) {
 	m.verified_size = &i
@@ -14738,7 +14796,7 @@ func (m *RelocationAttemptMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *RelocationAttemptMutation) Fields() []string {
-	fields := make([]string, 0, 12)
+	fields := make([]string, 0, 13)
 	if m.created_at != nil {
 		fields = append(fields, relocationattempt.FieldCreatedAt)
 	}
@@ -14759,6 +14817,9 @@ func (m *RelocationAttemptMutation) Fields() []string {
 	}
 	if m.source_read_finished != nil {
 		fields = append(fields, relocationattempt.FieldSourceReadFinished)
+	}
+	if m.transferred_size != nil {
+		fields = append(fields, relocationattempt.FieldTransferredSize)
 	}
 	if m.verified_size != nil {
 		fields = append(fields, relocationattempt.FieldVerifiedSize)
@@ -14797,6 +14858,8 @@ func (m *RelocationAttemptMutation) Field(name string) (ent.Value, bool) {
 		return m.IoState()
 	case relocationattempt.FieldSourceReadFinished:
 		return m.SourceReadFinished()
+	case relocationattempt.FieldTransferredSize:
+		return m.TransferredSize()
 	case relocationattempt.FieldVerifiedSize:
 		return m.VerifiedSize()
 	case relocationattempt.FieldVerifiedDigest:
@@ -14830,6 +14893,8 @@ func (m *RelocationAttemptMutation) OldField(ctx context.Context, name string) (
 		return m.OldIoState(ctx)
 	case relocationattempt.FieldSourceReadFinished:
 		return m.OldSourceReadFinished(ctx)
+	case relocationattempt.FieldTransferredSize:
+		return m.OldTransferredSize(ctx)
 	case relocationattempt.FieldVerifiedSize:
 		return m.OldVerifiedSize(ctx)
 	case relocationattempt.FieldVerifiedDigest:
@@ -14898,6 +14963,13 @@ func (m *RelocationAttemptMutation) SetField(name string, value ent.Value) error
 		}
 		m.SetSourceReadFinished(v)
 		return nil
+	case relocationattempt.FieldTransferredSize:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetTransferredSize(v)
+		return nil
 	case relocationattempt.FieldVerifiedSize:
 		v, ok := value.(int64)
 		if !ok {
@@ -14944,6 +15016,9 @@ func (m *RelocationAttemptMutation) AddedFields() []string {
 	if m.addfence != nil {
 		fields = append(fields, relocationattempt.FieldFence)
 	}
+	if m.addtransferred_size != nil {
+		fields = append(fields, relocationattempt.FieldTransferredSize)
+	}
 	if m.addverified_size != nil {
 		fields = append(fields, relocationattempt.FieldVerifiedSize)
 	}
@@ -14957,6 +15032,8 @@ func (m *RelocationAttemptMutation) AddedField(name string) (ent.Value, bool) {
 	switch name {
 	case relocationattempt.FieldFence:
 		return m.AddedFence()
+	case relocationattempt.FieldTransferredSize:
+		return m.AddedTransferredSize()
 	case relocationattempt.FieldVerifiedSize:
 		return m.AddedVerifiedSize()
 	}
@@ -14974,6 +15051,13 @@ func (m *RelocationAttemptMutation) AddField(name string, value ent.Value) error
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.AddFence(v)
+		return nil
+	case relocationattempt.FieldTransferredSize:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddTransferredSize(v)
 		return nil
 	case relocationattempt.FieldVerifiedSize:
 		v, ok := value.(int64)
@@ -15029,6 +15113,9 @@ func (m *RelocationAttemptMutation) ResetField(name string) error {
 		return nil
 	case relocationattempt.FieldSourceReadFinished:
 		m.ResetSourceReadFinished()
+		return nil
+	case relocationattempt.FieldTransferredSize:
+		m.ResetTransferredSize()
 		return nil
 	case relocationattempt.FieldVerifiedSize:
 		m.ResetVerifiedSize()
