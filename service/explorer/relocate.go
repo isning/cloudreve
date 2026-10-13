@@ -26,7 +26,7 @@ func (s *RelocateService) Create(c *gin.Context) (*TaskResponse, error) {
 	if err != nil || destinationID <= 0 {
 		return nil, serializer.NewError(serializer.CodeParamErr, "Invalid storage destination", nil)
 	}
-	plan, err := relocation.PlanNoop(c, dep, inventory.UserFromContext(c).ID, s.Src, destinationID)
+	plan, err := relocation.PlanSingle(c, dep, inventory.UserFromContext(c).ID, s.Src, destinationID)
 	if err != nil {
 		return nil, err
 	}

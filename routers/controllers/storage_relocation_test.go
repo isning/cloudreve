@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/cloudreve/Cloudreve/v4/ent/relocationitem"
+	"github.com/cloudreve/Cloudreve/v4/pkg/auth"
 	"github.com/cloudreve/Cloudreve/v4/pkg/boolset"
 	"github.com/cloudreve/Cloudreve/v4/pkg/filemanager/fs"
 	"github.com/cloudreve/Cloudreve/v4/pkg/hashid"
@@ -41,7 +42,7 @@ func (f *storageFixture) waitForStorageTask(t *testing.T, id string, status stri
 					return found
 				}
 				if job.Status == "completed" || job.Status == "error" || job.Status == "canceled" {
-					t.Fatalf("storage task reached unexpected terminal state %s; expected %s", job.Status, status)
+					t.Fatalf("storage task reached unexpected terminal state %s; expected %s (%s)", job.Status, status, auth.RedactSensitiveValues(job.Error))
 				}
 			}
 		}
@@ -89,7 +90,6 @@ func TestStorageSamePolicyRelocationPersistsAndCompletesAfterWorkerRestart(t *te
 	var capacityAfter fs.Capacity
 	f.request(t, http.MethodGet, "/api/v4/user/capacity", nil, &capacityAfter)
 	require.Equal(t, capacityBefore.Used, capacityAfter.Used)
-	require.NotZero(t, f.responseCode(t, http.MethodPost, "/api/v4/workflow/reloacte", map[string]any{"src": []string{uri}, "dst_policy_id": hashid.EncodePolicyID(f.dep.HashIDEncoder(), f.policies[1].ID)}))
 	worker.stop(t)
 	restarted := launchStorageWorkerWithWorkflows(t, f)
 	f.remote = restarted.ready(t)

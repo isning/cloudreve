@@ -9,6 +9,7 @@ import (
 	"github.com/cloudreve/Cloudreve/v4/application/constants"
 	"github.com/cloudreve/Cloudreve/v4/application/dependency"
 	"github.com/cloudreve/Cloudreve/v4/ent"
+	entfile "github.com/cloudreve/Cloudreve/v4/ent/file"
 	"github.com/cloudreve/Cloudreve/v4/inventory"
 	"github.com/cloudreve/Cloudreve/v4/inventory/types"
 	"github.com/cloudreve/Cloudreve/v4/pkg/filemanager/fs"
@@ -27,10 +28,9 @@ type Plan struct {
 	References  []types.RelocationReference
 }
 
-// PlanNoop is the first migration slice: a complete, unencrypted, exclusively
-// referenced single version already at the requested destination. Unsupported
-// physical transfers are rejected before queueing or any destination I/O.
-func PlanNoop(ctx context.Context, dep dependency.Dep, ownerID int, src []string, destinationID int) (*Plan, error) {
+// PlanSingle validates the initial single-file transfer scope. All unsupported
+// sources are rejected before queueing or any destination I/O.
+func PlanSingle(ctx context.Context, dep dependency.Dep, ownerID int, src []string, destinationID int) (*Plan, error) {
 	owner, err := dep.UserClient().GetActiveByID(context.WithValue(ctx, inventory.LoadUserGroup{}, true), ownerID)
 	if err != nil {
 		return nil, serializer.NewError(serializer.CodeNoPermissionErr, "Migration owner is unavailable", nil)
@@ -60,12 +60,18 @@ func PlanNoop(ctx context.Context, dep dependency.Dep, ownerID int, src []string
 	if err != nil {
 		return nil, err
 	}
-	if file.OwnerID() != owner.ID || file.Type() != types.FileTypeFile || file.IsSymbolic() || file.InTrashBin() || len(file.Entities()) != 1 {
+	// Navigation models can retain upload-time timestamps. Plan from actual Ent
+	// rows so the durable content snapshot never trusts that display cache.
+	current, err := dep.DBClient().File.Query().Where(entfile.ID(file.ID())).WithEntities().Only(ctx)
+	if err != nil {
+		return nil, serializer.NewError(serializer.CodeDBError, "Failed to load migration source", nil)
+	}
+	if current.OwnerID != owner.ID || current.Type != int(types.FileTypeFile) || current.IsSymbolic || file.InTrashBin() || len(current.Edges.Entities) != 1 {
 		return nil, fs.ErrNotSupportedAction
 	}
-	entity := file.Entities()[0]
-	if entity.Type() != types.EntityTypeVersion || entity.UploadSessionID() != nil || entity.Encrypted() || entity.ReferenceCount() != 1 || entity.PolicyID() != destination.ID {
+	entity := fs.NewEntity(current.Edges.Entities[0])
+	if entity.Type() != types.EntityTypeVersion || entity.UploadSessionID() != nil || entity.Encrypted() || entity.ReferenceCount() != 1 {
 		return nil, serializer.NewError(serializer.CodeNoPermissionErr, "This migration source or transfer is not supported yet", nil)
 	}
-	return &Plan{Owner: owner, Destination: destination, FileIDs: []int{file.ID()}, Entity: entity.Model(), References: []types.RelocationReference{{FileID: file.ID(), PrimaryEntityID: file.PrimaryEntity().ID(), UpdatedAt: file.UpdatedAt()}}}, nil
+	return &Plan{Owner: owner, Destination: destination, FileIDs: []int{current.ID}, Entity: entity.Model(), References: []types.RelocationReference{{FileID: current.ID, PrimaryEntityID: current.PrimaryEntity, UpdatedAt: current.UpdatedAt}}}, nil
 }

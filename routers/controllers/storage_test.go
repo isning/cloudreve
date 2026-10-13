@@ -310,6 +310,7 @@ func storageRouter(d dependency.Dep, l logging.Logger) *gin.Engine {
 	authenticated.GET("/file", ctl.FromQuery[explorer.ListFileService](explorer.ListFileParameterCtx{}), ctl.ListDirectory)
 	authenticated.PATCH("/file/policy", ctl.FromJSON[explorer.BindPolicyService](explorer.BindPolicyParamCtx{}), ctl.BindStoragePolicy)
 	authenticated.POST("/file/create", ctl.FromJSON[explorer.CreateFileService](explorer.CreateFileParameterCtx{}), ctl.CreateFile)
+	authenticated.POST("/file/move", ctl.FromJSON[explorer.MoveFileService](explorer.MoveFileParameterCtx{}), ctl.MoveFile)
 	authenticated.PUT("/file/content", ctl.FromQuery[explorer.FileUpdateService](explorer.FileUpdateParameterCtx{}), ctl.PutContent)
 	authenticated.PUT("/devices/dav", ctl.FromJSON[settingsvc.CreateDavAccountService](settingsvc.CreateDavAccountParamCtx{}), ctl.CreateDAVAccounts)
 	authenticated.DELETE("/file", ctl.FromJSON[explorer.DeleteFileService](explorer.DeleteFileParameterCtx{}), ctl.Delete)

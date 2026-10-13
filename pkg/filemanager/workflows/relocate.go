@@ -3,7 +3,9 @@ package workflows
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"time"
 
 	"github.com/cloudreve/Cloudreve/v4/application/dependency"
 	"github.com/cloudreve/Cloudreve/v4/ent"
@@ -52,20 +54,24 @@ func (t *RelocateTask) Do(ctx context.Context) (task.Status, error) {
 		return task.StatusError, fmt.Errorf("migration owner is unavailable: %w", queue.CriticalErr)
 	}
 	dep := dependency.FromContext(ctx)
-	plan, err := relocation.PlanNoop(ctx, dep, owner.ID, command.Sources, command.DestinationID)
-	if err != nil {
-		return task.StatusError, fmt.Errorf("migration planning failed: %s: %w", err.Error(), queue.CriticalErr)
-	}
 	state := NodeState{NodeID: command.NodeID}
 	node, err := allocateNode(ctx, dep, &state, types.NodeCapabilityRelocate)
 	if err != nil || !node.IsMaster() {
 		return task.StatusError, fmt.Errorf("no supported migration execution node: %w", queue.CriticalErr)
 	}
 	command.NodeID = state.NodeID
-	if err := relocation.RecordNoop(ctx, dep.DBClient(), t.ID(), plan); err != nil {
-		return task.StatusError, fmt.Errorf("failed to persist migration plan: %w", err)
+	done, err := relocation.AdvanceSingle(ctx, dep, t.ID(), owner.ID, command.Sources, command.DestinationID)
+	if errors.Is(err, relocation.ErrLeaseBusy) {
+		t.ResumeAfter(30 * time.Second)
+		return task.StatusSuspending, nil
 	}
-	command.Phase = "completed"
+	if err != nil {
+		return task.StatusError, fmt.Errorf("%s: %w", err.Error(), queue.CriticalErr)
+	}
+	command.Phase = "transferring"
+	if done {
+		command.Phase = "completed"
+	}
 	encoded, err := json.Marshal(command)
 	if err != nil {
 		return task.StatusError, err
@@ -73,7 +79,11 @@ func (t *RelocateTask) Do(ctx context.Context) (task.Status, error) {
 	t.Lock()
 	t.Task.PrivateState = string(encoded)
 	t.Unlock()
-	return task.StatusCompleted, nil
+	if done {
+		return task.StatusCompleted, nil
+	}
+	t.ResumeAfter(0)
+	return task.StatusSuspending, nil
 }
 func (t *RelocateTask) Summarize(encoder hashid.Encoder) *queue.Summary {
 	var command RelocateCommand
