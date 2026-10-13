@@ -588,3 +588,34 @@ for(const blocked of ["eligible","foreign","symbolic","trash","no_capability","m
     for(const src of migration.src) expect(new URL(src).username).toBe("member");
   });
 }
+
+for(const available of [true,false]) {
+  test(`fresh tasks page resolves public migration destination (${available?"available":"unavailable"})`,async ({page})=>{
+    const user={id:"member",nickname:"Member",email:"member@example.test",created_at:"2026-01-01T00:00:00Z",language:"en-US",group:{id:"members",name:"Members",permission:"AA=="}};
+    await page.addInitScript(user=>{
+      localStorage.setItem("i18nextLng","en-US");
+      localStorage.setItem("cloudreve_session",JSON.stringify({current:user.id,sessions:{[user.id]:{user,token:{access_token:"synthetic-member-access",refresh_token:"synthetic-refresh",access_expires:"2099-01-01T00:00:00Z",refresh_expires:"2099-01-01T00:00:00Z"},settings:{preferred_dark_mode:true}}},anonymousSettings:{}}));
+    },user);
+    let descriptions=0;
+    await page.route("**/api/v4/**",async route=>{
+      const req=route.request();
+      const path=new URL(req.url()).pathname.replace("/api/v4","");
+      expect(path.startsWith("/admin/")).toBe(false);
+      let data:any={};
+      if(path.startsWith("/site/config/")) data={title:"Fresh tasks",default_theme:"#3f51b5",themes:"#3f51b5",icons:"[]",viewers:"{}",user};
+      else if(path==="/user/capacity") data={total:1000000,used:12};
+      else if(path==="/user/setting/policies") {
+        expect(req.headers().authorization).toBe("Bearer synthetic-member-access");
+        descriptions++;
+        data=[{id:"encoded-policy-a",name:"Current default A",type:"s3",max_size:0},...(available?[{id:"encoded-policy-b",name:"Current bucket B",type:"s3",max_size:0}]:[])];
+      } else if(path==="/workflow") data={tasks:[{id:"encoded-task",type:"relocate",status:"completed",created_at:"2026-01-01T00:00:00Z",updated_at:"2026-01-01T00:00:00Z",summary:{phase:"completed",props:{src_multiple:["cloudreve://member@my/historical.txt"],dst_policy_id:"encoded-policy-b",dst_policy_name:"Old stored bucket name"}}}],pagination:{page:0,page_size:25,total_items:1}};
+      await route.fulfill({json:{code:0,data}});
+    });
+    await page.goto("/tasks");
+    await expect.poll(()=>descriptions).toBeGreaterThan(0);
+    await expect(page.getByText("historical.txt",{exact:true}).first()).toBeVisible();
+    await expect(page.getByText(available?"Current bucket B":"Policy outside current choices (encoded-policy-b)",{exact:false}).first()).toBeVisible();
+    await expect(page.getByText("Current default A",{exact:false})).toHaveCount(0);
+    await expect(page.getByText("Old stored bucket name",{exact:false})).toHaveCount(0);
+  });
+}
