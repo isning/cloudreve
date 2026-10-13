@@ -39,6 +39,7 @@ import (
 	"github.com/cloudreve/Cloudreve/v4/pkg/filemanager/fs"
 	"github.com/cloudreve/Cloudreve/v4/pkg/hashid"
 	"github.com/cloudreve/Cloudreve/v4/pkg/logging"
+	"github.com/cloudreve/Cloudreve/v4/pkg/oidc"
 	"github.com/cloudreve/Cloudreve/v4/pkg/setting"
 	ctl "github.com/cloudreve/Cloudreve/v4/routers/controllers"
 	"github.com/cloudreve/Cloudreve/v4/service/explorer"
@@ -56,6 +57,10 @@ type storageFixture struct {
 	policies []*ent.StoragePolicy
 	token    string
 	s3       *s3.S3
+	password string
+	database conf.Database
+	remote   string
+	idp      *testIDP
 }
 
 type storageS3Service struct {
@@ -160,6 +165,12 @@ func newStorageFixture(t *testing.T) *storageFixture {
 }
 
 func newStorageFixtureWithLegacy(t *testing.T, legacy bool) *storageFixture {
+	f := prepareStorageFixture(t, legacy)
+	f.login(t)
+	return f
+}
+
+func prepareStorageFixture(t *testing.T, legacy bool) *storageFixture {
 	t.Helper()
 	svc := startStorageS3(t)
 	l := logging.NewConsoleLogger(logging.LevelError)
@@ -237,7 +248,15 @@ func newStorageFixtureWithLegacy(t *testing.T, legacy bool) *storageFixture {
 	member, err := users.Create(ctx, &inventory.NewUserArgs{Email: "storage@example.com", PlainPassword: password, GroupID: 2, Status: entuser.StatusActive, SkipBootstrap: true})
 	require.NoError(t, err)
 	if legacy {
-		_, err = db.ExternalIdentity.Create().SetIdentityKey(strings.Repeat("a", 64)).SetProviderID(3).SetIssuer("https://legacy-idp.example").SetSubject("legacy-subject").SetUserID(member.ID).Save(ctx)
+		f.idp = newTestIDP(t)
+		identity := oidc.Identity{ProviderID: 3, Issuer: f.idp.server.URL, Subject: f.idp.subject}
+		_, err = db.ExternalIdentity.Create().SetIdentityKey(identity.Key()).SetProviderID(3).SetIssuer(identity.Issuer).SetSubject(identity.Subject).SetUserID(member.ID).Save(ctx)
+		require.NoError(t, err)
+		registry, err := json.Marshal(oidc.Registry{Version: 1, NextID: 4, Providers: []oidc.Provider{{ID: 3, Type: "oidc", Enabled: true,
+			Config:    oidc.Config{ClientID: "cloudreve", ClientSecret: "fixture-secret"},
+			Wellknown: oidc.Metadata{Issuer: f.idp.server.URL, AuthorizationEndpoint: f.idp.server.URL + "/authorize", TokenEndpoint: f.idp.server.URL + "/token", UserinfoEndpoint: f.idp.server.URL + "/userinfo", JWKSURI: f.idp.server.URL + "/jwks", PKCEMethods: []string{"S256"}}}}})
+		require.NoError(t, err)
+		_, err = db.Setting.Create().SetName("external_login_providers").SetValue(string(registry)).Save(ctx)
 		require.NoError(t, err)
 		payload := []byte("persisted object before storage extension")
 		_, err = f.s3.PutObject(&s3.PutObjectInput{Bucket: aws.String(f.policies[0].BucketName), Key: aws.String("legacy-object"), Body: bytes.NewReader(payload)})
@@ -254,6 +273,13 @@ func newStorageFixtureWithLegacy(t *testing.T, legacy bool) *storageFixture {
 		_, err = db.Setting.Create().SetName(name).SetValue(value).Save(ctx)
 		require.NoError(t, err)
 	}
+	f.password = password
+	f.database = *cfg.Database()
+	f.router = storageRouter(d, l)
+	return f
+}
+
+func storageRouter(d dependency.Dep, l logging.Logger) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.ContextWithFallback = true
@@ -264,6 +290,8 @@ func newStorageFixtureWithLegacy(t *testing.T, legacy bool) *storageFixture {
 		c.Next()
 	}, middleware.CurrentUser())
 	r.POST("/api/v4/session/token", ctl.FromJSON[usersvc.UserLoginService](usersvc.LoginParameterCtx{}), ctl.UserLoginValidation, ctl.UserIssueToken)
+	r.PUT("/api/v4/session/openid", ctl.BeginOpenID)
+	r.POST("/api/v4/session/openid", ctl.FinishOpenID)
 	r.GET("/api/v4/callback/s3/:sessionID/:key", middleware.UseUploadSession(types.PolicyTypeS3), ctl.ProcessCallback(http.StatusBadRequest, false))
 	authenticated := r.Group("/api/v4", middleware.LoginRequired())
 	authenticated.PUT("/file/upload", ctl.FromJSON[explorer.CreateUploadSessionService](explorer.CreateUploadSessionParameterCtx{}), ctl.CreateUploadSession)
@@ -272,16 +300,19 @@ func newStorageFixtureWithLegacy(t *testing.T, legacy bool) *storageFixture {
 	authenticated.GET("/user/capacity", ctl.UserStorage)
 	authenticated.GET("/user/setting", ctl.UserSetting)
 	authenticated.GET("/user/setting/policies", ctl.UserAvailableStoragePolicies)
-	f.router = r
+	return r
+}
+
+func (f *storageFixture) login(t *testing.T) {
+	t.Helper()
 	var login struct {
 		Token struct {
 			AccessToken string `json:"access_token"`
 		} `json:"token"`
 	}
-	f.request(t, http.MethodPost, "/api/v4/session/token", map[string]string{"email": "storage@example.com", "password": password}, &login)
+	f.request(t, http.MethodPost, "/api/v4/session/token", map[string]string{"email": "storage@example.com", "password": f.password}, &login)
 	f.token = login.Token.AccessToken
 	require.NotEmpty(t, f.token)
-	return f
 }
 
 func (f *storageFixture) request(t *testing.T, method, path string, body, result any) {
@@ -296,7 +327,19 @@ func (f *storageFixture) request(t *testing.T, method, path string, body, result
 		req.Header.Set("Authorization", "Bearer "+f.token)
 	}
 	w := httptest.NewRecorder()
-	f.router.ServeHTTP(w, req)
+	if f.remote == "" {
+		f.router.ServeHTTP(w, req)
+	} else {
+		target, err := url.Parse(f.remote + path)
+		require.NoError(t, err)
+		req.URL = target
+		req.RequestURI = ""
+		res, err := (&http.Client{Timeout: 12 * time.Second}).Do(req)
+		require.True(t, err == nil, "native storage worker HTTP transport failed")
+		defer res.Body.Close()
+		_, err = io.Copy(w, res.Body)
+		require.NoError(t, err)
+	}
 	var envelope struct {
 		Code int             `json:"code"`
 		Data json.RawMessage `json:"data"`
