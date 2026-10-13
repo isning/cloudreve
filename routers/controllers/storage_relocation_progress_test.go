@@ -22,6 +22,9 @@ func TestStorageRelocationReportsDurablePartialFailureAndProgress(t *testing.T) 
 	f := newStorageFixtureWithLegacy(t, true)
 	f.assignPolicies(t, f.policies[0].ID, f.policies[1].ID)
 	f.enableMigration(t, true)
+	// This case proves terminal partial-failure progress; temporary denial recovery
+	// and retry exhaustion have their own native queue acceptance scenarios.
+	require.NoError(t, f.db.Setting.Create().SetName("queue_io_intense_max_retry").SetValue("0").Exec(context.Background()))
 	folder := "cloudreve://my/progress"
 	f.request(t, http.MethodPost, "/api/v4/file/create", map[string]any{"uri": folder, "type": "folder"}, nil)
 	for _, name := range []string{"first", "second", "third"} {
