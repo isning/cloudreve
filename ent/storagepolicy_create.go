@@ -14,6 +14,7 @@ import (
 	"github.com/cloudreve/Cloudreve/v4/ent/entity"
 	"github.com/cloudreve/Cloudreve/v4/ent/file"
 	"github.com/cloudreve/Cloudreve/v4/ent/group"
+	"github.com/cloudreve/Cloudreve/v4/ent/grouppolicy"
 	"github.com/cloudreve/Cloudreve/v4/ent/node"
 	"github.com/cloudreve/Cloudreve/v4/ent/storagepolicy"
 	"github.com/cloudreve/Cloudreve/v4/inventory/types"
@@ -211,6 +212,21 @@ func (spc *StoragePolicyCreate) SetNillableNodeID(i *int) *StoragePolicyCreate {
 		spc.SetNodeID(*i)
 	}
 	return spc
+}
+
+// AddGroupAssignmentIDs adds the "group_assignments" edge to the GroupPolicy entity by IDs.
+func (spc *StoragePolicyCreate) AddGroupAssignmentIDs(ids ...int) *StoragePolicyCreate {
+	spc.mutation.AddGroupAssignmentIDs(ids...)
+	return spc
+}
+
+// AddGroupAssignments adds the "group_assignments" edges to the GroupPolicy entity.
+func (spc *StoragePolicyCreate) AddGroupAssignments(g ...*GroupPolicy) *StoragePolicyCreate {
+	ids := make([]int, len(g))
+	for i := range g {
+		ids[i] = g[i].ID
+	}
+	return spc.AddGroupAssignmentIDs(ids...)
 }
 
 // AddGroupIDs adds the "groups" edge to the Group entity by IDs.
@@ -424,6 +440,22 @@ func (spc *StoragePolicyCreate) createSpec() (*StoragePolicy, *sqlgraph.CreateSp
 	if value, ok := spc.mutation.Settings(); ok {
 		_spec.SetField(storagepolicy.FieldSettings, field.TypeJSON, value)
 		_node.Settings = value
+	}
+	if nodes := spc.mutation.GroupAssignmentsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   storagepolicy.GroupAssignmentsTable,
+			Columns: []string{storagepolicy.GroupAssignmentsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(grouppolicy.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges = append(_spec.Edges, edge)
 	}
 	if nodes := spc.mutation.GroupsIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{

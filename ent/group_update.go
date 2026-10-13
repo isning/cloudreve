@@ -12,6 +12,7 @@ import (
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
 	"github.com/cloudreve/Cloudreve/v4/ent/group"
+	"github.com/cloudreve/Cloudreve/v4/ent/grouppolicy"
 	"github.com/cloudreve/Cloudreve/v4/ent/predicate"
 	"github.com/cloudreve/Cloudreve/v4/ent/storagepolicy"
 	"github.com/cloudreve/Cloudreve/v4/ent/user"
@@ -164,6 +165,21 @@ func (gu *GroupUpdate) ClearStoragePolicyID() *GroupUpdate {
 	return gu
 }
 
+// AddPolicyAssignmentIDs adds the "policy_assignments" edge to the GroupPolicy entity by IDs.
+func (gu *GroupUpdate) AddPolicyAssignmentIDs(ids ...int) *GroupUpdate {
+	gu.mutation.AddPolicyAssignmentIDs(ids...)
+	return gu
+}
+
+// AddPolicyAssignments adds the "policy_assignments" edges to the GroupPolicy entity.
+func (gu *GroupUpdate) AddPolicyAssignments(g ...*GroupPolicy) *GroupUpdate {
+	ids := make([]int, len(g))
+	for i := range g {
+		ids[i] = g[i].ID
+	}
+	return gu.AddPolicyAssignmentIDs(ids...)
+}
+
 // AddUserIDs adds the "users" edge to the User entity by IDs.
 func (gu *GroupUpdate) AddUserIDs(ids ...int) *GroupUpdate {
 	gu.mutation.AddUserIDs(ids...)
@@ -201,6 +217,27 @@ func (gu *GroupUpdate) SetStoragePolicies(s *StoragePolicy) *GroupUpdate {
 // Mutation returns the GroupMutation object of the builder.
 func (gu *GroupUpdate) Mutation() *GroupMutation {
 	return gu.mutation
+}
+
+// ClearPolicyAssignments clears all "policy_assignments" edges to the GroupPolicy entity.
+func (gu *GroupUpdate) ClearPolicyAssignments() *GroupUpdate {
+	gu.mutation.ClearPolicyAssignments()
+	return gu
+}
+
+// RemovePolicyAssignmentIDs removes the "policy_assignments" edge to GroupPolicy entities by IDs.
+func (gu *GroupUpdate) RemovePolicyAssignmentIDs(ids ...int) *GroupUpdate {
+	gu.mutation.RemovePolicyAssignmentIDs(ids...)
+	return gu
+}
+
+// RemovePolicyAssignments removes "policy_assignments" edges to GroupPolicy entities.
+func (gu *GroupUpdate) RemovePolicyAssignments(g ...*GroupPolicy) *GroupUpdate {
+	ids := make([]int, len(g))
+	for i := range g {
+		ids[i] = g[i].ID
+	}
+	return gu.RemovePolicyAssignmentIDs(ids...)
 }
 
 // ClearUsers clears all "users" edges to the User entity.
@@ -319,6 +356,51 @@ func (gu *GroupUpdate) sqlSave(ctx context.Context) (n int, err error) {
 	}
 	if gu.mutation.SettingsCleared() {
 		_spec.ClearField(group.FieldSettings, field.TypeJSON)
+	}
+	if gu.mutation.PolicyAssignmentsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   group.PolicyAssignmentsTable,
+			Columns: []string{group.PolicyAssignmentsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(grouppolicy.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := gu.mutation.RemovedPolicyAssignmentsIDs(); len(nodes) > 0 && !gu.mutation.PolicyAssignmentsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   group.PolicyAssignmentsTable,
+			Columns: []string{group.PolicyAssignmentsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(grouppolicy.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := gu.mutation.PolicyAssignmentsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   group.PolicyAssignmentsTable,
+			Columns: []string{group.PolicyAssignmentsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(grouppolicy.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
 	}
 	if gu.mutation.UsersCleared() {
 		edge := &sqlgraph.EdgeSpec{
@@ -546,6 +628,21 @@ func (guo *GroupUpdateOne) ClearStoragePolicyID() *GroupUpdateOne {
 	return guo
 }
 
+// AddPolicyAssignmentIDs adds the "policy_assignments" edge to the GroupPolicy entity by IDs.
+func (guo *GroupUpdateOne) AddPolicyAssignmentIDs(ids ...int) *GroupUpdateOne {
+	guo.mutation.AddPolicyAssignmentIDs(ids...)
+	return guo
+}
+
+// AddPolicyAssignments adds the "policy_assignments" edges to the GroupPolicy entity.
+func (guo *GroupUpdateOne) AddPolicyAssignments(g ...*GroupPolicy) *GroupUpdateOne {
+	ids := make([]int, len(g))
+	for i := range g {
+		ids[i] = g[i].ID
+	}
+	return guo.AddPolicyAssignmentIDs(ids...)
+}
+
 // AddUserIDs adds the "users" edge to the User entity by IDs.
 func (guo *GroupUpdateOne) AddUserIDs(ids ...int) *GroupUpdateOne {
 	guo.mutation.AddUserIDs(ids...)
@@ -583,6 +680,27 @@ func (guo *GroupUpdateOne) SetStoragePolicies(s *StoragePolicy) *GroupUpdateOne 
 // Mutation returns the GroupMutation object of the builder.
 func (guo *GroupUpdateOne) Mutation() *GroupMutation {
 	return guo.mutation
+}
+
+// ClearPolicyAssignments clears all "policy_assignments" edges to the GroupPolicy entity.
+func (guo *GroupUpdateOne) ClearPolicyAssignments() *GroupUpdateOne {
+	guo.mutation.ClearPolicyAssignments()
+	return guo
+}
+
+// RemovePolicyAssignmentIDs removes the "policy_assignments" edge to GroupPolicy entities by IDs.
+func (guo *GroupUpdateOne) RemovePolicyAssignmentIDs(ids ...int) *GroupUpdateOne {
+	guo.mutation.RemovePolicyAssignmentIDs(ids...)
+	return guo
+}
+
+// RemovePolicyAssignments removes "policy_assignments" edges to GroupPolicy entities.
+func (guo *GroupUpdateOne) RemovePolicyAssignments(g ...*GroupPolicy) *GroupUpdateOne {
+	ids := make([]int, len(g))
+	for i := range g {
+		ids[i] = g[i].ID
+	}
+	return guo.RemovePolicyAssignmentIDs(ids...)
 }
 
 // ClearUsers clears all "users" edges to the User entity.
@@ -731,6 +849,51 @@ func (guo *GroupUpdateOne) sqlSave(ctx context.Context) (_node *Group, err error
 	}
 	if guo.mutation.SettingsCleared() {
 		_spec.ClearField(group.FieldSettings, field.TypeJSON)
+	}
+	if guo.mutation.PolicyAssignmentsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   group.PolicyAssignmentsTable,
+			Columns: []string{group.PolicyAssignmentsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(grouppolicy.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := guo.mutation.RemovedPolicyAssignmentsIDs(); len(nodes) > 0 && !guo.mutation.PolicyAssignmentsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   group.PolicyAssignmentsTable,
+			Columns: []string{group.PolicyAssignmentsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(grouppolicy.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := guo.mutation.PolicyAssignmentsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   group.PolicyAssignmentsTable,
+			Columns: []string{group.PolicyAssignmentsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(grouppolicy.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
 	}
 	if guo.mutation.UsersCleared() {
 		edge := &sqlgraph.EdgeSpec{

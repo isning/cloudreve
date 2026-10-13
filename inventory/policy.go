@@ -7,6 +7,7 @@ import (
 	"strconv"
 
 	"github.com/cloudreve/Cloudreve/v4/ent"
+	"github.com/cloudreve/Cloudreve/v4/ent/grouppolicy"
 	"github.com/cloudreve/Cloudreve/v4/ent/storagepolicy"
 	"github.com/cloudreve/Cloudreve/v4/inventory/types"
 	"github.com/cloudreve/Cloudreve/v4/pkg/cache"
@@ -30,6 +31,8 @@ type (
 		TxOperator
 		// GetByGroup returns the storage policies of the group.
 		GetByGroup(ctx context.Context, group *ent.Group) (*ent.StoragePolicy, error)
+		// AvailableByGroup returns ordered grants, with the legacy default as fallback.
+		AvailableByGroup(ctx context.Context, group *ent.Group) ([]*ent.StoragePolicy, error)
 		// GetPolicyByID returns the storage policy by id.
 		GetPolicyByID(ctx context.Context, id int) (*ent.StoragePolicy, error)
 		// UpdateAccessKey updates the access key of the storage policy. It also clear related cache in KV.
@@ -152,6 +155,33 @@ func (c *storagePolicyClient) GetByGroup(ctx context.Context, group *ent.Group) 
 	}
 
 	return res, nil
+}
+
+func (c *storagePolicyClient) AvailableByGroup(ctx context.Context, group *ent.Group) ([]*ent.StoragePolicy, error) {
+	grants, err := c.client.GroupPolicy.Query().Where(grouppolicy.GroupID(group.ID)).Order(ent.Asc(grouppolicy.FieldPosition)).WithStoragePolicy(func(q *ent.StoragePolicyQuery) { q.WithNode() }).All(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("load group policy grants: %w", err)
+	}
+	if len(grants) > 0 {
+		policies := make([]*ent.StoragePolicy, 0, len(grants))
+		for _, grant := range grants {
+			if grant.Edges.StoragePolicy != nil {
+				policies = append(policies, grant.Edges.StoragePolicy)
+			}
+		}
+		return policies, nil
+	}
+	if group.StoragePolicyID == 0 {
+		return []*ent.StoragePolicy{}, nil
+	}
+	policy, err := c.GetByGroup(ctx, group)
+	if ent.IsNotFound(err) {
+		return []*ent.StoragePolicy{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return []*ent.StoragePolicy{policy}, nil
 }
 
 // GetPolicyByID returns the storage policy by id.

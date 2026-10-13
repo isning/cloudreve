@@ -27,6 +27,9 @@ type FsEvent func(*sql.Selector)
 // Group is the predicate function for group builders.
 type Group func(*sql.Selector)
 
+// GroupPolicy is the predicate function for grouppolicy builders.
+type GroupPolicy func(*sql.Selector)
+
 // Metadata is the predicate function for metadata builders.
 type Metadata func(*sql.Selector)
 

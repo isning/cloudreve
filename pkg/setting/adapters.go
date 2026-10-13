@@ -89,7 +89,8 @@ type dbSettingStore struct {
 }
 
 func (s *dbSettingStore) Get(ctx context.Context, name string, defaultVal any) any {
-	if val, err := s.c.Get(ctx, name); err == nil {
+	client, _ := inventory.InheritTx(ctx, s.c)
+	if val, err := client.Get(ctx, name); err == nil {
 		return val
 	}
 

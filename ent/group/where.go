@@ -471,6 +471,29 @@ func StoragePolicyIDNotNil() predicate.Group {
 	return predicate.Group(sql.FieldNotNull(FieldStoragePolicyID))
 }
 
+// HasPolicyAssignments applies the HasEdge predicate on the "policy_assignments" edge.
+func HasPolicyAssignments() predicate.Group {
+	return predicate.Group(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, PolicyAssignmentsTable, PolicyAssignmentsColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasPolicyAssignmentsWith applies the HasEdge predicate on the "policy_assignments" edge with a given conditions (other predicates).
+func HasPolicyAssignmentsWith(preds ...predicate.GroupPolicy) predicate.Group {
+	return predicate.Group(func(s *sql.Selector) {
+		step := newPolicyAssignmentsStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
 // HasUsers applies the HasEdge predicate on the "users" edge.
 func HasUsers() predicate.Group {
 	return predicate.Group(func(s *sql.Selector) {

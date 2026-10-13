@@ -19,6 +19,7 @@ import (
 	"github.com/cloudreve/Cloudreve/v4/ent/file"
 	"github.com/cloudreve/Cloudreve/v4/ent/fsevent"
 	"github.com/cloudreve/Cloudreve/v4/ent/group"
+	"github.com/cloudreve/Cloudreve/v4/ent/grouppolicy"
 	"github.com/cloudreve/Cloudreve/v4/ent/metadata"
 	"github.com/cloudreve/Cloudreve/v4/ent/node"
 	"github.com/cloudreve/Cloudreve/v4/ent/oauthclient"
@@ -98,6 +99,7 @@ func checkColumn(table, column string) error {
 			file.Table:              file.ValidColumn,
 			fsevent.Table:           fsevent.ValidColumn,
 			group.Table:             group.ValidColumn,
+			grouppolicy.Table:       grouppolicy.ValidColumn,
 			metadata.Table:          metadata.ValidColumn,
 			node.Table:              node.ValidColumn,
 			oauthclient.Table:       oauthclient.ValidColumn,

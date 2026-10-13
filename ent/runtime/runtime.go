@@ -12,6 +12,7 @@ import (
 	"github.com/cloudreve/Cloudreve/v4/ent/file"
 	"github.com/cloudreve/Cloudreve/v4/ent/fsevent"
 	"github.com/cloudreve/Cloudreve/v4/ent/group"
+	"github.com/cloudreve/Cloudreve/v4/ent/grouppolicy"
 	"github.com/cloudreve/Cloudreve/v4/ent/metadata"
 	"github.com/cloudreve/Cloudreve/v4/ent/node"
 	"github.com/cloudreve/Cloudreve/v4/ent/oauthclient"
@@ -179,6 +180,12 @@ func init() {
 	groupDescSettings := groupFields[4].Descriptor()
 	// group.DefaultSettings holds the default value on creation for the settings field.
 	group.DefaultSettings = groupDescSettings.Default.(*types.GroupSetting)
+	grouppolicyFields := schema.GroupPolicy{}.Fields()
+	_ = grouppolicyFields
+	// grouppolicyDescPosition is the schema descriptor for position field.
+	grouppolicyDescPosition := grouppolicyFields[2].Descriptor()
+	// grouppolicy.PositionValidator is a validator for the "position" field. It is called by the builders before save.
+	grouppolicy.PositionValidator = grouppolicyDescPosition.Validators[0].(func(int) error)
 	metadataMixin := schema.Metadata{}.Mixin()
 	metadataMixinHooks0 := metadataMixin[0].Hooks()
 	metadata.Hooks[0] = metadataMixinHooks0[0]

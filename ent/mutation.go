@@ -18,6 +18,7 @@ import (
 	"github.com/cloudreve/Cloudreve/v4/ent/file"
 	"github.com/cloudreve/Cloudreve/v4/ent/fsevent"
 	"github.com/cloudreve/Cloudreve/v4/ent/group"
+	"github.com/cloudreve/Cloudreve/v4/ent/grouppolicy"
 	"github.com/cloudreve/Cloudreve/v4/ent/metadata"
 	"github.com/cloudreve/Cloudreve/v4/ent/node"
 	"github.com/cloudreve/Cloudreve/v4/ent/oauthclient"
@@ -53,6 +54,7 @@ const (
 	TypeFile              = "File"
 	TypeFsEvent           = "FsEvent"
 	TypeGroup             = "Group"
+	TypeGroupPolicy       = "GroupPolicy"
 	TypeMetadata          = "Metadata"
 	TypeNode              = "Node"
 	TypeOAuthClient       = "OAuthClient"
@@ -6139,28 +6141,31 @@ func (m *FsEventMutation) ResetEdge(name string) error {
 // GroupMutation represents an operation that mutates the Group nodes in the graph.
 type GroupMutation struct {
 	config
-	op                      Op
-	typ                     string
-	id                      *int
-	created_at              *time.Time
-	updated_at              *time.Time
-	deleted_at              *time.Time
-	name                    *string
-	max_storage             *int64
-	addmax_storage          *int64
-	speed_limit             *int
-	addspeed_limit          *int
-	permissions             **boolset.BooleanSet
-	settings                **types.GroupSetting
-	clearedFields           map[string]struct{}
-	users                   map[int]struct{}
-	removedusers            map[int]struct{}
-	clearedusers            bool
-	storage_policies        *int
-	clearedstorage_policies bool
-	done                    bool
-	oldValue                func(context.Context) (*Group, error)
-	predicates              []predicate.Group
+	op                        Op
+	typ                       string
+	id                        *int
+	created_at                *time.Time
+	updated_at                *time.Time
+	deleted_at                *time.Time
+	name                      *string
+	max_storage               *int64
+	addmax_storage            *int64
+	speed_limit               *int
+	addspeed_limit            *int
+	permissions               **boolset.BooleanSet
+	settings                  **types.GroupSetting
+	clearedFields             map[string]struct{}
+	policy_assignments        map[int]struct{}
+	removedpolicy_assignments map[int]struct{}
+	clearedpolicy_assignments bool
+	users                     map[int]struct{}
+	removedusers              map[int]struct{}
+	clearedusers              bool
+	storage_policies          *int
+	clearedstorage_policies   bool
+	done                      bool
+	oldValue                  func(context.Context) (*Group, error)
+	predicates                []predicate.Group
 }
 
 var _ ent.Mutation = (*GroupMutation)(nil)
@@ -6692,6 +6697,60 @@ func (m *GroupMutation) ResetStoragePolicyID() {
 	delete(m.clearedFields, group.FieldStoragePolicyID)
 }
 
+// AddPolicyAssignmentIDs adds the "policy_assignments" edge to the GroupPolicy entity by ids.
+func (m *GroupMutation) AddPolicyAssignmentIDs(ids ...int) {
+	if m.policy_assignments == nil {
+		m.policy_assignments = make(map[int]struct{})
+	}
+	for i := range ids {
+		m.policy_assignments[ids[i]] = struct{}{}
+	}
+}
+
+// ClearPolicyAssignments clears the "policy_assignments" edge to the GroupPolicy entity.
+func (m *GroupMutation) ClearPolicyAssignments() {
+	m.clearedpolicy_assignments = true
+}
+
+// PolicyAssignmentsCleared reports if the "policy_assignments" edge to the GroupPolicy entity was cleared.
+func (m *GroupMutation) PolicyAssignmentsCleared() bool {
+	return m.clearedpolicy_assignments
+}
+
+// RemovePolicyAssignmentIDs removes the "policy_assignments" edge to the GroupPolicy entity by IDs.
+func (m *GroupMutation) RemovePolicyAssignmentIDs(ids ...int) {
+	if m.removedpolicy_assignments == nil {
+		m.removedpolicy_assignments = make(map[int]struct{})
+	}
+	for i := range ids {
+		delete(m.policy_assignments, ids[i])
+		m.removedpolicy_assignments[ids[i]] = struct{}{}
+	}
+}
+
+// RemovedPolicyAssignments returns the removed IDs of the "policy_assignments" edge to the GroupPolicy entity.
+func (m *GroupMutation) RemovedPolicyAssignmentsIDs() (ids []int) {
+	for id := range m.removedpolicy_assignments {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// PolicyAssignmentsIDs returns the "policy_assignments" edge IDs in the mutation.
+func (m *GroupMutation) PolicyAssignmentsIDs() (ids []int) {
+	for id := range m.policy_assignments {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// ResetPolicyAssignments resets all changes to the "policy_assignments" edge.
+func (m *GroupMutation) ResetPolicyAssignments() {
+	m.policy_assignments = nil
+	m.clearedpolicy_assignments = false
+	m.removedpolicy_assignments = nil
+}
+
 // AddUserIDs adds the "users" edge to the User entity by ids.
 func (m *GroupMutation) AddUserIDs(ids ...int) {
 	if m.users == nil {
@@ -7115,7 +7174,10 @@ func (m *GroupMutation) ResetField(name string) error {
 
 // AddedEdges returns all edge names that were set/added in this mutation.
 func (m *GroupMutation) AddedEdges() []string {
-	edges := make([]string, 0, 2)
+	edges := make([]string, 0, 3)
+	if m.policy_assignments != nil {
+		edges = append(edges, group.EdgePolicyAssignments)
+	}
 	if m.users != nil {
 		edges = append(edges, group.EdgeUsers)
 	}
@@ -7129,6 +7191,12 @@ func (m *GroupMutation) AddedEdges() []string {
 // name in this mutation.
 func (m *GroupMutation) AddedIDs(name string) []ent.Value {
 	switch name {
+	case group.EdgePolicyAssignments:
+		ids := make([]ent.Value, 0, len(m.policy_assignments))
+		for id := range m.policy_assignments {
+			ids = append(ids, id)
+		}
+		return ids
 	case group.EdgeUsers:
 		ids := make([]ent.Value, 0, len(m.users))
 		for id := range m.users {
@@ -7145,7 +7213,10 @@ func (m *GroupMutation) AddedIDs(name string) []ent.Value {
 
 // RemovedEdges returns all edge names that were removed in this mutation.
 func (m *GroupMutation) RemovedEdges() []string {
-	edges := make([]string, 0, 2)
+	edges := make([]string, 0, 3)
+	if m.removedpolicy_assignments != nil {
+		edges = append(edges, group.EdgePolicyAssignments)
+	}
 	if m.removedusers != nil {
 		edges = append(edges, group.EdgeUsers)
 	}
@@ -7156,6 +7227,12 @@ func (m *GroupMutation) RemovedEdges() []string {
 // the given name in this mutation.
 func (m *GroupMutation) RemovedIDs(name string) []ent.Value {
 	switch name {
+	case group.EdgePolicyAssignments:
+		ids := make([]ent.Value, 0, len(m.removedpolicy_assignments))
+		for id := range m.removedpolicy_assignments {
+			ids = append(ids, id)
+		}
+		return ids
 	case group.EdgeUsers:
 		ids := make([]ent.Value, 0, len(m.removedusers))
 		for id := range m.removedusers {
@@ -7168,7 +7245,10 @@ func (m *GroupMutation) RemovedIDs(name string) []ent.Value {
 
 // ClearedEdges returns all edge names that were cleared in this mutation.
 func (m *GroupMutation) ClearedEdges() []string {
-	edges := make([]string, 0, 2)
+	edges := make([]string, 0, 3)
+	if m.clearedpolicy_assignments {
+		edges = append(edges, group.EdgePolicyAssignments)
+	}
 	if m.clearedusers {
 		edges = append(edges, group.EdgeUsers)
 	}
@@ -7182,6 +7262,8 @@ func (m *GroupMutation) ClearedEdges() []string {
 // was cleared in this mutation.
 func (m *GroupMutation) EdgeCleared(name string) bool {
 	switch name {
+	case group.EdgePolicyAssignments:
+		return m.clearedpolicy_assignments
 	case group.EdgeUsers:
 		return m.clearedusers
 	case group.EdgeStoragePolicies:
@@ -7205,6 +7287,9 @@ func (m *GroupMutation) ClearEdge(name string) error {
 // It returns an error if the edge is not defined in the schema.
 func (m *GroupMutation) ResetEdge(name string) error {
 	switch name {
+	case group.EdgePolicyAssignments:
+		m.ResetPolicyAssignments()
+		return nil
 	case group.EdgeUsers:
 		m.ResetUsers()
 		return nil
@@ -7213,6 +7298,576 @@ func (m *GroupMutation) ResetEdge(name string) error {
 		return nil
 	}
 	return fmt.Errorf("unknown Group edge %s", name)
+}
+
+// GroupPolicyMutation represents an operation that mutates the GroupPolicy nodes in the graph.
+type GroupPolicyMutation struct {
+	config
+	op                    Op
+	typ                   string
+	id                    *int
+	position              *int
+	addposition           *int
+	clearedFields         map[string]struct{}
+	group                 *int
+	clearedgroup          bool
+	storage_policy        *int
+	clearedstorage_policy bool
+	done                  bool
+	oldValue              func(context.Context) (*GroupPolicy, error)
+	predicates            []predicate.GroupPolicy
+}
+
+var _ ent.Mutation = (*GroupPolicyMutation)(nil)
+
+// grouppolicyOption allows management of the mutation configuration using functional options.
+type grouppolicyOption func(*GroupPolicyMutation)
+
+// newGroupPolicyMutation creates new mutation for the GroupPolicy entity.
+func newGroupPolicyMutation(c config, op Op, opts ...grouppolicyOption) *GroupPolicyMutation {
+	m := &GroupPolicyMutation{
+		config:        c,
+		op:            op,
+		typ:           TypeGroupPolicy,
+		clearedFields: make(map[string]struct{}),
+	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
+}
+
+// withGroupPolicyID sets the ID field of the mutation.
+func withGroupPolicyID(id int) grouppolicyOption {
+	return func(m *GroupPolicyMutation) {
+		var (
+			err   error
+			once  sync.Once
+			value *GroupPolicy
+		)
+		m.oldValue = func(ctx context.Context) (*GroupPolicy, error) {
+			once.Do(func() {
+				if m.done {
+					err = errors.New("querying old values post mutation is not allowed")
+				} else {
+					value, err = m.Client().GroupPolicy.Get(ctx, id)
+				}
+			})
+			return value, err
+		}
+		m.id = &id
+	}
+}
+
+// withGroupPolicy sets the old GroupPolicy of the mutation.
+func withGroupPolicy(node *GroupPolicy) grouppolicyOption {
+	return func(m *GroupPolicyMutation) {
+		m.oldValue = func(context.Context) (*GroupPolicy, error) {
+			return node, nil
+		}
+		m.id = &node.ID
+	}
+}
+
+// Client returns a new `ent.Client` from the mutation. If the mutation was
+// executed in a transaction (ent.Tx), a transactional client is returned.
+func (m GroupPolicyMutation) Client() *Client {
+	client := &Client{config: m.config}
+	client.init()
+	return client
+}
+
+// Tx returns an `ent.Tx` for mutations that were executed in transactions;
+// it returns an error otherwise.
+func (m GroupPolicyMutation) Tx() (*Tx, error) {
+	if _, ok := m.driver.(*txDriver); !ok {
+		return nil, errors.New("ent: mutation is not running in a transaction")
+	}
+	tx := &Tx{config: m.config}
+	tx.init()
+	return tx, nil
+}
+
+// ID returns the ID value in the mutation. Note that the ID is only available
+// if it was provided to the builder or after it was returned from the database.
+func (m *GroupPolicyMutation) ID() (id int, exists bool) {
+	if m.id == nil {
+		return
+	}
+	return *m.id, true
+}
+
+// IDs queries the database and returns the entity ids that match the mutation's predicate.
+// That means, if the mutation is applied within a transaction with an isolation level such
+// as sql.LevelSerializable, the returned ids match the ids of the rows that will be updated
+// or updated by the mutation.
+func (m *GroupPolicyMutation) IDs(ctx context.Context) ([]int, error) {
+	switch {
+	case m.op.Is(OpUpdateOne | OpDeleteOne):
+		id, exists := m.ID()
+		if exists {
+			return []int{id}, nil
+		}
+		fallthrough
+	case m.op.Is(OpUpdate | OpDelete):
+		return m.Client().GroupPolicy.Query().Where(m.predicates...).IDs(ctx)
+	default:
+		return nil, fmt.Errorf("IDs is not allowed on %s operations", m.op)
+	}
+}
+
+// SetGroupID sets the "group_id" field.
+func (m *GroupPolicyMutation) SetGroupID(i int) {
+	m.group = &i
+}
+
+// GroupID returns the value of the "group_id" field in the mutation.
+func (m *GroupPolicyMutation) GroupID() (r int, exists bool) {
+	v := m.group
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldGroupID returns the old "group_id" field's value of the GroupPolicy entity.
+// If the GroupPolicy object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupPolicyMutation) OldGroupID(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldGroupID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldGroupID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldGroupID: %w", err)
+	}
+	return oldValue.GroupID, nil
+}
+
+// ResetGroupID resets all changes to the "group_id" field.
+func (m *GroupPolicyMutation) ResetGroupID() {
+	m.group = nil
+}
+
+// SetStoragePolicyID sets the "storage_policy_id" field.
+func (m *GroupPolicyMutation) SetStoragePolicyID(i int) {
+	m.storage_policy = &i
+}
+
+// StoragePolicyID returns the value of the "storage_policy_id" field in the mutation.
+func (m *GroupPolicyMutation) StoragePolicyID() (r int, exists bool) {
+	v := m.storage_policy
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldStoragePolicyID returns the old "storage_policy_id" field's value of the GroupPolicy entity.
+// If the GroupPolicy object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupPolicyMutation) OldStoragePolicyID(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldStoragePolicyID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldStoragePolicyID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldStoragePolicyID: %w", err)
+	}
+	return oldValue.StoragePolicyID, nil
+}
+
+// ResetStoragePolicyID resets all changes to the "storage_policy_id" field.
+func (m *GroupPolicyMutation) ResetStoragePolicyID() {
+	m.storage_policy = nil
+}
+
+// SetPosition sets the "position" field.
+func (m *GroupPolicyMutation) SetPosition(i int) {
+	m.position = &i
+	m.addposition = nil
+}
+
+// Position returns the value of the "position" field in the mutation.
+func (m *GroupPolicyMutation) Position() (r int, exists bool) {
+	v := m.position
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldPosition returns the old "position" field's value of the GroupPolicy entity.
+// If the GroupPolicy object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupPolicyMutation) OldPosition(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldPosition is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldPosition requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldPosition: %w", err)
+	}
+	return oldValue.Position, nil
+}
+
+// AddPosition adds i to the "position" field.
+func (m *GroupPolicyMutation) AddPosition(i int) {
+	if m.addposition != nil {
+		*m.addposition += i
+	} else {
+		m.addposition = &i
+	}
+}
+
+// AddedPosition returns the value that was added to the "position" field in this mutation.
+func (m *GroupPolicyMutation) AddedPosition() (r int, exists bool) {
+	v := m.addposition
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetPosition resets all changes to the "position" field.
+func (m *GroupPolicyMutation) ResetPosition() {
+	m.position = nil
+	m.addposition = nil
+}
+
+// ClearGroup clears the "group" edge to the Group entity.
+func (m *GroupPolicyMutation) ClearGroup() {
+	m.clearedgroup = true
+	m.clearedFields[grouppolicy.FieldGroupID] = struct{}{}
+}
+
+// GroupCleared reports if the "group" edge to the Group entity was cleared.
+func (m *GroupPolicyMutation) GroupCleared() bool {
+	return m.clearedgroup
+}
+
+// GroupIDs returns the "group" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// GroupID instead. It exists only for internal usage by the builders.
+func (m *GroupPolicyMutation) GroupIDs() (ids []int) {
+	if id := m.group; id != nil {
+		ids = append(ids, *id)
+	}
+	return
+}
+
+// ResetGroup resets all changes to the "group" edge.
+func (m *GroupPolicyMutation) ResetGroup() {
+	m.group = nil
+	m.clearedgroup = false
+}
+
+// ClearStoragePolicy clears the "storage_policy" edge to the StoragePolicy entity.
+func (m *GroupPolicyMutation) ClearStoragePolicy() {
+	m.clearedstorage_policy = true
+	m.clearedFields[grouppolicy.FieldStoragePolicyID] = struct{}{}
+}
+
+// StoragePolicyCleared reports if the "storage_policy" edge to the StoragePolicy entity was cleared.
+func (m *GroupPolicyMutation) StoragePolicyCleared() bool {
+	return m.clearedstorage_policy
+}
+
+// StoragePolicyIDs returns the "storage_policy" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// StoragePolicyID instead. It exists only for internal usage by the builders.
+func (m *GroupPolicyMutation) StoragePolicyIDs() (ids []int) {
+	if id := m.storage_policy; id != nil {
+		ids = append(ids, *id)
+	}
+	return
+}
+
+// ResetStoragePolicy resets all changes to the "storage_policy" edge.
+func (m *GroupPolicyMutation) ResetStoragePolicy() {
+	m.storage_policy = nil
+	m.clearedstorage_policy = false
+}
+
+// Where appends a list predicates to the GroupPolicyMutation builder.
+func (m *GroupPolicyMutation) Where(ps ...predicate.GroupPolicy) {
+	m.predicates = append(m.predicates, ps...)
+}
+
+// WhereP appends storage-level predicates to the GroupPolicyMutation builder. Using this method,
+// users can use type-assertion to append predicates that do not depend on any generated package.
+func (m *GroupPolicyMutation) WhereP(ps ...func(*sql.Selector)) {
+	p := make([]predicate.GroupPolicy, len(ps))
+	for i := range ps {
+		p[i] = ps[i]
+	}
+	m.Where(p...)
+}
+
+// Op returns the operation name.
+func (m *GroupPolicyMutation) Op() Op {
+	return m.op
+}
+
+// SetOp allows setting the mutation operation.
+func (m *GroupPolicyMutation) SetOp(op Op) {
+	m.op = op
+}
+
+// Type returns the node type of this mutation (GroupPolicy).
+func (m *GroupPolicyMutation) Type() string {
+	return m.typ
+}
+
+// Fields returns all fields that were changed during this mutation. Note that in
+// order to get all numeric fields that were incremented/decremented, call
+// AddedFields().
+func (m *GroupPolicyMutation) Fields() []string {
+	fields := make([]string, 0, 3)
+	if m.group != nil {
+		fields = append(fields, grouppolicy.FieldGroupID)
+	}
+	if m.storage_policy != nil {
+		fields = append(fields, grouppolicy.FieldStoragePolicyID)
+	}
+	if m.position != nil {
+		fields = append(fields, grouppolicy.FieldPosition)
+	}
+	return fields
+}
+
+// Field returns the value of a field with the given name. The second boolean
+// return value indicates that this field was not set, or was not defined in the
+// schema.
+func (m *GroupPolicyMutation) Field(name string) (ent.Value, bool) {
+	switch name {
+	case grouppolicy.FieldGroupID:
+		return m.GroupID()
+	case grouppolicy.FieldStoragePolicyID:
+		return m.StoragePolicyID()
+	case grouppolicy.FieldPosition:
+		return m.Position()
+	}
+	return nil, false
+}
+
+// OldField returns the old value of the field from the database. An error is
+// returned if the mutation operation is not UpdateOne, or the query to the
+// database failed.
+func (m *GroupPolicyMutation) OldField(ctx context.Context, name string) (ent.Value, error) {
+	switch name {
+	case grouppolicy.FieldGroupID:
+		return m.OldGroupID(ctx)
+	case grouppolicy.FieldStoragePolicyID:
+		return m.OldStoragePolicyID(ctx)
+	case grouppolicy.FieldPosition:
+		return m.OldPosition(ctx)
+	}
+	return nil, fmt.Errorf("unknown GroupPolicy field %s", name)
+}
+
+// SetField sets the value of a field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *GroupPolicyMutation) SetField(name string, value ent.Value) error {
+	switch name {
+	case grouppolicy.FieldGroupID:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetGroupID(v)
+		return nil
+	case grouppolicy.FieldStoragePolicyID:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetStoragePolicyID(v)
+		return nil
+	case grouppolicy.FieldPosition:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetPosition(v)
+		return nil
+	}
+	return fmt.Errorf("unknown GroupPolicy field %s", name)
+}
+
+// AddedFields returns all numeric fields that were incremented/decremented during
+// this mutation.
+func (m *GroupPolicyMutation) AddedFields() []string {
+	var fields []string
+	if m.addposition != nil {
+		fields = append(fields, grouppolicy.FieldPosition)
+	}
+	return fields
+}
+
+// AddedField returns the numeric value that was incremented/decremented on a field
+// with the given name. The second boolean return value indicates that this field
+// was not set, or was not defined in the schema.
+func (m *GroupPolicyMutation) AddedField(name string) (ent.Value, bool) {
+	switch name {
+	case grouppolicy.FieldPosition:
+		return m.AddedPosition()
+	}
+	return nil, false
+}
+
+// AddField adds the value to the field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *GroupPolicyMutation) AddField(name string, value ent.Value) error {
+	switch name {
+	case grouppolicy.FieldPosition:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddPosition(v)
+		return nil
+	}
+	return fmt.Errorf("unknown GroupPolicy numeric field %s", name)
+}
+
+// ClearedFields returns all nullable fields that were cleared during this
+// mutation.
+func (m *GroupPolicyMutation) ClearedFields() []string {
+	return nil
+}
+
+// FieldCleared returns a boolean indicating if a field with the given name was
+// cleared in this mutation.
+func (m *GroupPolicyMutation) FieldCleared(name string) bool {
+	_, ok := m.clearedFields[name]
+	return ok
+}
+
+// ClearField clears the value of the field with the given name. It returns an
+// error if the field is not defined in the schema.
+func (m *GroupPolicyMutation) ClearField(name string) error {
+	return fmt.Errorf("unknown GroupPolicy nullable field %s", name)
+}
+
+// ResetField resets all changes in the mutation for the field with the given name.
+// It returns an error if the field is not defined in the schema.
+func (m *GroupPolicyMutation) ResetField(name string) error {
+	switch name {
+	case grouppolicy.FieldGroupID:
+		m.ResetGroupID()
+		return nil
+	case grouppolicy.FieldStoragePolicyID:
+		m.ResetStoragePolicyID()
+		return nil
+	case grouppolicy.FieldPosition:
+		m.ResetPosition()
+		return nil
+	}
+	return fmt.Errorf("unknown GroupPolicy field %s", name)
+}
+
+// AddedEdges returns all edge names that were set/added in this mutation.
+func (m *GroupPolicyMutation) AddedEdges() []string {
+	edges := make([]string, 0, 2)
+	if m.group != nil {
+		edges = append(edges, grouppolicy.EdgeGroup)
+	}
+	if m.storage_policy != nil {
+		edges = append(edges, grouppolicy.EdgeStoragePolicy)
+	}
+	return edges
+}
+
+// AddedIDs returns all IDs (to other nodes) that were added for the given edge
+// name in this mutation.
+func (m *GroupPolicyMutation) AddedIDs(name string) []ent.Value {
+	switch name {
+	case grouppolicy.EdgeGroup:
+		if id := m.group; id != nil {
+			return []ent.Value{*id}
+		}
+	case grouppolicy.EdgeStoragePolicy:
+		if id := m.storage_policy; id != nil {
+			return []ent.Value{*id}
+		}
+	}
+	return nil
+}
+
+// RemovedEdges returns all edge names that were removed in this mutation.
+func (m *GroupPolicyMutation) RemovedEdges() []string {
+	edges := make([]string, 0, 2)
+	return edges
+}
+
+// RemovedIDs returns all IDs (to other nodes) that were removed for the edge with
+// the given name in this mutation.
+func (m *GroupPolicyMutation) RemovedIDs(name string) []ent.Value {
+	return nil
+}
+
+// ClearedEdges returns all edge names that were cleared in this mutation.
+func (m *GroupPolicyMutation) ClearedEdges() []string {
+	edges := make([]string, 0, 2)
+	if m.clearedgroup {
+		edges = append(edges, grouppolicy.EdgeGroup)
+	}
+	if m.clearedstorage_policy {
+		edges = append(edges, grouppolicy.EdgeStoragePolicy)
+	}
+	return edges
+}
+
+// EdgeCleared returns a boolean which indicates if the edge with the given name
+// was cleared in this mutation.
+func (m *GroupPolicyMutation) EdgeCleared(name string) bool {
+	switch name {
+	case grouppolicy.EdgeGroup:
+		return m.clearedgroup
+	case grouppolicy.EdgeStoragePolicy:
+		return m.clearedstorage_policy
+	}
+	return false
+}
+
+// ClearEdge clears the value of the edge with the given name. It returns an error
+// if that edge is not defined in the schema.
+func (m *GroupPolicyMutation) ClearEdge(name string) error {
+	switch name {
+	case grouppolicy.EdgeGroup:
+		m.ClearGroup()
+		return nil
+	case grouppolicy.EdgeStoragePolicy:
+		m.ClearStoragePolicy()
+		return nil
+	}
+	return fmt.Errorf("unknown GroupPolicy unique edge %s", name)
+}
+
+// ResetEdge resets all changes to the edge with the given name in this mutation.
+// It returns an error if the edge is not defined in the schema.
+func (m *GroupPolicyMutation) ResetEdge(name string) error {
+	switch name {
+	case grouppolicy.EdgeGroup:
+		m.ResetGroup()
+		return nil
+	case grouppolicy.EdgeStoragePolicy:
+		m.ResetStoragePolicy()
+		return nil
+	}
+	return fmt.Errorf("unknown GroupPolicy edge %s", name)
 }
 
 // MetadataMutation represents an operation that mutates the Metadata nodes in the graph.
@@ -15090,39 +15745,42 @@ func (m *ShareMutation) ResetEdge(name string) error {
 // StoragePolicyMutation represents an operation that mutates the StoragePolicy nodes in the graph.
 type StoragePolicyMutation struct {
 	config
-	op              Op
-	typ             string
-	id              *int
-	created_at      *time.Time
-	updated_at      *time.Time
-	deleted_at      *time.Time
-	name            *string
-	_type           *string
-	server          *string
-	bucket_name     *string
-	is_private      *bool
-	access_key      *string
-	secret_key      *string
-	max_size        *int64
-	addmax_size     *int64
-	dir_name_rule   *string
-	file_name_rule  *string
-	settings        **types.PolicySetting
-	clearedFields   map[string]struct{}
-	groups          map[int]struct{}
-	removedgroups   map[int]struct{}
-	clearedgroups   bool
-	files           map[int]struct{}
-	removedfiles    map[int]struct{}
-	clearedfiles    bool
-	entities        map[int]struct{}
-	removedentities map[int]struct{}
-	clearedentities bool
-	node            *int
-	clearednode     bool
-	done            bool
-	oldValue        func(context.Context) (*StoragePolicy, error)
-	predicates      []predicate.StoragePolicy
+	op                       Op
+	typ                      string
+	id                       *int
+	created_at               *time.Time
+	updated_at               *time.Time
+	deleted_at               *time.Time
+	name                     *string
+	_type                    *string
+	server                   *string
+	bucket_name              *string
+	is_private               *bool
+	access_key               *string
+	secret_key               *string
+	max_size                 *int64
+	addmax_size              *int64
+	dir_name_rule            *string
+	file_name_rule           *string
+	settings                 **types.PolicySetting
+	clearedFields            map[string]struct{}
+	group_assignments        map[int]struct{}
+	removedgroup_assignments map[int]struct{}
+	clearedgroup_assignments bool
+	groups                   map[int]struct{}
+	removedgroups            map[int]struct{}
+	clearedgroups            bool
+	files                    map[int]struct{}
+	removedfiles             map[int]struct{}
+	clearedfiles             bool
+	entities                 map[int]struct{}
+	removedentities          map[int]struct{}
+	clearedentities          bool
+	node                     *int
+	clearednode              bool
+	done                     bool
+	oldValue                 func(context.Context) (*StoragePolicy, error)
+	predicates               []predicate.StoragePolicy
 }
 
 var _ ent.Mutation = (*StoragePolicyMutation)(nil)
@@ -15927,6 +16585,60 @@ func (m *StoragePolicyMutation) ResetNodeID() {
 	delete(m.clearedFields, storagepolicy.FieldNodeID)
 }
 
+// AddGroupAssignmentIDs adds the "group_assignments" edge to the GroupPolicy entity by ids.
+func (m *StoragePolicyMutation) AddGroupAssignmentIDs(ids ...int) {
+	if m.group_assignments == nil {
+		m.group_assignments = make(map[int]struct{})
+	}
+	for i := range ids {
+		m.group_assignments[ids[i]] = struct{}{}
+	}
+}
+
+// ClearGroupAssignments clears the "group_assignments" edge to the GroupPolicy entity.
+func (m *StoragePolicyMutation) ClearGroupAssignments() {
+	m.clearedgroup_assignments = true
+}
+
+// GroupAssignmentsCleared reports if the "group_assignments" edge to the GroupPolicy entity was cleared.
+func (m *StoragePolicyMutation) GroupAssignmentsCleared() bool {
+	return m.clearedgroup_assignments
+}
+
+// RemoveGroupAssignmentIDs removes the "group_assignments" edge to the GroupPolicy entity by IDs.
+func (m *StoragePolicyMutation) RemoveGroupAssignmentIDs(ids ...int) {
+	if m.removedgroup_assignments == nil {
+		m.removedgroup_assignments = make(map[int]struct{})
+	}
+	for i := range ids {
+		delete(m.group_assignments, ids[i])
+		m.removedgroup_assignments[ids[i]] = struct{}{}
+	}
+}
+
+// RemovedGroupAssignments returns the removed IDs of the "group_assignments" edge to the GroupPolicy entity.
+func (m *StoragePolicyMutation) RemovedGroupAssignmentsIDs() (ids []int) {
+	for id := range m.removedgroup_assignments {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// GroupAssignmentsIDs returns the "group_assignments" edge IDs in the mutation.
+func (m *StoragePolicyMutation) GroupAssignmentsIDs() (ids []int) {
+	for id := range m.group_assignments {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// ResetGroupAssignments resets all changes to the "group_assignments" edge.
+func (m *StoragePolicyMutation) ResetGroupAssignments() {
+	m.group_assignments = nil
+	m.clearedgroup_assignments = false
+	m.removedgroup_assignments = nil
+}
+
 // AddGroupIDs adds the "groups" edge to the Group entity by ids.
 func (m *StoragePolicyMutation) AddGroupIDs(ids ...int) {
 	if m.groups == nil {
@@ -16571,7 +17283,10 @@ func (m *StoragePolicyMutation) ResetField(name string) error {
 
 // AddedEdges returns all edge names that were set/added in this mutation.
 func (m *StoragePolicyMutation) AddedEdges() []string {
-	edges := make([]string, 0, 4)
+	edges := make([]string, 0, 5)
+	if m.group_assignments != nil {
+		edges = append(edges, storagepolicy.EdgeGroupAssignments)
+	}
 	if m.groups != nil {
 		edges = append(edges, storagepolicy.EdgeGroups)
 	}
@@ -16591,6 +17306,12 @@ func (m *StoragePolicyMutation) AddedEdges() []string {
 // name in this mutation.
 func (m *StoragePolicyMutation) AddedIDs(name string) []ent.Value {
 	switch name {
+	case storagepolicy.EdgeGroupAssignments:
+		ids := make([]ent.Value, 0, len(m.group_assignments))
+		for id := range m.group_assignments {
+			ids = append(ids, id)
+		}
+		return ids
 	case storagepolicy.EdgeGroups:
 		ids := make([]ent.Value, 0, len(m.groups))
 		for id := range m.groups {
@@ -16619,7 +17340,10 @@ func (m *StoragePolicyMutation) AddedIDs(name string) []ent.Value {
 
 // RemovedEdges returns all edge names that were removed in this mutation.
 func (m *StoragePolicyMutation) RemovedEdges() []string {
-	edges := make([]string, 0, 4)
+	edges := make([]string, 0, 5)
+	if m.removedgroup_assignments != nil {
+		edges = append(edges, storagepolicy.EdgeGroupAssignments)
+	}
 	if m.removedgroups != nil {
 		edges = append(edges, storagepolicy.EdgeGroups)
 	}
@@ -16636,6 +17360,12 @@ func (m *StoragePolicyMutation) RemovedEdges() []string {
 // the given name in this mutation.
 func (m *StoragePolicyMutation) RemovedIDs(name string) []ent.Value {
 	switch name {
+	case storagepolicy.EdgeGroupAssignments:
+		ids := make([]ent.Value, 0, len(m.removedgroup_assignments))
+		for id := range m.removedgroup_assignments {
+			ids = append(ids, id)
+		}
+		return ids
 	case storagepolicy.EdgeGroups:
 		ids := make([]ent.Value, 0, len(m.removedgroups))
 		for id := range m.removedgroups {
@@ -16660,7 +17390,10 @@ func (m *StoragePolicyMutation) RemovedIDs(name string) []ent.Value {
 
 // ClearedEdges returns all edge names that were cleared in this mutation.
 func (m *StoragePolicyMutation) ClearedEdges() []string {
-	edges := make([]string, 0, 4)
+	edges := make([]string, 0, 5)
+	if m.clearedgroup_assignments {
+		edges = append(edges, storagepolicy.EdgeGroupAssignments)
+	}
 	if m.clearedgroups {
 		edges = append(edges, storagepolicy.EdgeGroups)
 	}
@@ -16680,6 +17413,8 @@ func (m *StoragePolicyMutation) ClearedEdges() []string {
 // was cleared in this mutation.
 func (m *StoragePolicyMutation) EdgeCleared(name string) bool {
 	switch name {
+	case storagepolicy.EdgeGroupAssignments:
+		return m.clearedgroup_assignments
 	case storagepolicy.EdgeGroups:
 		return m.clearedgroups
 	case storagepolicy.EdgeFiles:
@@ -16707,6 +17442,9 @@ func (m *StoragePolicyMutation) ClearEdge(name string) error {
 // It returns an error if the edge is not defined in the schema.
 func (m *StoragePolicyMutation) ResetEdge(name string) error {
 	switch name {
+	case storagepolicy.EdgeGroupAssignments:
+		m.ResetGroupAssignments()
+		return nil
 	case storagepolicy.EdgeGroups:
 		m.ResetGroups()
 		return nil

@@ -58,6 +58,8 @@ type StoragePolicy struct {
 
 // StoragePolicyEdges holds the relations/edges for other nodes in the graph.
 type StoragePolicyEdges struct {
+	// GroupAssignments holds the value of the group_assignments edge.
+	GroupAssignments []*GroupPolicy `json:"group_assignments,omitempty"`
 	// Groups holds the value of the groups edge.
 	Groups []*Group `json:"groups,omitempty"`
 	// Files holds the value of the files edge.
@@ -68,13 +70,22 @@ type StoragePolicyEdges struct {
 	Node *Node `json:"node,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [4]bool
+	loadedTypes [5]bool
+}
+
+// GroupAssignmentsOrErr returns the GroupAssignments value or an error if the edge
+// was not loaded in eager-loading.
+func (e StoragePolicyEdges) GroupAssignmentsOrErr() ([]*GroupPolicy, error) {
+	if e.loadedTypes[0] {
+		return e.GroupAssignments, nil
+	}
+	return nil, &NotLoadedError{edge: "group_assignments"}
 }
 
 // GroupsOrErr returns the Groups value or an error if the edge
 // was not loaded in eager-loading.
 func (e StoragePolicyEdges) GroupsOrErr() ([]*Group, error) {
-	if e.loadedTypes[0] {
+	if e.loadedTypes[1] {
 		return e.Groups, nil
 	}
 	return nil, &NotLoadedError{edge: "groups"}
@@ -83,7 +94,7 @@ func (e StoragePolicyEdges) GroupsOrErr() ([]*Group, error) {
 // FilesOrErr returns the Files value or an error if the edge
 // was not loaded in eager-loading.
 func (e StoragePolicyEdges) FilesOrErr() ([]*File, error) {
-	if e.loadedTypes[1] {
+	if e.loadedTypes[2] {
 		return e.Files, nil
 	}
 	return nil, &NotLoadedError{edge: "files"}
@@ -92,7 +103,7 @@ func (e StoragePolicyEdges) FilesOrErr() ([]*File, error) {
 // EntitiesOrErr returns the Entities value or an error if the edge
 // was not loaded in eager-loading.
 func (e StoragePolicyEdges) EntitiesOrErr() ([]*Entity, error) {
-	if e.loadedTypes[2] {
+	if e.loadedTypes[3] {
 		return e.Entities, nil
 	}
 	return nil, &NotLoadedError{edge: "entities"}
@@ -101,7 +112,7 @@ func (e StoragePolicyEdges) EntitiesOrErr() ([]*Entity, error) {
 // NodeOrErr returns the Node value or an error if the edge
 // was not loaded in eager-loading, or loaded but was not found.
 func (e StoragePolicyEdges) NodeOrErr() (*Node, error) {
-	if e.loadedTypes[3] {
+	if e.loadedTypes[4] {
 		if e.Node == nil {
 			// Edge was loaded but was not found.
 			return nil, &NotFoundError{label: node.Label}
@@ -253,6 +264,11 @@ func (sp *StoragePolicy) Value(name string) (ent.Value, error) {
 	return sp.selectValues.Get(name)
 }
 
+// QueryGroupAssignments queries the "group_assignments" edge of the StoragePolicy entity.
+func (sp *StoragePolicy) QueryGroupAssignments() *GroupPolicyQuery {
+	return NewStoragePolicyClient(sp.config).QueryGroupAssignments(sp)
+}
+
 // QueryGroups queries the "groups" edge of the StoragePolicy entity.
 func (sp *StoragePolicy) QueryGroups() *GroupQuery {
 	return NewStoragePolicyClient(sp.config).QueryGroups(sp)
@@ -346,28 +362,34 @@ func (sp *StoragePolicy) String() string {
 	return builder.String()
 }
 
+// SetGroupAssignments manually set the edge as loaded state.
+func (e *StoragePolicy) SetGroupAssignments(v []*GroupPolicy) {
+	e.Edges.GroupAssignments = v
+	e.Edges.loadedTypes[0] = true
+}
+
 // SetGroups manually set the edge as loaded state.
 func (e *StoragePolicy) SetGroups(v []*Group) {
 	e.Edges.Groups = v
-	e.Edges.loadedTypes[0] = true
+	e.Edges.loadedTypes[1] = true
 }
 
 // SetFiles manually set the edge as loaded state.
 func (e *StoragePolicy) SetFiles(v []*File) {
 	e.Edges.Files = v
-	e.Edges.loadedTypes[1] = true
+	e.Edges.loadedTypes[2] = true
 }
 
 // SetEntities manually set the edge as loaded state.
 func (e *StoragePolicy) SetEntities(v []*Entity) {
 	e.Edges.Entities = v
-	e.Edges.loadedTypes[2] = true
+	e.Edges.loadedTypes[3] = true
 }
 
 // SetNode manually set the edge as loaded state.
 func (e *StoragePolicy) SetNode(v *Node) {
 	e.Edges.Node = v
-	e.Edges.loadedTypes[3] = true
+	e.Edges.loadedTypes[4] = true
 }
 
 // StoragePolicies is a parsable slice of StoragePolicy.

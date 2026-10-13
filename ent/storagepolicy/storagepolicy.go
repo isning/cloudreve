@@ -46,6 +46,8 @@ const (
 	FieldSettings = "settings"
 	// FieldNodeID holds the string denoting the node_id field in the database.
 	FieldNodeID = "node_id"
+	// EdgeGroupAssignments holds the string denoting the group_assignments edge name in mutations.
+	EdgeGroupAssignments = "group_assignments"
 	// EdgeGroups holds the string denoting the groups edge name in mutations.
 	EdgeGroups = "groups"
 	// EdgeFiles holds the string denoting the files edge name in mutations.
@@ -56,6 +58,13 @@ const (
 	EdgeNode = "node"
 	// Table holds the table name of the storagepolicy in the database.
 	Table = "storage_policies"
+	// GroupAssignmentsTable is the table that holds the group_assignments relation/edge.
+	GroupAssignmentsTable = "group_policies"
+	// GroupAssignmentsInverseTable is the table name for the GroupPolicy entity.
+	// It exists in this package in order to avoid circular dependency with the "grouppolicy" package.
+	GroupAssignmentsInverseTable = "group_policies"
+	// GroupAssignmentsColumn is the table column denoting the group_assignments relation/edge.
+	GroupAssignmentsColumn = "storage_policy_id"
 	// GroupsTable is the table that holds the groups relation/edge.
 	GroupsTable = "groups"
 	// GroupsInverseTable is the table name for the Group entity.
@@ -212,6 +221,20 @@ func ByNodeID(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldNodeID, opts...).ToFunc()
 }
 
+// ByGroupAssignmentsCount orders the results by group_assignments count.
+func ByGroupAssignmentsCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newGroupAssignmentsStep(), opts...)
+	}
+}
+
+// ByGroupAssignments orders the results by group_assignments terms.
+func ByGroupAssignments(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newGroupAssignmentsStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
+
 // ByGroupsCount orders the results by groups count.
 func ByGroupsCount(opts ...sql.OrderTermOption) OrderOption {
 	return func(s *sql.Selector) {
@@ -259,6 +282,13 @@ func ByNodeField(field string, opts ...sql.OrderTermOption) OrderOption {
 	return func(s *sql.Selector) {
 		sqlgraph.OrderByNeighborTerms(s, newNodeStep(), sql.OrderByField(field, opts...))
 	}
+}
+func newGroupAssignmentsStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(GroupAssignmentsInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2M, false, GroupAssignmentsTable, GroupAssignmentsColumn),
+	)
 }
 func newGroupsStep() *sqlgraph.Step {
 	return sqlgraph.NewStep(

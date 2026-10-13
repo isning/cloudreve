@@ -46,6 +46,12 @@ func (m *GroupMutation) SetRawID(t int) {
 
 // SetUpdatedAt sets the "updated_at" field.
 
+func (m *GroupPolicyMutation) SetRawID(t int) {
+	m.id = &t
+}
+
+// SetUpdatedAt sets the "updated_at" field.
+
 func (m *MetadataMutation) SetRawID(t int) {
 	m.id = &t
 }

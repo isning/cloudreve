@@ -70,7 +70,11 @@ func NewRawEntClient(l logging.Logger, config conf.ConfigProvider) (*ent.Client,
 	// If Database connection string provided, use it directly.
 	if dbConfig.DatabaseURL != "" {
 		l.Info("Connect to database with connection string")
-		client, err = sql.Open(string(confDBType), dbConfig.DatabaseURL)
+		driverName := string(confDBType)
+		if confDBType == conf.SQLiteDB {
+			driverName = "sqlite3"
+		}
+		client, err = sql.Open(driverName, dbConfig.DatabaseURL)
 	} else {
 
 		switch confDBType {
@@ -128,12 +132,13 @@ func NewRawEntClient(l logging.Logger, config conf.ConfigProvider) (*ent.Client,
 	// Set timeout
 	db.SetConnMaxLifetime(time.Second * 30)
 
-	driverOpt := ent.Driver(client)
+	stableDriver := contextDriver{Driver: client}
+	driverOpt := ent.Driver(stableDriver)
 
 	// Enable verbose logging for debug mode.
 	if config.System().Debug {
 		l.Debug("Debug mode is enabled for DB client.")
-		driverOpt = ent.Driver(debug.DebugWithContext(client, func(ctx context.Context, i ...any) {
+		driverOpt = ent.Driver(debug.DebugWithContext(stableDriver, func(ctx context.Context, i ...any) {
 			logging.FromContext(ctx).Debug(i[0].(string), i[1:]...)
 		}))
 	}

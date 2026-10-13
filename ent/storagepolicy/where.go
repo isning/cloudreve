@@ -945,6 +945,29 @@ func NodeIDNotNil() predicate.StoragePolicy {
 	return predicate.StoragePolicy(sql.FieldNotNull(FieldNodeID))
 }
 
+// HasGroupAssignments applies the HasEdge predicate on the "group_assignments" edge.
+func HasGroupAssignments() predicate.StoragePolicy {
+	return predicate.StoragePolicy(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, GroupAssignmentsTable, GroupAssignmentsColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasGroupAssignmentsWith applies the HasEdge predicate on the "group_assignments" edge with a given conditions (other predicates).
+func HasGroupAssignmentsWith(preds ...predicate.GroupPolicy) predicate.StoragePolicy {
+	return predicate.StoragePolicy(func(s *sql.Selector) {
+		step := newGroupAssignmentsStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
 // HasGroups applies the HasEdge predicate on the "groups" edge.
 func HasGroups() predicate.StoragePolicy {
 	return predicate.StoragePolicy(func(s *sql.Selector) {

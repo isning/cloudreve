@@ -356,6 +356,9 @@ func (d *dependency) DBClient() *ent.Client {
 	if err := inventory.EnsureExternalAuthSchema(context.Background(), client); err != nil {
 		d.panicError(err)
 	}
+	if err := inventory.EnsureStorageSchema(context.Background(), client); err != nil {
+		d.panicError(err)
+	}
 	d.dbClient = client
 	return d.dbClient
 }

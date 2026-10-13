@@ -34,15 +34,12 @@ func (r *Resolver) Available(ctx context.Context, ownerID int) ([]*ent.StoragePo
 	if owner.Edges.Group == nil {
 		return nil, fmt.Errorf("owner group not loaded")
 	}
-	if owner.Edges.Group.StoragePolicyID == 0 {
-		return []*ent.StoragePolicy{}, nil
-	}
 	sc, _ := inventory.InheritTx(ctx, r.policies)
-	policy, err := sc.GetByGroup(ctx, owner.Edges.Group)
+	policies, err := sc.AvailableByGroup(ctx, owner.Edges.Group)
 	if err != nil {
 		return nil, fmt.Errorf("load available storage policies: %w", err)
 	}
-	return []*ent.StoragePolicy{policy}, nil
+	return policies, nil
 }
 
 func (r *Resolver) Default(ctx context.Context, ownerID int) (*ent.StoragePolicy, error) {

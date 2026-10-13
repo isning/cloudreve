@@ -22,6 +22,7 @@ import (
 	"github.com/cloudreve/Cloudreve/v4/ent/file"
 	"github.com/cloudreve/Cloudreve/v4/ent/fsevent"
 	"github.com/cloudreve/Cloudreve/v4/ent/group"
+	"github.com/cloudreve/Cloudreve/v4/ent/grouppolicy"
 	"github.com/cloudreve/Cloudreve/v4/ent/metadata"
 	"github.com/cloudreve/Cloudreve/v4/ent/node"
 	"github.com/cloudreve/Cloudreve/v4/ent/oauthclient"
@@ -57,6 +58,8 @@ type Client struct {
 	FsEvent *FsEventClient
 	// Group is the client for interacting with the Group builders.
 	Group *GroupClient
+	// GroupPolicy is the client for interacting with the GroupPolicy builders.
+	GroupPolicy *GroupPolicyClient
 	// Metadata is the client for interacting with the Metadata builders.
 	Metadata *MetadataClient
 	// Node is the client for interacting with the Node builders.
@@ -99,6 +102,7 @@ func (c *Client) init() {
 	c.File = NewFileClient(c.config)
 	c.FsEvent = NewFsEventClient(c.config)
 	c.Group = NewGroupClient(c.config)
+	c.GroupPolicy = NewGroupPolicyClient(c.config)
 	c.Metadata = NewMetadataClient(c.config)
 	c.Node = NewNodeClient(c.config)
 	c.OAuthClient = NewOAuthClientClient(c.config)
@@ -210,6 +214,7 @@ func (c *Client) Tx(ctx context.Context) (*Tx, error) {
 		File:              NewFileClient(cfg),
 		FsEvent:           NewFsEventClient(cfg),
 		Group:             NewGroupClient(cfg),
+		GroupPolicy:       NewGroupPolicyClient(cfg),
 		Metadata:          NewMetadataClient(cfg),
 		Node:              NewNodeClient(cfg),
 		OAuthClient:       NewOAuthClientClient(cfg),
@@ -248,6 +253,7 @@ func (c *Client) BeginTx(ctx context.Context, opts *sql.TxOptions) (*Tx, error) 
 		File:              NewFileClient(cfg),
 		FsEvent:           NewFsEventClient(cfg),
 		Group:             NewGroupClient(cfg),
+		GroupPolicy:       NewGroupPolicyClient(cfg),
 		Metadata:          NewMetadataClient(cfg),
 		Node:              NewNodeClient(cfg),
 		OAuthClient:       NewOAuthClientClient(cfg),
@@ -290,9 +296,9 @@ func (c *Client) Close() error {
 func (c *Client) Use(hooks ...Hook) {
 	for _, n := range []interface{ Use(...Hook) }{
 		c.DavAccount, c.DirectLink, c.Entity, c.ExternalIdentity, c.File, c.FsEvent,
-		c.Group, c.Metadata, c.Node, c.OAuthClient, c.OAuthGrant, c.OpenIDSession,
-		c.OpenIDTransaction, c.Passkey, c.Setting, c.Share, c.StoragePolicy, c.Task,
-		c.User,
+		c.Group, c.GroupPolicy, c.Metadata, c.Node, c.OAuthClient, c.OAuthGrant,
+		c.OpenIDSession, c.OpenIDTransaction, c.Passkey, c.Setting, c.Share,
+		c.StoragePolicy, c.Task, c.User,
 	} {
 		n.Use(hooks...)
 	}
@@ -303,9 +309,9 @@ func (c *Client) Use(hooks ...Hook) {
 func (c *Client) Intercept(interceptors ...Interceptor) {
 	for _, n := range []interface{ Intercept(...Interceptor) }{
 		c.DavAccount, c.DirectLink, c.Entity, c.ExternalIdentity, c.File, c.FsEvent,
-		c.Group, c.Metadata, c.Node, c.OAuthClient, c.OAuthGrant, c.OpenIDSession,
-		c.OpenIDTransaction, c.Passkey, c.Setting, c.Share, c.StoragePolicy, c.Task,
-		c.User,
+		c.Group, c.GroupPolicy, c.Metadata, c.Node, c.OAuthClient, c.OAuthGrant,
+		c.OpenIDSession, c.OpenIDTransaction, c.Passkey, c.Setting, c.Share,
+		c.StoragePolicy, c.Task, c.User,
 	} {
 		n.Intercept(interceptors...)
 	}
@@ -328,6 +334,8 @@ func (c *Client) Mutate(ctx context.Context, m Mutation) (Value, error) {
 		return c.FsEvent.mutate(ctx, m)
 	case *GroupMutation:
 		return c.Group.mutate(ctx, m)
+	case *GroupPolicyMutation:
+		return c.GroupPolicy.mutate(ctx, m)
 	case *MetadataMutation:
 		return c.Metadata.mutate(ctx, m)
 	case *NodeMutation:
@@ -1512,6 +1520,22 @@ func (c *GroupClient) GetX(ctx context.Context, id int) *Group {
 	return obj
 }
 
+// QueryPolicyAssignments queries the policy_assignments edge of a Group.
+func (c *GroupClient) QueryPolicyAssignments(gr *Group) *GroupPolicyQuery {
+	query := (&GroupPolicyClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := gr.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(group.Table, group.FieldID, id),
+			sqlgraph.To(grouppolicy.Table, grouppolicy.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, group.PolicyAssignmentsTable, group.PolicyAssignmentsColumn),
+		)
+		fromV = sqlgraph.Neighbors(gr.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
 // QueryUsers queries the users edge of a Group.
 func (c *GroupClient) QueryUsers(gr *Group) *UserQuery {
 	query := (&UserClient{config: c.config}).Query()
@@ -1568,6 +1592,171 @@ func (c *GroupClient) mutate(ctx context.Context, m *GroupMutation) (Value, erro
 		return (&GroupDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
 	default:
 		return nil, fmt.Errorf("ent: unknown Group mutation op: %q", m.Op())
+	}
+}
+
+// GroupPolicyClient is a client for the GroupPolicy schema.
+type GroupPolicyClient struct {
+	config
+}
+
+// NewGroupPolicyClient returns a client for the GroupPolicy from the given config.
+func NewGroupPolicyClient(c config) *GroupPolicyClient {
+	return &GroupPolicyClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `grouppolicy.Hooks(f(g(h())))`.
+func (c *GroupPolicyClient) Use(hooks ...Hook) {
+	c.hooks.GroupPolicy = append(c.hooks.GroupPolicy, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `grouppolicy.Intercept(f(g(h())))`.
+func (c *GroupPolicyClient) Intercept(interceptors ...Interceptor) {
+	c.inters.GroupPolicy = append(c.inters.GroupPolicy, interceptors...)
+}
+
+// Create returns a builder for creating a GroupPolicy entity.
+func (c *GroupPolicyClient) Create() *GroupPolicyCreate {
+	mutation := newGroupPolicyMutation(c.config, OpCreate)
+	return &GroupPolicyCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of GroupPolicy entities.
+func (c *GroupPolicyClient) CreateBulk(builders ...*GroupPolicyCreate) *GroupPolicyCreateBulk {
+	return &GroupPolicyCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *GroupPolicyClient) MapCreateBulk(slice any, setFunc func(*GroupPolicyCreate, int)) *GroupPolicyCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &GroupPolicyCreateBulk{err: fmt.Errorf("calling to GroupPolicyClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*GroupPolicyCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &GroupPolicyCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for GroupPolicy.
+func (c *GroupPolicyClient) Update() *GroupPolicyUpdate {
+	mutation := newGroupPolicyMutation(c.config, OpUpdate)
+	return &GroupPolicyUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *GroupPolicyClient) UpdateOne(gp *GroupPolicy) *GroupPolicyUpdateOne {
+	mutation := newGroupPolicyMutation(c.config, OpUpdateOne, withGroupPolicy(gp))
+	return &GroupPolicyUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *GroupPolicyClient) UpdateOneID(id int) *GroupPolicyUpdateOne {
+	mutation := newGroupPolicyMutation(c.config, OpUpdateOne, withGroupPolicyID(id))
+	return &GroupPolicyUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for GroupPolicy.
+func (c *GroupPolicyClient) Delete() *GroupPolicyDelete {
+	mutation := newGroupPolicyMutation(c.config, OpDelete)
+	return &GroupPolicyDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *GroupPolicyClient) DeleteOne(gp *GroupPolicy) *GroupPolicyDeleteOne {
+	return c.DeleteOneID(gp.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *GroupPolicyClient) DeleteOneID(id int) *GroupPolicyDeleteOne {
+	builder := c.Delete().Where(grouppolicy.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &GroupPolicyDeleteOne{builder}
+}
+
+// Query returns a query builder for GroupPolicy.
+func (c *GroupPolicyClient) Query() *GroupPolicyQuery {
+	return &GroupPolicyQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeGroupPolicy},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a GroupPolicy entity by its id.
+func (c *GroupPolicyClient) Get(ctx context.Context, id int) (*GroupPolicy, error) {
+	return c.Query().Where(grouppolicy.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *GroupPolicyClient) GetX(ctx context.Context, id int) *GroupPolicy {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// QueryGroup queries the group edge of a GroupPolicy.
+func (c *GroupPolicyClient) QueryGroup(gp *GroupPolicy) *GroupQuery {
+	query := (&GroupClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := gp.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(grouppolicy.Table, grouppolicy.FieldID, id),
+			sqlgraph.To(group.Table, group.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, grouppolicy.GroupTable, grouppolicy.GroupColumn),
+		)
+		fromV = sqlgraph.Neighbors(gp.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryStoragePolicy queries the storage_policy edge of a GroupPolicy.
+func (c *GroupPolicyClient) QueryStoragePolicy(gp *GroupPolicy) *StoragePolicyQuery {
+	query := (&StoragePolicyClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := gp.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(grouppolicy.Table, grouppolicy.FieldID, id),
+			sqlgraph.To(storagepolicy.Table, storagepolicy.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, grouppolicy.StoragePolicyTable, grouppolicy.StoragePolicyColumn),
+		)
+		fromV = sqlgraph.Neighbors(gp.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// Hooks returns the client hooks.
+func (c *GroupPolicyClient) Hooks() []Hook {
+	return c.hooks.GroupPolicy
+}
+
+// Interceptors returns the client interceptors.
+func (c *GroupPolicyClient) Interceptors() []Interceptor {
+	return c.inters.GroupPolicy
+}
+
+func (c *GroupPolicyClient) mutate(ctx context.Context, m *GroupPolicyMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&GroupPolicyCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&GroupPolicyUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&GroupPolicyUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&GroupPolicyDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown GroupPolicy mutation op: %q", m.Op())
 	}
 }
 
@@ -3050,6 +3239,22 @@ func (c *StoragePolicyClient) GetX(ctx context.Context, id int) *StoragePolicy {
 	return obj
 }
 
+// QueryGroupAssignments queries the group_assignments edge of a StoragePolicy.
+func (c *StoragePolicyClient) QueryGroupAssignments(sp *StoragePolicy) *GroupPolicyQuery {
+	query := (&GroupPolicyClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := sp.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(storagepolicy.Table, storagepolicy.FieldID, id),
+			sqlgraph.To(grouppolicy.Table, grouppolicy.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, storagepolicy.GroupAssignmentsTable, storagepolicy.GroupAssignmentsColumn),
+		)
+		fromV = sqlgraph.Neighbors(sp.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
 // QueryGroups queries the groups edge of a StoragePolicy.
 func (c *StoragePolicyClient) QueryGroups(sp *StoragePolicy) *GroupQuery {
 	query := (&GroupClient{config: c.config}).Query()
@@ -3623,13 +3828,15 @@ func (c *UserClient) mutate(ctx context.Context, m *UserMutation) (Value, error)
 type (
 	hooks struct {
 		DavAccount, DirectLink, Entity, ExternalIdentity, File, FsEvent, Group,
-		Metadata, Node, OAuthClient, OAuthGrant, OpenIDSession, OpenIDTransaction,
-		Passkey, Setting, Share, StoragePolicy, Task, User []ent.Hook
+		GroupPolicy, Metadata, Node, OAuthClient, OAuthGrant, OpenIDSession,
+		OpenIDTransaction, Passkey, Setting, Share, StoragePolicy, Task,
+		User []ent.Hook
 	}
 	inters struct {
 		DavAccount, DirectLink, Entity, ExternalIdentity, File, FsEvent, Group,
-		Metadata, Node, OAuthClient, OAuthGrant, OpenIDSession, OpenIDTransaction,
-		Passkey, Setting, Share, StoragePolicy, Task, User []ent.Interceptor
+		GroupPolicy, Metadata, Node, OAuthClient, OAuthGrant, OpenIDSession,
+		OpenIDTransaction, Passkey, Setting, Share, StoragePolicy, Task,
+		User []ent.Interceptor
 	}
 )
 

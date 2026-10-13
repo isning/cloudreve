@@ -11,6 +11,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"os"
 	"os/exec"
@@ -19,12 +20,14 @@ import (
 	"testing"
 	"time"
 
+	"entgo.io/ent/dialect/sql/schema"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/cloudreve/Cloudreve/v4/application/dependency"
 	"github.com/cloudreve/Cloudreve/v4/ent"
+	entmigrate "github.com/cloudreve/Cloudreve/v4/ent/migrate"
 	entnode "github.com/cloudreve/Cloudreve/v4/ent/node"
 	entuser "github.com/cloudreve/Cloudreve/v4/ent/user"
 	"github.com/cloudreve/Cloudreve/v4/inventory"
@@ -153,20 +156,58 @@ func startStorageS3(t *testing.T) storageS3Service {
 }
 
 func newStorageFixture(t *testing.T) *storageFixture {
+	return newStorageFixtureWithLegacy(t, false)
+}
+
+func newStorageFixtureWithLegacy(t *testing.T, legacy bool) *storageFixture {
 	t.Helper()
 	svc := startStorageS3(t)
-	db := openAuthenticationDatabase(t, "storage.db")
-	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	l := logging.NewConsoleLogger(logging.LevelError)
-	kv := cache.NewMemoStore("", l)
-	settings := setting.NewProvider(setting.NewDbSettingStore(inventory.NewSettingClient(db, kv), setting.NewDbDefaultStore(nil)))
 	cfg, err := conf.NewIniConfigProvider(filepath.Join(t.TempDir(), "conf.ini"), l)
 	require.NoError(t, err)
 	cfg.Database().Type = conf.SQLiteDB
+	cfg.System().Debug = false
+	var db *ent.Client
+	if legacy {
+		cfg.Database().DBFile = filepath.Join(t.TempDir(), "legacy.db")
+		db, err = inventory.NewRawEntClient(l, cfg)
+		require.NoError(t, err)
+		var tables []*schema.Table
+		for _, table := range entmigrate.Tables {
+			if table.Name != "group_policies" {
+				tables = append(tables, table)
+			}
+		}
+		require.NoError(t, entmigrate.Create(context.Background(), db.Schema, tables, schema.WithAtlas(false)))
+		_, err = db.Setting.Create().SetName(inventory.DBVersionPrefix + "4.14.0").SetValue("installed").Save(context.Background())
+		require.NoError(t, err)
+		_, err = db.Setting.Create().SetName(inventory.ExternalAuthSchemaVersion).SetValue("complete").Save(context.Background())
+		require.NoError(t, err)
+	} else {
+		initial := openAuthenticationDatabase(t, "storage.db")
+		database, ok := authenticationDatabases.Load(initial)
+		require.True(t, ok)
+		cfg.Database().DatabaseURL = database.(authenticationDatabase).DSN
+		require.NoError(t, initial.Close())
+		if driver := os.Getenv("OIDC_TEST_DRIVER"); driver != "" {
+			cfg.Database().Type = conf.DBType(driver)
+		} else {
+			cfg.Database().DatabaseURL += "&_pragma=foreign_keys(1)"
+		}
+		db, err = inventory.NewRawEntClient(l, cfg)
+		require.NoError(t, err)
+	}
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	kv := cache.NewMemoStore("", l)
+	settings := setting.NewProvider(setting.NewDbSettingStore(inventory.NewSettingClient(db, kv), setting.NewDbDefaultStore(nil)))
 	encoder, err := hashid.New("storage-http-fixture")
 	require.NoError(t, err)
-	d := dependency.NewDependency(dependency.WithDbClient(db), dependency.WithRawEntClient(db), dependency.WithKV(kv), dependency.WithLogger(l),
-		dependency.WithConfigProvider(cfg), dependency.WithSettingProvider(settings), dependency.WithHashIDEncoder(encoder))
+	options := []dependency.Option{dependency.WithRawEntClient(db), dependency.WithKV(kv), dependency.WithLogger(l),
+		dependency.WithConfigProvider(cfg), dependency.WithSettingProvider(settings), dependency.WithHashIDEncoder(encoder), dependency.WithRequiredDbVersion("4.14.0")}
+	if !legacy {
+		options = append(options, dependency.WithDbClient(db))
+	}
+	d := dependency.NewDependency(options...)
 	t.Cleanup(func() { require.NoError(t, d.Shutdown(context.Background())) })
 	sess, err := session.NewSession(&aws.Config{Endpoint: aws.String(svc.Endpoint), Region: aws.String("us-east-1"),
 		Credentials: credentials.NewStaticCredentials(svc.AccessKey, svc.SecretKey, ""), S3ForcePathStyle: aws.Bool(true)})
@@ -190,11 +231,29 @@ func newStorageFixture(t *testing.T) *storageFixture {
 		require.NoError(t, err)
 	}
 	password := storageRandom(t)
-	_, err = d.UserClient().Create(ctx, &inventory.NewUserArgs{Email: "storage-admin@example.com", PlainPassword: storageRandom(t), GroupID: 1, Status: entuser.StatusActive, SkipBootstrap: true})
+	users := inventory.NewUserClient(db)
+	_, err = users.Create(ctx, &inventory.NewUserArgs{Email: "storage-admin@example.com", PlainPassword: storageRandom(t), GroupID: 1, Status: entuser.StatusActive, SkipBootstrap: true})
 	require.NoError(t, err)
-	_, err = d.UserClient().Create(ctx, &inventory.NewUserArgs{Email: "storage@example.com", PlainPassword: password, GroupID: 2, Status: entuser.StatusActive, SkipBootstrap: true})
+	member, err := users.Create(ctx, &inventory.NewUserArgs{Email: "storage@example.com", PlainPassword: password, GroupID: 2, Status: entuser.StatusActive, SkipBootstrap: true})
 	require.NoError(t, err)
-	require.NoError(t, d.SettingClient().Set(ctx, map[string]string{"siteURL": "http://127.0.0.1", "secret_key": storageRandom(t), "temp_path": t.TempDir()}))
+	if legacy {
+		_, err = db.ExternalIdentity.Create().SetIdentityKey(strings.Repeat("a", 64)).SetProviderID(3).SetIssuer("https://legacy-idp.example").SetSubject("legacy-subject").SetUserID(member.ID).Save(ctx)
+		require.NoError(t, err)
+		payload := []byte("persisted object before storage extension")
+		_, err = f.s3.PutObject(&s3.PutObjectInput{Bucket: aws.String(f.policies[0].BucketName), Key: aws.String("legacy-object"), Body: bytes.NewReader(payload)})
+		require.NoError(t, err)
+		root, err := db.File.Create().SetName("").SetType(int(types.FileTypeFolder)).SetOwnerID(member.ID).SetProps(&types.FileProps{}).Save(ctx)
+		require.NoError(t, err)
+		entity, err := db.Entity.Create().SetType(int(types.EntityTypeVersion)).SetSource("legacy-object").SetSize(int64(len(payload))).SetStoragePolicyEntities(f.policies[0].ID).SetCreatedBy(member.ID).SetProps(&types.EntityProps{}).Save(ctx)
+		require.NoError(t, err)
+		_, err = db.File.Create().SetName("existing.txt").SetType(int(types.FileTypeFile)).SetOwnerID(member.ID).SetParent(root).SetSize(int64(len(payload))).SetPrimaryEntity(entity.ID).SetStoragePolicyFiles(f.policies[0].ID).AddEntities(entity).SetProps(&types.FileProps{}).Save(ctx)
+		require.NoError(t, err)
+		require.NoError(t, db.User.UpdateOne(member).SetStorage(int64(len(payload))).Exec(ctx))
+	}
+	for name, value := range map[string]string{"siteURL": "http://127.0.0.1", "secret_key": storageRandom(t), "temp_path": t.TempDir()} {
+		_, err = db.Setting.Create().SetName(name).SetValue(value).Save(ctx)
+		require.NoError(t, err)
+	}
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.ContextWithFallback = true
@@ -211,6 +270,8 @@ func newStorageFixture(t *testing.T) *storageFixture {
 	authenticated.POST("/file/url", ctl.FromJSON[explorer.FileURLService](explorer.FileURLParameterCtx{}), ctl.FileURL)
 	authenticated.GET("/file/info", ctl.FromQuery[explorer.GetFileInfoService](explorer.GetFileInfoParameterCtx{}), ctl.GetFileInfo)
 	authenticated.GET("/user/capacity", ctl.UserStorage)
+	authenticated.GET("/user/setting", ctl.UserSetting)
+	authenticated.GET("/user/setting/policies", ctl.UserAvailableStoragePolicies)
 	f.router = r
 	var login struct {
 		Token struct {
@@ -225,7 +286,17 @@ func newStorageFixture(t *testing.T) *storageFixture {
 
 func (f *storageFixture) request(t *testing.T, method, path string, body, result any) {
 	t.Helper()
-	w := openIDRequest(t, f.router, method, path, body, nil, f.token)
+	data, err := json.Marshal(body)
+	require.NoError(t, err)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	req := httptest.NewRequest(method, path, bytes.NewReader(data)).WithContext(ctx)
+	req.Header.Set("Content-Type", "application/json")
+	if f.token != "" {
+		req.Header.Set("Authorization", "Bearer "+f.token)
+	}
+	w := httptest.NewRecorder()
+	f.router.ServeHTTP(w, req)
 	var envelope struct {
 		Code int             `json:"code"`
 		Data json.RawMessage `json:"data"`
@@ -329,4 +400,46 @@ func TestStorageFailureDoesNotChooseAnotherBucket(t *testing.T) {
 		require.NoError(t, err)
 		require.Empty(t, objects.Contents)
 	}
+}
+
+func TestStorageAvailablePoliciesPreserveLegacyDefault(t *testing.T) {
+	f := newStorageFixture(t)
+	var policies []explorer.StoragePolicy
+	f.request(t, http.MethodGet, "/api/v4/user/setting/policies", nil, &policies)
+	require.Len(t, policies, 1)
+	require.Equal(t, hashid.EncodePolicyID(f.dep.HashIDEncoder(), f.policies[0].ID), policies[0].ID)
+	require.Equal(t, f.policies[0].Name, policies[0].Name)
+	response := openIDRequest(t, f.router, http.MethodGet, "/api/v4/user/setting/policies", nil, nil, f.token)
+	require.NotContains(t, response.Body.String(), f.policies[0].SecretKey)
+	require.NotContains(t, response.Body.String(), f.policies[0].AccessKey)
+	f.upload(t, "cloudreve://my/after-upgrade.txt", []byte("legacy default after additive upgrade"), nil)
+}
+
+func TestStorageUpgradePreservesExistingContentAndIdentity(t *testing.T) {
+	f := newStorageFixtureWithLegacy(t, true)
+	var policies []explorer.StoragePolicy
+	f.request(t, http.MethodGet, "/api/v4/user/setting/policies", nil, &policies)
+	require.Len(t, policies, 1)
+	require.Equal(t, hashid.EncodePolicyID(f.dep.HashIDEncoder(), f.policies[0].ID), policies[0].ID)
+	var links explorer.FileURLResponse
+	f.request(t, http.MethodPost, "/api/v4/file/url", map[string]any{"uris": []string{"cloudreve://my/existing.txt"}}, &links)
+	_, payload := storageHTTP(t, http.MethodGet, links.Urls[0].Url, nil)
+	require.Equal(t, "persisted object before storage extension", string(payload))
+	var preferences usersvc.UserSettings
+	f.request(t, http.MethodGet, "/api/v4/user/setting", nil, &preferences)
+	require.Len(t, preferences.OpenID, 1)
+	require.Equal(t, 3, preferences.OpenID[0].Provider)
+	for i := 0; i < 2; i++ {
+		require.NoError(t, inventory.EnsureStorageSchema(context.Background(), f.db))
+	}
+	f.request(t, http.MethodGet, "/api/v4/user/setting/policies", nil, &policies)
+	require.Len(t, policies, 1)
+	f.upload(t, "cloudreve://my/new.txt", []byte("new upload after legacy startup"), nil)
+	var capacity fs.Capacity
+	f.request(t, http.MethodGet, "/api/v4/user/capacity", nil, &capacity)
+	require.EqualValues(t, len(payload)+len("new upload after legacy startup"), capacity.Used)
+	_, err := f.db.Group.UpdateOneID(2).ClearStoragePolicies().Save(context.Background())
+	require.NoError(t, err)
+	f.request(t, http.MethodGet, "/api/v4/user/setting/policies", nil, &policies)
+	require.Empty(t, policies)
 }

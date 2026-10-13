@@ -47,19 +47,30 @@ type Group struct {
 
 // GroupEdges holds the relations/edges for other nodes in the graph.
 type GroupEdges struct {
+	// PolicyAssignments holds the value of the policy_assignments edge.
+	PolicyAssignments []*GroupPolicy `json:"policy_assignments,omitempty"`
 	// Users holds the value of the users edge.
 	Users []*User `json:"users,omitempty"`
 	// StoragePolicies holds the value of the storage_policies edge.
 	StoragePolicies *StoragePolicy `json:"storage_policies,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [2]bool
+	loadedTypes [3]bool
+}
+
+// PolicyAssignmentsOrErr returns the PolicyAssignments value or an error if the edge
+// was not loaded in eager-loading.
+func (e GroupEdges) PolicyAssignmentsOrErr() ([]*GroupPolicy, error) {
+	if e.loadedTypes[0] {
+		return e.PolicyAssignments, nil
+	}
+	return nil, &NotLoadedError{edge: "policy_assignments"}
 }
 
 // UsersOrErr returns the Users value or an error if the edge
 // was not loaded in eager-loading.
 func (e GroupEdges) UsersOrErr() ([]*User, error) {
-	if e.loadedTypes[0] {
+	if e.loadedTypes[1] {
 		return e.Users, nil
 	}
 	return nil, &NotLoadedError{edge: "users"}
@@ -68,7 +79,7 @@ func (e GroupEdges) UsersOrErr() ([]*User, error) {
 // StoragePoliciesOrErr returns the StoragePolicies value or an error if the edge
 // was not loaded in eager-loading, or loaded but was not found.
 func (e GroupEdges) StoragePoliciesOrErr() (*StoragePolicy, error) {
-	if e.loadedTypes[1] {
+	if e.loadedTypes[2] {
 		if e.StoragePolicies == nil {
 			// Edge was loaded but was not found.
 			return nil, &NotFoundError{label: storagepolicy.Label}
@@ -184,6 +195,11 @@ func (gr *Group) Value(name string) (ent.Value, error) {
 	return gr.selectValues.Get(name)
 }
 
+// QueryPolicyAssignments queries the "policy_assignments" edge of the Group entity.
+func (gr *Group) QueryPolicyAssignments() *GroupPolicyQuery {
+	return NewGroupClient(gr.config).QueryPolicyAssignments(gr)
+}
+
 // QueryUsers queries the "users" edge of the Group entity.
 func (gr *Group) QueryUsers() *UserQuery {
 	return NewGroupClient(gr.config).QueryUsers(gr)
@@ -249,16 +265,22 @@ func (gr *Group) String() string {
 	return builder.String()
 }
 
+// SetPolicyAssignments manually set the edge as loaded state.
+func (e *Group) SetPolicyAssignments(v []*GroupPolicy) {
+	e.Edges.PolicyAssignments = v
+	e.Edges.loadedTypes[0] = true
+}
+
 // SetUsers manually set the edge as loaded state.
 func (e *Group) SetUsers(v []*User) {
 	e.Edges.Users = v
-	e.Edges.loadedTypes[0] = true
+	e.Edges.loadedTypes[1] = true
 }
 
 // SetStoragePolicies manually set the edge as loaded state.
 func (e *Group) SetStoragePolicies(v *StoragePolicy) {
 	e.Edges.StoragePolicies = v
-	e.Edges.loadedTypes[1] = true
+	e.Edges.loadedTypes[2] = true
 }
 
 // Groups is a parsable slice of Group.

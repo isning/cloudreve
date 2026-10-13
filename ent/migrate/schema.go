@@ -249,6 +249,45 @@ var (
 			},
 		},
 	}
+	// GroupPoliciesColumns holds the columns for the "group_policies" table.
+	GroupPoliciesColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt, Increment: true},
+		{Name: "position", Type: field.TypeInt},
+		{Name: "group_id", Type: field.TypeInt},
+		{Name: "storage_policy_id", Type: field.TypeInt},
+	}
+	// GroupPoliciesTable holds the schema information for the "group_policies" table.
+	GroupPoliciesTable = &schema.Table{
+		Name:       "group_policies",
+		Columns:    GroupPoliciesColumns,
+		PrimaryKey: []*schema.Column{GroupPoliciesColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "group_policies_groups_policy_assignments",
+				Columns:    []*schema.Column{GroupPoliciesColumns[2]},
+				RefColumns: []*schema.Column{GroupsColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+			{
+				Symbol:     "group_policies_storage_policies_group_assignments",
+				Columns:    []*schema.Column{GroupPoliciesColumns[3]},
+				RefColumns: []*schema.Column{StoragePoliciesColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+		},
+		Indexes: []*schema.Index{
+			{
+				Name:    "grouppolicy_group_id_storage_policy_id",
+				Unique:  true,
+				Columns: []*schema.Column{GroupPoliciesColumns[2], GroupPoliciesColumns[3]},
+			},
+			{
+				Name:    "grouppolicy_group_id_position",
+				Unique:  true,
+				Columns: []*schema.Column{GroupPoliciesColumns[2], GroupPoliciesColumns[1]},
+			},
+		},
+	}
 	// MetadataColumns holds the columns for the "metadata" table.
 	MetadataColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt, Increment: true},
@@ -646,6 +685,7 @@ var (
 		FilesTable,
 		FsEventsTable,
 		GroupsTable,
+		GroupPoliciesTable,
 		MetadataTable,
 		NodesTable,
 		OauthClientsTable,
@@ -673,6 +713,8 @@ func init() {
 	FilesTable.ForeignKeys[2].RefTable = UsersTable
 	FsEventsTable.ForeignKeys[0].RefTable = UsersTable
 	GroupsTable.ForeignKeys[0].RefTable = StoragePoliciesTable
+	GroupPoliciesTable.ForeignKeys[0].RefTable = GroupsTable
+	GroupPoliciesTable.ForeignKeys[1].RefTable = StoragePoliciesTable
 	MetadataTable.ForeignKeys[0].RefTable = FilesTable
 	OauthGrantsTable.ForeignKeys[0].RefTable = OauthClientsTable
 	OauthGrantsTable.ForeignKeys[1].RefTable = UsersTable
