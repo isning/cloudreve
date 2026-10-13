@@ -6,6 +6,8 @@ import (
 	"net/url"
 	"testing"
 
+	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/cloudreve/Cloudreve/v4/inventory/types"
 	"github.com/cloudreve/Cloudreve/v4/pkg/hashid"
 	"github.com/cloudreve/Cloudreve/v4/service/explorer"
@@ -82,4 +84,42 @@ func TestStorageFilePreferenceSurvivesParentBindingAndExplicitVersion(t *testing
 		require.NotEmpty(t, data)
 	}
 	require.Equal(t, []byte("automatic after explicit still A"), f.readFile(t, uri))
+}
+
+func TestStorageRevokedNearestPreferenceFallsDirectlyToFirstGrant(t *testing.T) {
+	f := newStorageFixture(t)
+	template := f.policies[0]
+	_, err := f.s3.CreateBucket(&s3.CreateBucketInput{Bucket: aws.String("cloudreve-test-c")})
+	require.NoError(t, err)
+	third, err := f.db.StoragePolicy.Create().SetName("Bucket C").SetType(template.Type).SetServer(template.Server).SetBucketName("cloudreve-test-c").SetIsPrivate(true).
+		SetAccessKey(template.AccessKey).SetSecretKey(template.SecretKey).SetDirNameRule(template.DirNameRule).SetFileNameRule(template.FileNameRule).SetSettings(template.Settings).Save(context.Background())
+	require.NoError(t, err)
+	f.policies = append(f.policies, third)
+	f.assignPolicies(t, f.policies[0].ID, f.policies[1].ID, third.ID)
+	f.request(t, http.MethodPost, "/api/v4/file/create", map[string]any{"uri": "cloudreve://my/ancestor/nearest", "type": "folder"}, nil)
+	f.bindFolder(t, "cloudreve://my/ancestor", 1)
+	f.bindFolder(t, "cloudreve://my/ancestor/nearest", 2)
+	c := hashid.EncodePolicyID(f.dep.HashIDEncoder(), third.ID)
+	a := hashid.EncodePolicyID(f.dep.HashIDEncoder(), f.policies[0].ID)
+	old := []byte("original content under nearest C")
+	uri := "cloudreve://my/ancestor/nearest/existing.txt"
+	f.upload(t, uri, old, nil)
+	f.assignPolicies(t, f.policies[0].ID, f.policies[1].ID)
+	require.Equal(t, old, f.readFile(t, uri))
+	session := f.upload(t, "cloudreve://my/ancestor/nearest/new.txt", []byte("revoked nearest C falls to first A instead of ancestor B"), nil)
+	require.Equal(t, a, session.StoragePolicy.ID)
+	var version explorer.UploadSessionResponse
+	f.request(t, http.MethodPut, "/api/v4/file/upload", map[string]any{"uri": uri, "size": len("updated on A"), "entity_type": "version"}, &version)
+	require.Equal(t, a, version.StoragePolicy.ID)
+	f.finishUpload(t, version, []byte("updated on A"))
+	require.NotZero(t, f.responseCode(t, http.MethodPut, "/api/v4/file/upload", map[string]any{"uri": "cloudreve://my/ancestor/nearest/explicit.txt", "size": 1, "policy_id": c}))
+	require.Equal(t, []byte("updated on A"), f.readFile(t, uri))
+	var info explorer.FileResponse
+	f.request(t, http.MethodGet, "/api/v4/file/info?extended=true&uri="+url.QueryEscape(uri), nil, &info)
+	require.Equal(t, c, info.ExtendedInfo.StoragePolicy.ID, "fallback never rewrites the stored file preference")
+	for _, index := range []int{1} {
+		objects, err := f.s3.ListObjectsV2(&s3.ListObjectsV2Input{Bucket: aws.String(f.policies[index].BucketName)})
+		require.NoError(t, err)
+		require.Empty(t, objects.Contents, "farther valid ancestor is not tried")
+	}
 }

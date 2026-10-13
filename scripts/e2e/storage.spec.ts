@@ -80,6 +80,7 @@ test("member selects second policy and completes browser multipart upload", asyn
   let upload:any;
   let bytes:Buffer|undefined;
   let completed=false;
+  let rejectFirstUpload=true;
   let binding:any;
   const folder={id:"bound-folder",type:1,name:"Bound folder",path:"cloudreve://my/bound",owned:true,capability:"/////w==",metadata:{},size:0,created_at:"2026-01-01T00:00:00Z",updated_at:"2026-01-01T00:00:00Z"};
   await page.route("**/storage-test/**",async route=>{
@@ -99,6 +100,11 @@ test("member selects second policy and completes browser multipart upload", asyn
     else if(path==="/file/policy" && req.method()==="PATCH") binding=req.postDataJSON();
     else if(path==="/file/upload"&&req.method()==="PUT") {
       upload=req.postDataJSON();
+      if(rejectFirstUpload) {
+        rejectFirstUpload=false;
+        await route.fulfill({json:{code:50001,msg:"Chosen storage is unavailable"}});
+        return;
+      }
       data={session_id:"synthetic-session",expires:Math.floor(Date.now()/1000)+600,chunk_size:5242880,upload_urls:["http://127.0.0.1:43181/storage-test/part"],completeURL:"http://127.0.0.1:43181/storage-test/complete",callback_secret:"synthetic-callback",storage_policy:policies[1],uri:upload.uri};
     } else if(path.startsWith("/callback/s3/")) completed=true;
     await route.fulfill({json:{code:0,data}});
@@ -114,6 +120,8 @@ test("member selects second policy and completes browser multipart upload", asyn
   await dialog.getByRole("button",{name:"Choose files"}).click();
   await (await chooser).setFiles({name:"browser.txt",mimeType:"text/plain",buffer:Buffer.from("browser chooses B beyond A size/suffix")});
   await expect.poll(()=>upload?.policy_id).toBe("policy-b");
+  await expect(page.getByText("Chosen storage is unavailable", {exact:false}).first()).toBeVisible();
+  await page.getByRole("button", {name:"Retry", exact:true}).click();
   await expect.poll(()=>completed).toBe(true);
   expect(bytes?.toString()).toBe("browser chooses B beyond A size/suffix");
   await page.getByText("browser.txt", {exact:true}).first().click();

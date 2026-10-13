@@ -541,6 +541,16 @@ func TestStorageUpgradePreservesExistingContentAndIdentity(t *testing.T) {
 // HTTP without printing signed credentials or request payloads.
 func (f *storageFixture) responseCode(t *testing.T, method, path string, body any) int {
 	t.Helper()
+	return f.responseResult(t, method, path, body).Code
+}
+
+type storageResponse struct {
+	Code int    `json:"code"`
+	Msg  string `json:"msg"`
+}
+
+func (f *storageFixture) responseResult(t *testing.T, method, path string, body any) storageResponse {
+	t.Helper()
 	raw, err := json.Marshal(body)
 	require.NoError(t, err)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -563,9 +573,7 @@ func (f *storageFixture) responseCode(t *testing.T, method, path string, body an
 		_, err = io.Copy(w, res.Body)
 		require.NoError(t, err)
 	}
-	var envelope struct {
-		Code int `json:"code"`
-	}
+	var envelope storageResponse
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &envelope))
-	return envelope.Code
+	return envelope
 }

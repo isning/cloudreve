@@ -124,7 +124,7 @@ func (f *DBFS) PrepareUpload(ctx context.Context, req *fs.UploadRequest, opts ..
 		if errors.Is(err, storagepolicy.ErrPolicyNotGranted) || errors.Is(err, storagepolicy.ErrNoAvailablePolicies) {
 			return nil, serializer.NewError(serializer.CodeGroupNotAllowed, "Storage policy is unavailable", err)
 		}
-		return nil, err
+		return nil, serializer.NewError(serializer.CodeDBError, "Failed to resolve storage destination", err)
 	}
 
 	// Lock target
