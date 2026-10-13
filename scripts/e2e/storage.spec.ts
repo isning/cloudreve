@@ -709,3 +709,45 @@ test("partial migration failure retains progress and native recovery history",as
   await expect(page.getByText("2",{exact:true}).first()).toBeVisible();
   await expect(page.getByText("Resume at",{exact:true})).toBeVisible();
 });
+
+
+for(const boundary of ["personal","foreign","share","trash","no_group","no_capability"]) {
+  test(`root migration entry preserves binding boundaries (${boundary})`,async ({page})=>{
+    const user={id:"member",nickname:"Member",email:"member@example.test",created_at:"2026-01-01T00:00:00Z",language:"en-US",group:{id:"members",name:"Members",permission:boundary==="no_group"?"AA==":Buffer.from([0,4]).toString("base64")}};
+    await page.addInitScript(user=>{
+      localStorage.setItem("i18nextLng","en-US");
+      localStorage.setItem("cloudreve_session",JSON.stringify({current:user.id,sessions:{[user.id]:{user,token:{access_token:"synthetic-access",refresh_token:"synthetic-refresh",access_expires:"2099-01-01T00:00:00Z",refresh_expires:"2099-01-01T00:00:00Z"},settings:{preferred_dark_mode:true}}},anonymousSettings:{}}));
+    },user);
+    const policy={id:"encoded-policy-b",name:"Bucket B",type:"s3",max_size:0};
+    const parent={id:"root",name:"Root",type:1,owned:boundary!=="foreign",path:boundary==="foreign"?"cloudreve://other@my/":boundary==="share"?"cloudreve://share/shared-root/":boundary==="trash"?"cloudreve://trash/":"cloudreve://my/",capability:boundary==="no_capability"?Buffer.from([255,255,191,255]).toString("base64"):"/////w==",metadata:{}};
+    let migration:any;
+    let bindings=0;
+    await page.route("**/api/v4/**",async route=>{
+      const req=route.request();
+      const path=new URL(req.url()).pathname.replace("/api/v4","");
+      let data:any={};
+      if(path.startsWith("/site/config/")) data={title:"Root migration",default_theme:"#3f51b5",themes:"#3f51b5",icons:"[]",viewers:"{}",user};
+      else if(path==="/user/capacity") data={total:1000000,used:12};
+      else if(path==="/user/setting/policies") data=[policy];
+      else if(path==="/file") data={files:[],parent,props:{capability:parent.capability},pagination:{page:0,page_size:50,total_items:0},storage_policy:policy};
+      else if(path==="/file/policy") bindings++;
+      else if(path==="/workflow/reloacte" && req.method()==="POST") { migration=req.postDataJSON(); data={id:"encoded-root-task",type:"relocate",status:"queued",created_at:"2026-01-01T00:00:00Z",updated_at:"2026-01-01T00:00:00Z"}; }
+      await route.fulfill({json:{code:0,data}});
+    });
+    await page.goto("/home");
+    await page.getByRole("button",{name:"More actions",exact:true}).click();
+    await expect(page.getByRole("menuitem",{name:"Bind storage policy",exact:true})).toHaveCount(0);
+    const entry=page.getByRole("menuitem",{name:"Relocate storage policy",exact:true});
+    if(boundary!=="personal") { await expect(entry).toHaveCount(0);return; }
+    await entry.click();
+    const dialog=page.getByRole("dialog");
+    await expect(dialog.getByText(/Only existing content in the migration snapshot moves/)).toBeVisible();
+    await dialog.getByRole("combobox",{name:"Storage policy"}).click();
+    await page.getByRole("option",{name:"Bucket B",exact:true}).click();
+    await dialog.getByRole("button",{name:"Create migration task",exact:true}).click();
+    await expect.poll(()=>migration?.src?.length).toBe(1);
+    expect(migration).toEqual({src:["cloudreve://member@my/"],dst_policy_id:"encoded-policy-b"});
+    expect(bindings).toBe(0);
+    await expect(page.getByText("Migration task accepted. Follow its progress in Background Tasks.")).toBeVisible();
+  });
+}
