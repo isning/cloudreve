@@ -48,6 +48,8 @@ type Tx struct {
 	RelocationAttempt *RelocationAttemptClient
 	// RelocationItem is the client for interacting with the RelocationItem builders.
 	RelocationItem *RelocationItemClient
+	// RelocationPlan is the client for interacting with the RelocationPlan builders.
+	RelocationPlan *RelocationPlanClient
 	// Setting is the client for interacting with the Setting builders.
 	Setting *SettingClient
 	// Share is the client for interacting with the Share builders.
@@ -206,6 +208,7 @@ func (tx *Tx) init() {
 	tx.Passkey = NewPasskeyClient(tx.config)
 	tx.RelocationAttempt = NewRelocationAttemptClient(tx.config)
 	tx.RelocationItem = NewRelocationItemClient(tx.config)
+	tx.RelocationPlan = NewRelocationPlanClient(tx.config)
 	tx.Setting = NewSettingClient(tx.config)
 	tx.Share = NewShareClient(tx.config)
 	tx.StoragePolicy = NewStoragePolicyClient(tx.config)

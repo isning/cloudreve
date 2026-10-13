@@ -57,6 +57,9 @@ type RelocationAttempt func(*sql.Selector)
 // RelocationItem is the predicate function for relocationitem builders.
 type RelocationItem func(*sql.Selector)
 
+// RelocationPlan is the predicate function for relocationplan builders.
+type RelocationPlan func(*sql.Selector)
+
 // Setting is the predicate function for setting builders.
 type Setting func(*sql.Selector)
 

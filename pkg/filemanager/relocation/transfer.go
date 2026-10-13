@@ -22,6 +22,7 @@ import (
 	"github.com/cloudreve/Cloudreve/v4/ent/group"
 	"github.com/cloudreve/Cloudreve/v4/ent/relocationattempt"
 	"github.com/cloudreve/Cloudreve/v4/ent/relocationitem"
+	"github.com/cloudreve/Cloudreve/v4/ent/relocationplan"
 	entpolicy "github.com/cloudreve/Cloudreve/v4/ent/storagepolicy"
 	"github.com/cloudreve/Cloudreve/v4/ent/user"
 	"github.com/cloudreve/Cloudreve/v4/inventory"
@@ -51,15 +52,25 @@ func AdvanceSingle(ctx context.Context, dep dependency.Dep, taskID, ownerID int,
 		return false, errors.New("failed to load migration journal")
 	}
 	if len(items) == 0 {
-		plans, err := PlanVersions(ctx, dep, ownerID, sources, destinationID)
+		header, err := db.RelocationPlan.Query().Where(relocationplan.TaskID(taskID)).Only(ctx)
+		if err == nil {
+			if header.OwnerID != ownerID || header.DestinationPolicyID != destinationID {
+				return false, errors.New("invalid migration plan")
+			}
+			return true, nil
+		}
+		if !ent.IsNotFound(err) {
+			return false, errors.New("failed to load migration plan")
+		}
+		selection, err := PlanSelection(ctx, dep, ownerID, sources, destinationID)
 		if err != nil {
 			return false, errors.New("migration planning failed")
 		}
-		if err := recordPlans(ctx, dep, taskID, plans); err != nil {
+		if err := recordPlans(ctx, dep, taskID, selection); err != nil {
 			return false, err
 		}
 		allNoop := true
-		for _, plan := range plans {
+		for _, plan := range selection.Items {
 			allNoop = allNoop && plan.Entity.StoragePolicyEntities == destinationID
 		}
 		return allNoop, nil
@@ -233,20 +244,25 @@ func lockPolicies(ctx context.Context, db *ent.Client, ids ...int) (map[int]*ent
 }
 
 // The complete immutable version plan is committed before any target I/O.
-func recordPlans(ctx context.Context, dep dependency.Dep, taskID int, plans []*Plan) error {
-	if len(plans) == 0 {
-		return errors.New("migration plan is empty")
-	}
+func recordPlans(ctx context.Context, dep dependency.Dep, taskID int, selection *Selection) error {
+	plans := selection.Items
 	tx, err := dep.DBClient().Tx(ctx)
 	if err != nil {
 		return errors.New("failed to start migration plan transaction")
 	}
 	defer tx.Rollback()
 	c := tx.Client()
-	if err := lockOwner(ctx, c, plans[0].Owner.ID, plans[0].Destination.ID); err != nil {
+	if err := lockOwner(ctx, c, selection.Owner.ID, selection.Destination.ID); err != nil {
 		return err
 	}
-	ids := []int{plans[0].Destination.ID}
+	existing, err := c.RelocationPlan.Query().Where(relocationplan.TaskID(taskID)).Exist(ctx)
+	if err != nil {
+		return errors.New("failed to load migration plan")
+	}
+	if existing {
+		return nil
+	}
+	ids := []int{selection.Destination.ID}
 	for _, p := range plans {
 		ids = append(ids, p.Entity.StoragePolicyEntities)
 	}
@@ -260,18 +276,19 @@ func recordPlans(ctx context.Context, dep dependency.Dep, taskID int, plans []*P
 			return errors.New("failed to lock migration source")
 		}
 		current, err := c.Entity.Query().Where(entity.ID(e.ID)).WithFile().Only(ctx)
-		if err != nil || current.UploadSessionID != nil || current.ReferenceCount < 1 || current.ReferenceCount != len(current.Edges.File) || current.Source != e.Source || current.StoragePolicyEntities != e.StoragePolicyEntities || !current.UpdatedAt.Equal(e.UpdatedAt) || len(plan.References) != 1 {
+		if err != nil || current.UploadSessionID != nil || current.ReferenceCount < 1 || current.ReferenceCount != len(current.Edges.File) || current.Source != e.Source || current.StoragePolicyEntities != e.StoragePolicyEntities || !current.UpdatedAt.Equal(e.UpdatedAt) || len(plan.References) == 0 {
 			return ErrConflict
 		}
-		var file *ent.File
-		for _, candidate := range current.Edges.File {
-			if candidate.ID == plan.References[0].FileID {
-				file = candidate
+		for _, ref := range plan.References {
+			var file *ent.File
+			for _, candidate := range current.Edges.File {
+				if candidate.ID == ref.FileID {
+					file = candidate
+				}
 			}
-		}
-		ref := plan.References[0]
-		if file == nil || file.OwnerID != plan.Owner.ID || file.PrimaryEntity != ref.PrimaryEntityID || !file.UpdatedAt.Equal(ref.UpdatedAt) {
-			return ErrConflict
+			if file == nil || file.OwnerID != selection.Owner.ID || file.IsSymbolic || file.PrimaryEntity != ref.PrimaryEntityID || !file.UpdatedAt.Equal(ref.UpdatedAt) {
+				return ErrConflict
+			}
 		}
 		if e.StoragePolicyEntities == plan.Destination.ID {
 			if err := RecordNoop(ctx, c, taskID, plan); err != nil {
@@ -287,6 +304,9 @@ func recordPlans(ctx context.Context, dep dependency.Dep, taskID int, plans []*P
 		if err != nil {
 			return errors.New("failed to persist migration plan")
 		}
+	}
+	if err := c.RelocationPlan.Create().SetTaskID(taskID).SetOwnerID(selection.Owner.ID).SetDestinationPolicyID(selection.Destination.ID).SetFileIds(selection.FileIDs).Exec(ctx); err != nil {
+		return errors.New("failed to persist complete migration plan")
 	}
 	if err := tx.Commit(); err != nil {
 		return errors.New("failed to commit migration plan")
@@ -357,24 +377,25 @@ func currentSource(ctx context.Context, db *ent.Client, item *ent.RelocationItem
 		return nil, nil, nil, err
 	}
 	source, err := db.Entity.Query().Where(entity.ID(item.SourceEntityID)).WithFile().Only(ctx)
-	if err != nil || item.Snapshot == nil || source.UploadSessionID != nil || source.ReferenceCount < 1 || source.ReferenceCount != len(source.Edges.File) || len(item.References) != 1 {
+	if err != nil || item.Snapshot == nil || source.UploadSessionID != nil || source.ReferenceCount < 1 || source.ReferenceCount != len(source.Edges.File) || len(item.References) == 0 {
 		return nil, nil, nil, ErrConflict
 	}
-	ref := item.References[0]
-	var f *ent.File
-	for _, candidate := range source.Edges.File {
-		if candidate.ID == ref.FileID {
-			f = candidate
+	for _, ref := range item.References {
+		var f *ent.File
+		for _, candidate := range source.Edges.File {
+			if candidate.ID == ref.FileID {
+				f = candidate
+			}
 		}
-	}
-	if f == nil || f.OwnerID != item.OwnerID || !f.UpdatedAt.Equal(ref.UpdatedAt) {
-		return nil, nil, nil, ErrConflict
-	}
-	expectedPrimary := ref.PrimaryEntityID
-	if f.PrimaryEntity != expectedPrimary {
-		prior, err := db.RelocationItem.Query().Where(relocationitem.TaskID(item.TaskID), relocationitem.SourceEntityID(expectedPrimary), relocationitem.StateEQ(relocationitem.StateCommitted)).Only(ctx)
-		if err != nil || prior.TargetEntityID != f.PrimaryEntity {
+		if f == nil || f.OwnerID != item.OwnerID || f.IsSymbolic || !f.UpdatedAt.Equal(ref.UpdatedAt) {
 			return nil, nil, nil, ErrConflict
+		}
+		expectedPrimary := ref.PrimaryEntityID
+		if f.PrimaryEntity != expectedPrimary {
+			prior, err := db.RelocationItem.Query().Where(relocationitem.TaskID(item.TaskID), relocationitem.SourceEntityID(expectedPrimary), relocationitem.StateEQ(relocationitem.StateCommitted)).Only(ctx)
+			if err != nil || prior.TargetEntityID != f.PrimaryEntity {
+				return nil, nil, nil, ErrConflict
+			}
 		}
 	}
 	props, _ := json.Marshal(source.Props)
@@ -571,7 +592,10 @@ func commitSingle(ctx context.Context, dep dependency.Dep, fm manager.FileManage
 	if err != nil {
 		return err
 	}
-	selected := []int{item.References[0].FileID}
+	selected := make([]int, 0, len(item.References))
+	for _, ref := range item.References {
+		selected = append(selected, ref.FileID)
+	}
 	targetID := source.ID
 	if len(current.Edges.File) > len(selected) {
 		builder := c.Entity.Create().SetType(source.Type).SetSource(attempt.TargetKey).SetSize(source.Size).

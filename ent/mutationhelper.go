@@ -106,6 +106,12 @@ func (m *RelocationItemMutation) SetRawID(t int) {
 
 // SetUpdatedAt sets the "updated_at" field.
 
+func (m *RelocationPlanMutation) SetRawID(t int) {
+	m.id = &t
+}
+
+// SetUpdatedAt sets the "updated_at" field.
+
 func (m *SettingMutation) SetRawID(t int) {
 	m.id = &t
 }

@@ -605,6 +605,21 @@ var (
 			},
 		},
 	}
+	// RelocationPlansColumns holds the columns for the "relocation_plans" table.
+	RelocationPlansColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt, Increment: true},
+		{Name: "created_at", Type: field.TypeTime},
+		{Name: "task_id", Type: field.TypeInt, Unique: true},
+		{Name: "owner_id", Type: field.TypeInt},
+		{Name: "destination_policy_id", Type: field.TypeInt},
+		{Name: "file_ids", Type: field.TypeJSON},
+	}
+	// RelocationPlansTable holds the schema information for the "relocation_plans" table.
+	RelocationPlansTable = &schema.Table{
+		Name:       "relocation_plans",
+		Columns:    RelocationPlansColumns,
+		PrimaryKey: []*schema.Column{RelocationPlansColumns[0]},
+	}
 	// SettingsColumns holds the columns for the "settings" table.
 	SettingsColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt, Increment: true},
@@ -790,6 +805,7 @@ var (
 		PasskeysTable,
 		RelocationAttemptsTable,
 		RelocationItemsTable,
+		RelocationPlansTable,
 		SettingsTable,
 		SharesTable,
 		StoragePoliciesTable,

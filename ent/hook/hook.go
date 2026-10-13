@@ -213,6 +213,18 @@ func (f RelocationItemFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Val
 	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.RelocationItemMutation", m)
 }
 
+// The RelocationPlanFunc type is an adapter to allow the use of ordinary
+// function as RelocationPlan mutator.
+type RelocationPlanFunc func(context.Context, *ent.RelocationPlanMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f RelocationPlanFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.RelocationPlanMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.RelocationPlanMutation", m)
+}
+
 // The SettingFunc type is an adapter to allow the use of ordinary
 // function as Setting mutator.
 type SettingFunc func(context.Context, *ent.SettingMutation) (ent.Value, error)

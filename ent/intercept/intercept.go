@@ -26,6 +26,7 @@ import (
 	"github.com/cloudreve/Cloudreve/v4/ent/predicate"
 	"github.com/cloudreve/Cloudreve/v4/ent/relocationattempt"
 	"github.com/cloudreve/Cloudreve/v4/ent/relocationitem"
+	"github.com/cloudreve/Cloudreve/v4/ent/relocationplan"
 	"github.com/cloudreve/Cloudreve/v4/ent/setting"
 	"github.com/cloudreve/Cloudreve/v4/ent/share"
 	"github.com/cloudreve/Cloudreve/v4/ent/storagepolicy"
@@ -548,6 +549,33 @@ func (f TraverseRelocationItem) Traverse(ctx context.Context, q ent.Query) error
 	return fmt.Errorf("unexpected query type %T. expect *ent.RelocationItemQuery", q)
 }
 
+// The RelocationPlanFunc type is an adapter to allow the use of ordinary function as a Querier.
+type RelocationPlanFunc func(context.Context, *ent.RelocationPlanQuery) (ent.Value, error)
+
+// Query calls f(ctx, q).
+func (f RelocationPlanFunc) Query(ctx context.Context, q ent.Query) (ent.Value, error) {
+	if q, ok := q.(*ent.RelocationPlanQuery); ok {
+		return f(ctx, q)
+	}
+	return nil, fmt.Errorf("unexpected query type %T. expect *ent.RelocationPlanQuery", q)
+}
+
+// The TraverseRelocationPlan type is an adapter to allow the use of ordinary function as Traverser.
+type TraverseRelocationPlan func(context.Context, *ent.RelocationPlanQuery) error
+
+// Intercept is a dummy implementation of Intercept that returns the next Querier in the pipeline.
+func (f TraverseRelocationPlan) Intercept(next ent.Querier) ent.Querier {
+	return next
+}
+
+// Traverse calls f(ctx, q).
+func (f TraverseRelocationPlan) Traverse(ctx context.Context, q ent.Query) error {
+	if q, ok := q.(*ent.RelocationPlanQuery); ok {
+		return f(ctx, q)
+	}
+	return fmt.Errorf("unexpected query type %T. expect *ent.RelocationPlanQuery", q)
+}
+
 // The SettingFunc type is an adapter to allow the use of ordinary function as a Querier.
 type SettingFunc func(context.Context, *ent.SettingQuery) (ent.Value, error)
 
@@ -720,6 +748,8 @@ func NewQuery(q ent.Query) (Query, error) {
 		return &query[*ent.RelocationAttemptQuery, predicate.RelocationAttempt, relocationattempt.OrderOption]{typ: ent.TypeRelocationAttempt, tq: q}, nil
 	case *ent.RelocationItemQuery:
 		return &query[*ent.RelocationItemQuery, predicate.RelocationItem, relocationitem.OrderOption]{typ: ent.TypeRelocationItem, tq: q}, nil
+	case *ent.RelocationPlanQuery:
+		return &query[*ent.RelocationPlanQuery, predicate.RelocationPlan, relocationplan.OrderOption]{typ: ent.TypeRelocationPlan, tq: q}, nil
 	case *ent.SettingQuery:
 		return &query[*ent.SettingQuery, predicate.Setting, setting.OrderOption]{typ: ent.TypeSetting, tq: q}, nil
 	case *ent.ShareQuery:

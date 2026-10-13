@@ -22,6 +22,7 @@ import (
 	"github.com/cloudreve/Cloudreve/v4/ent/passkey"
 	"github.com/cloudreve/Cloudreve/v4/ent/relocationattempt"
 	"github.com/cloudreve/Cloudreve/v4/ent/relocationitem"
+	"github.com/cloudreve/Cloudreve/v4/ent/relocationplan"
 	"github.com/cloudreve/Cloudreve/v4/ent/schema"
 	"github.com/cloudreve/Cloudreve/v4/ent/setting"
 	"github.com/cloudreve/Cloudreve/v4/ent/share"
@@ -455,6 +456,24 @@ func init() {
 	relocationitemDescError := relocationitemFields[20].Descriptor()
 	// relocationitem.DefaultError holds the default value on creation for the error field.
 	relocationitem.DefaultError = relocationitemDescError.Default.(string)
+	relocationplanFields := schema.RelocationPlan{}.Fields()
+	_ = relocationplanFields
+	// relocationplanDescCreatedAt is the schema descriptor for created_at field.
+	relocationplanDescCreatedAt := relocationplanFields[0].Descriptor()
+	// relocationplan.DefaultCreatedAt holds the default value on creation for the created_at field.
+	relocationplan.DefaultCreatedAt = relocationplanDescCreatedAt.Default.(func() time.Time)
+	// relocationplanDescTaskID is the schema descriptor for task_id field.
+	relocationplanDescTaskID := relocationplanFields[1].Descriptor()
+	// relocationplan.TaskIDValidator is a validator for the "task_id" field. It is called by the builders before save.
+	relocationplan.TaskIDValidator = relocationplanDescTaskID.Validators[0].(func(int) error)
+	// relocationplanDescOwnerID is the schema descriptor for owner_id field.
+	relocationplanDescOwnerID := relocationplanFields[2].Descriptor()
+	// relocationplan.OwnerIDValidator is a validator for the "owner_id" field. It is called by the builders before save.
+	relocationplan.OwnerIDValidator = relocationplanDescOwnerID.Validators[0].(func(int) error)
+	// relocationplanDescDestinationPolicyID is the schema descriptor for destination_policy_id field.
+	relocationplanDescDestinationPolicyID := relocationplanFields[3].Descriptor()
+	// relocationplan.DestinationPolicyIDValidator is a validator for the "destination_policy_id" field. It is called by the builders before save.
+	relocationplan.DestinationPolicyIDValidator = relocationplanDescDestinationPolicyID.Validators[0].(func(int) error)
 	settingMixin := schema.Setting{}.Mixin()
 	settingMixinHooks0 := settingMixin[0].Hooks()
 	setting.Hooks[0] = settingMixinHooks0[0]

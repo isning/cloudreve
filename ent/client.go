@@ -32,6 +32,7 @@ import (
 	"github.com/cloudreve/Cloudreve/v4/ent/passkey"
 	"github.com/cloudreve/Cloudreve/v4/ent/relocationattempt"
 	"github.com/cloudreve/Cloudreve/v4/ent/relocationitem"
+	"github.com/cloudreve/Cloudreve/v4/ent/relocationplan"
 	"github.com/cloudreve/Cloudreve/v4/ent/setting"
 	"github.com/cloudreve/Cloudreve/v4/ent/share"
 	"github.com/cloudreve/Cloudreve/v4/ent/storagepolicy"
@@ -80,6 +81,8 @@ type Client struct {
 	RelocationAttempt *RelocationAttemptClient
 	// RelocationItem is the client for interacting with the RelocationItem builders.
 	RelocationItem *RelocationItemClient
+	// RelocationPlan is the client for interacting with the RelocationPlan builders.
+	RelocationPlan *RelocationPlanClient
 	// Setting is the client for interacting with the Setting builders.
 	Setting *SettingClient
 	// Share is the client for interacting with the Share builders.
@@ -118,6 +121,7 @@ func (c *Client) init() {
 	c.Passkey = NewPasskeyClient(c.config)
 	c.RelocationAttempt = NewRelocationAttemptClient(c.config)
 	c.RelocationItem = NewRelocationItemClient(c.config)
+	c.RelocationPlan = NewRelocationPlanClient(c.config)
 	c.Setting = NewSettingClient(c.config)
 	c.Share = NewShareClient(c.config)
 	c.StoragePolicy = NewStoragePolicyClient(c.config)
@@ -232,6 +236,7 @@ func (c *Client) Tx(ctx context.Context) (*Tx, error) {
 		Passkey:           NewPasskeyClient(cfg),
 		RelocationAttempt: NewRelocationAttemptClient(cfg),
 		RelocationItem:    NewRelocationItemClient(cfg),
+		RelocationPlan:    NewRelocationPlanClient(cfg),
 		Setting:           NewSettingClient(cfg),
 		Share:             NewShareClient(cfg),
 		StoragePolicy:     NewStoragePolicyClient(cfg),
@@ -273,6 +278,7 @@ func (c *Client) BeginTx(ctx context.Context, opts *sql.TxOptions) (*Tx, error) 
 		Passkey:           NewPasskeyClient(cfg),
 		RelocationAttempt: NewRelocationAttemptClient(cfg),
 		RelocationItem:    NewRelocationItemClient(cfg),
+		RelocationPlan:    NewRelocationPlanClient(cfg),
 		Setting:           NewSettingClient(cfg),
 		Share:             NewShareClient(cfg),
 		StoragePolicy:     NewStoragePolicyClient(cfg),
@@ -310,7 +316,8 @@ func (c *Client) Use(hooks ...Hook) {
 		c.DavAccount, c.DirectLink, c.Entity, c.ExternalIdentity, c.File, c.FsEvent,
 		c.Group, c.GroupPolicy, c.Metadata, c.Node, c.OAuthClient, c.OAuthGrant,
 		c.OpenIDSession, c.OpenIDTransaction, c.Passkey, c.RelocationAttempt,
-		c.RelocationItem, c.Setting, c.Share, c.StoragePolicy, c.Task, c.User,
+		c.RelocationItem, c.RelocationPlan, c.Setting, c.Share, c.StoragePolicy,
+		c.Task, c.User,
 	} {
 		n.Use(hooks...)
 	}
@@ -323,7 +330,8 @@ func (c *Client) Intercept(interceptors ...Interceptor) {
 		c.DavAccount, c.DirectLink, c.Entity, c.ExternalIdentity, c.File, c.FsEvent,
 		c.Group, c.GroupPolicy, c.Metadata, c.Node, c.OAuthClient, c.OAuthGrant,
 		c.OpenIDSession, c.OpenIDTransaction, c.Passkey, c.RelocationAttempt,
-		c.RelocationItem, c.Setting, c.Share, c.StoragePolicy, c.Task, c.User,
+		c.RelocationItem, c.RelocationPlan, c.Setting, c.Share, c.StoragePolicy,
+		c.Task, c.User,
 	} {
 		n.Intercept(interceptors...)
 	}
@@ -366,6 +374,8 @@ func (c *Client) Mutate(ctx context.Context, m Mutation) (Value, error) {
 		return c.RelocationAttempt.mutate(ctx, m)
 	case *RelocationItemMutation:
 		return c.RelocationItem.mutate(ctx, m)
+	case *RelocationPlanMutation:
+		return c.RelocationPlan.mutate(ctx, m)
 	case *SettingMutation:
 		return c.Setting.mutate(ctx, m)
 	case *ShareMutation:
@@ -3143,6 +3153,139 @@ func (c *RelocationItemClient) mutate(ctx context.Context, m *RelocationItemMuta
 	}
 }
 
+// RelocationPlanClient is a client for the RelocationPlan schema.
+type RelocationPlanClient struct {
+	config
+}
+
+// NewRelocationPlanClient returns a client for the RelocationPlan from the given config.
+func NewRelocationPlanClient(c config) *RelocationPlanClient {
+	return &RelocationPlanClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `relocationplan.Hooks(f(g(h())))`.
+func (c *RelocationPlanClient) Use(hooks ...Hook) {
+	c.hooks.RelocationPlan = append(c.hooks.RelocationPlan, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `relocationplan.Intercept(f(g(h())))`.
+func (c *RelocationPlanClient) Intercept(interceptors ...Interceptor) {
+	c.inters.RelocationPlan = append(c.inters.RelocationPlan, interceptors...)
+}
+
+// Create returns a builder for creating a RelocationPlan entity.
+func (c *RelocationPlanClient) Create() *RelocationPlanCreate {
+	mutation := newRelocationPlanMutation(c.config, OpCreate)
+	return &RelocationPlanCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of RelocationPlan entities.
+func (c *RelocationPlanClient) CreateBulk(builders ...*RelocationPlanCreate) *RelocationPlanCreateBulk {
+	return &RelocationPlanCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *RelocationPlanClient) MapCreateBulk(slice any, setFunc func(*RelocationPlanCreate, int)) *RelocationPlanCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &RelocationPlanCreateBulk{err: fmt.Errorf("calling to RelocationPlanClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*RelocationPlanCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &RelocationPlanCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for RelocationPlan.
+func (c *RelocationPlanClient) Update() *RelocationPlanUpdate {
+	mutation := newRelocationPlanMutation(c.config, OpUpdate)
+	return &RelocationPlanUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *RelocationPlanClient) UpdateOne(rp *RelocationPlan) *RelocationPlanUpdateOne {
+	mutation := newRelocationPlanMutation(c.config, OpUpdateOne, withRelocationPlan(rp))
+	return &RelocationPlanUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *RelocationPlanClient) UpdateOneID(id int) *RelocationPlanUpdateOne {
+	mutation := newRelocationPlanMutation(c.config, OpUpdateOne, withRelocationPlanID(id))
+	return &RelocationPlanUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for RelocationPlan.
+func (c *RelocationPlanClient) Delete() *RelocationPlanDelete {
+	mutation := newRelocationPlanMutation(c.config, OpDelete)
+	return &RelocationPlanDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *RelocationPlanClient) DeleteOne(rp *RelocationPlan) *RelocationPlanDeleteOne {
+	return c.DeleteOneID(rp.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *RelocationPlanClient) DeleteOneID(id int) *RelocationPlanDeleteOne {
+	builder := c.Delete().Where(relocationplan.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &RelocationPlanDeleteOne{builder}
+}
+
+// Query returns a query builder for RelocationPlan.
+func (c *RelocationPlanClient) Query() *RelocationPlanQuery {
+	return &RelocationPlanQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeRelocationPlan},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a RelocationPlan entity by its id.
+func (c *RelocationPlanClient) Get(ctx context.Context, id int) (*RelocationPlan, error) {
+	return c.Query().Where(relocationplan.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *RelocationPlanClient) GetX(ctx context.Context, id int) *RelocationPlan {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// Hooks returns the client hooks.
+func (c *RelocationPlanClient) Hooks() []Hook {
+	return c.hooks.RelocationPlan
+}
+
+// Interceptors returns the client interceptors.
+func (c *RelocationPlanClient) Interceptors() []Interceptor {
+	return c.inters.RelocationPlan
+}
+
+func (c *RelocationPlanClient) mutate(ctx context.Context, m *RelocationPlanMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&RelocationPlanCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&RelocationPlanUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&RelocationPlanUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&RelocationPlanDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown RelocationPlan mutation op: %q", m.Op())
+	}
+}
+
 // SettingClient is a client for the Setting schema.
 type SettingClient struct {
 	config
@@ -4143,14 +4286,14 @@ type (
 	hooks struct {
 		DavAccount, DirectLink, Entity, ExternalIdentity, File, FsEvent, Group,
 		GroupPolicy, Metadata, Node, OAuthClient, OAuthGrant, OpenIDSession,
-		OpenIDTransaction, Passkey, RelocationAttempt, RelocationItem, Setting, Share,
-		StoragePolicy, Task, User []ent.Hook
+		OpenIDTransaction, Passkey, RelocationAttempt, RelocationItem, RelocationPlan,
+		Setting, Share, StoragePolicy, Task, User []ent.Hook
 	}
 	inters struct {
 		DavAccount, DirectLink, Entity, ExternalIdentity, File, FsEvent, Group,
 		GroupPolicy, Metadata, Node, OAuthClient, OAuthGrant, OpenIDSession,
-		OpenIDTransaction, Passkey, RelocationAttempt, RelocationItem, Setting, Share,
-		StoragePolicy, Task, User []ent.Interceptor
+		OpenIDTransaction, Passkey, RelocationAttempt, RelocationItem, RelocationPlan,
+		Setting, Share, StoragePolicy, Task, User []ent.Interceptor
 	}
 )
 

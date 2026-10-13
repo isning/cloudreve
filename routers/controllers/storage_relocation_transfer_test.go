@@ -3,7 +3,6 @@ package controllers_test
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"net/http/httputil"
@@ -13,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cloudreve/Cloudreve/v4/ent/entity"
 	"github.com/cloudreve/Cloudreve/v4/ent/relocationattempt"
 	"github.com/cloudreve/Cloudreve/v4/ent/relocationitem"
 	"github.com/cloudreve/Cloudreve/v4/pkg/filemanager/fs"
@@ -99,6 +99,10 @@ func TestStorageRelocationNewReferenceDuringPutFailsSafely(t *testing.T) {
 	data := []byte("a newly copied reference must retain readable source")
 	f.upload(t, src, data, nil)
 	f.request(t, http.MethodPost, "/api/v4/file/create", map[string]any{"uri": "cloudreve://my/copies", "type": "folder"}, nil)
+	f.request(t, http.MethodPost, "/api/v4/file/create", map[string]any{"uri": "cloudreve://my/selected", "type": "folder"}, nil)
+	f.request(t, http.MethodPost, "/api/v4/file/move", map[string]any{"uris": []string{src}, "dst": "cloudreve://my/selected", "copy": true}, nil)
+	before := f.fileInfo(t, src)
+
 	backend, err := url.Parse(f.policies[1].Server)
 	require.NoError(t, err)
 	proxy := httputil.NewSingleHostReverseProxy(backend)
@@ -123,7 +127,7 @@ func TestStorageRelocationNewReferenceDuringPutFailsSafely(t *testing.T) {
 	_, err = f.db.StoragePolicy.UpdateOneID(f.policies[1].ID).SetServer(server.URL).Save(context.Background())
 	require.NoError(t, err)
 	var accepted explorer.TaskResponse
-	f.request(t, http.MethodPost, "/api/v4/workflow/reloacte", map[string]any{"src": []string{src}, "dst_policy_id": hashid.EncodePolicyID(f.dep.HashIDEncoder(), f.policies[1].ID)}, &accepted)
+	f.request(t, http.MethodPost, "/api/v4/workflow/reloacte", map[string]any{"src": []string{src, "cloudreve://my/selected/race.txt"}, "dst_policy_id": hashid.EncodePolicyID(f.dep.HashIDEncoder(), f.policies[1].ID)}, &accepted)
 	w := launchStorageWorkerWithWorkflows(t, f)
 	t.Cleanup(func() { releaseOnce.Do(func() { close(release) }) })
 	f.remote = w.ready(t)
@@ -137,6 +141,14 @@ func TestStorageRelocationNewReferenceDuringPutFailsSafely(t *testing.T) {
 	releaseOnce.Do(func() { close(release) })
 	f.waitForStorageTask(t, accepted.ID, "error")
 	require.Equal(t, data, f.readFile(t, src))
+	require.Equal(t, data, f.readFile(t, "cloudreve://my/selected/race.txt"))
+	require.Equal(t, before.PrimaryEntity, f.fileInfo(t, src).PrimaryEntity)
+	id, err := f.dep.HashIDEncoder().Decode(before.PrimaryEntity, hashid.EntityID)
+	require.NoError(t, err)
+	current, err := f.db.Entity.Query().Where(entity.ID(id)).WithFile().Only(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, 3, current.ReferenceCount)
+	require.Len(t, current.Edges.File, 3)
 	require.Equal(t, data, f.readFile(t, "cloudreve://my/copies/race.txt"))
 	require.Equal(t, hashid.EncodePolicyID(f.dep.HashIDEncoder(), f.policies[0].ID), f.fileInfo(t, src).ExtendedInfo.Entities[0].StoragePolicy.ID)
 	// The failed attempt owns its uploaded object durably until compensation is implemented.
@@ -144,48 +156,4 @@ func TestStorageRelocationNewReferenceDuringPutFailsSafely(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, relocationattempt.CleanupPending, attempt.Cleanup)
 	require.NotEmpty(t, attempt.TargetKey)
-}
-
-func TestStorageRelocationInitialScopeRejectsUnsupportedSources(t *testing.T) {
-	f := newStorageFixtureWithLegacy(t, true)
-	f.assignPolicies(t, f.policies[0].ID, f.policies[1].ID)
-	f.enableMigration(t, true)
-	token := f.token
-	f.loginAs(t, "storage-admin@example.com", f.adminPassword)
-	group := f.groupDetail(t)
-	group["settings"] = map[string]any{"max_walked_files": 10000}
-	f.request(t, http.MethodPut, "/api/v4/admin/group/2", map[string]any{"group": group}, nil)
-	f.token = token
-	b := hashid.EncodePolicyID(f.dep.HashIDEncoder(), f.policies[1].ID)
-	reject := func(uri string) {
-		t.Helper()
-		require.NotZero(t, f.responseCode(t, http.MethodPost, "/api/v4/workflow/reloacte", map[string]any{"src": []string{uri}, "dst_policy_id": b}))
-	}
-	f.upload(t, "cloudreve://my/shared.txt", []byte("shared source"), nil)
-	f.request(t, http.MethodPost, "/api/v4/file/create", map[string]any{"uri": "cloudreve://my/copies", "type": "folder"}, nil)
-	f.request(t, http.MethodPost, "/api/v4/file/move", map[string]any{"uris": []string{"cloudreve://my/shared.txt"}, "dst": "cloudreve://my/copies", "copy": true}, nil)
-	reject("cloudreve://my/copies")
-	uri := "cloudreve://my/versions.txt"
-	f.upload(t, uri, []byte("version one"), nil)
-	var version explorer.UploadSessionResponse
-	f.request(t, http.MethodPut, "/api/v4/file/upload", map[string]any{"uri": uri, "size": len("version two"), "entity_type": "version"}, &version)
-	f.finishUpload(t, version, []byte("version two"))
-	settings := *f.policies[0].Settings
-	settings.Encryption = true
-	_, err := f.db.StoragePolicy.UpdateOneID(f.policies[0].ID).SetSettings(&settings).Save(context.Background())
-	require.NoError(t, err)
-	uri = "cloudreve://my/encrypted.txt"
-	f.request(t, http.MethodPost, "/api/v4/file/create", map[string]any{"uri": uri, "type": "file"}, nil)
-	w := f.binaryRequest(t, http.MethodPut, "/api/v4/file/content?uri="+url.QueryEscape(uri), []byte("server encrypts this actual first version"), "", "")
-	var result struct{ Code int }
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &result))
-	require.Zero(t, result.Code)
-	info := f.fileInfo(t, uri)
-	require.Len(t, info.ExtendedInfo.Entities, 1)
-	id, err := f.dep.HashIDEncoder().Decode(info.ExtendedInfo.Entities[0].ID, hashid.EntityID)
-	require.NoError(t, err)
-	stored, err := f.db.Entity.Get(context.Background(), id)
-	require.NoError(t, err)
-	require.NotNil(t, stored.Props.EncryptMetadata)
-	f.assertObjectCounts(t, 5, 0)
 }

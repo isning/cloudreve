@@ -15,7 +15,7 @@ import (
 	"github.com/cloudreve/Cloudreve/v4/pkg/boolset"
 )
 
-const StorageSchemaVersion = "storage_extension_schema_v4"
+const StorageSchemaVersion = "storage_extension_schema_v5"
 
 // EnsureStorageSchema extends existing installations independently of the
 // upstream version marker. It shares the existing extension DDL lock so storage
@@ -38,7 +38,7 @@ func EnsureStorageSchema(ctx context.Context, client *ent.Client) error {
 	if exists {
 		return nil
 	}
-	if err := entmigrate.Create(ctx, client.Schema, []*schema.Table{entmigrate.GroupPoliciesTable, entmigrate.RelocationItemsTable, entmigrate.RelocationAttemptsTable}, schema.WithAtlas(false)); err != nil {
+	if err := entmigrate.Create(ctx, client.Schema, []*schema.Table{entmigrate.GroupPoliciesTable, entmigrate.RelocationItemsTable, entmigrate.RelocationAttemptsTable, entmigrate.RelocationPlansTable}, schema.WithAtlas(false)); err != nil {
 		return fmt.Errorf("initialize storage extension schema: %w", err)
 	}
 	nodes, err := client.Node.Query().All(ctx)

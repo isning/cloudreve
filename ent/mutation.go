@@ -29,6 +29,7 @@ import (
 	"github.com/cloudreve/Cloudreve/v4/ent/predicate"
 	"github.com/cloudreve/Cloudreve/v4/ent/relocationattempt"
 	"github.com/cloudreve/Cloudreve/v4/ent/relocationitem"
+	"github.com/cloudreve/Cloudreve/v4/ent/relocationplan"
 	"github.com/cloudreve/Cloudreve/v4/ent/setting"
 	"github.com/cloudreve/Cloudreve/v4/ent/share"
 	"github.com/cloudreve/Cloudreve/v4/ent/storagepolicy"
@@ -66,6 +67,7 @@ const (
 	TypePasskey           = "Passkey"
 	TypeRelocationAttempt = "RelocationAttempt"
 	TypeRelocationItem    = "RelocationItem"
+	TypeRelocationPlan    = "RelocationPlan"
 	TypeSetting           = "Setting"
 	TypeShare             = "Share"
 	TypeStoragePolicy     = "StoragePolicy"
@@ -16963,6 +16965,666 @@ func (m *RelocationItemMutation) ResetEdge(name string) error {
 		return nil
 	}
 	return fmt.Errorf("unknown RelocationItem edge %s", name)
+}
+
+// RelocationPlanMutation represents an operation that mutates the RelocationPlan nodes in the graph.
+type RelocationPlanMutation struct {
+	config
+	op                       Op
+	typ                      string
+	id                       *int
+	created_at               *time.Time
+	task_id                  *int
+	addtask_id               *int
+	owner_id                 *int
+	addowner_id              *int
+	destination_policy_id    *int
+	adddestination_policy_id *int
+	file_ids                 *[]int
+	appendfile_ids           []int
+	clearedFields            map[string]struct{}
+	done                     bool
+	oldValue                 func(context.Context) (*RelocationPlan, error)
+	predicates               []predicate.RelocationPlan
+}
+
+var _ ent.Mutation = (*RelocationPlanMutation)(nil)
+
+// relocationplanOption allows management of the mutation configuration using functional options.
+type relocationplanOption func(*RelocationPlanMutation)
+
+// newRelocationPlanMutation creates new mutation for the RelocationPlan entity.
+func newRelocationPlanMutation(c config, op Op, opts ...relocationplanOption) *RelocationPlanMutation {
+	m := &RelocationPlanMutation{
+		config:        c,
+		op:            op,
+		typ:           TypeRelocationPlan,
+		clearedFields: make(map[string]struct{}),
+	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
+}
+
+// withRelocationPlanID sets the ID field of the mutation.
+func withRelocationPlanID(id int) relocationplanOption {
+	return func(m *RelocationPlanMutation) {
+		var (
+			err   error
+			once  sync.Once
+			value *RelocationPlan
+		)
+		m.oldValue = func(ctx context.Context) (*RelocationPlan, error) {
+			once.Do(func() {
+				if m.done {
+					err = errors.New("querying old values post mutation is not allowed")
+				} else {
+					value, err = m.Client().RelocationPlan.Get(ctx, id)
+				}
+			})
+			return value, err
+		}
+		m.id = &id
+	}
+}
+
+// withRelocationPlan sets the old RelocationPlan of the mutation.
+func withRelocationPlan(node *RelocationPlan) relocationplanOption {
+	return func(m *RelocationPlanMutation) {
+		m.oldValue = func(context.Context) (*RelocationPlan, error) {
+			return node, nil
+		}
+		m.id = &node.ID
+	}
+}
+
+// Client returns a new `ent.Client` from the mutation. If the mutation was
+// executed in a transaction (ent.Tx), a transactional client is returned.
+func (m RelocationPlanMutation) Client() *Client {
+	client := &Client{config: m.config}
+	client.init()
+	return client
+}
+
+// Tx returns an `ent.Tx` for mutations that were executed in transactions;
+// it returns an error otherwise.
+func (m RelocationPlanMutation) Tx() (*Tx, error) {
+	if _, ok := m.driver.(*txDriver); !ok {
+		return nil, errors.New("ent: mutation is not running in a transaction")
+	}
+	tx := &Tx{config: m.config}
+	tx.init()
+	return tx, nil
+}
+
+// ID returns the ID value in the mutation. Note that the ID is only available
+// if it was provided to the builder or after it was returned from the database.
+func (m *RelocationPlanMutation) ID() (id int, exists bool) {
+	if m.id == nil {
+		return
+	}
+	return *m.id, true
+}
+
+// IDs queries the database and returns the entity ids that match the mutation's predicate.
+// That means, if the mutation is applied within a transaction with an isolation level such
+// as sql.LevelSerializable, the returned ids match the ids of the rows that will be updated
+// or updated by the mutation.
+func (m *RelocationPlanMutation) IDs(ctx context.Context) ([]int, error) {
+	switch {
+	case m.op.Is(OpUpdateOne | OpDeleteOne):
+		id, exists := m.ID()
+		if exists {
+			return []int{id}, nil
+		}
+		fallthrough
+	case m.op.Is(OpUpdate | OpDelete):
+		return m.Client().RelocationPlan.Query().Where(m.predicates...).IDs(ctx)
+	default:
+		return nil, fmt.Errorf("IDs is not allowed on %s operations", m.op)
+	}
+}
+
+// SetCreatedAt sets the "created_at" field.
+func (m *RelocationPlanMutation) SetCreatedAt(t time.Time) {
+	m.created_at = &t
+}
+
+// CreatedAt returns the value of the "created_at" field in the mutation.
+func (m *RelocationPlanMutation) CreatedAt() (r time.Time, exists bool) {
+	v := m.created_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCreatedAt returns the old "created_at" field's value of the RelocationPlan entity.
+// If the RelocationPlan object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *RelocationPlanMutation) OldCreatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCreatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCreatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCreatedAt: %w", err)
+	}
+	return oldValue.CreatedAt, nil
+}
+
+// ResetCreatedAt resets all changes to the "created_at" field.
+func (m *RelocationPlanMutation) ResetCreatedAt() {
+	m.created_at = nil
+}
+
+// SetTaskID sets the "task_id" field.
+func (m *RelocationPlanMutation) SetTaskID(i int) {
+	m.task_id = &i
+	m.addtask_id = nil
+}
+
+// TaskID returns the value of the "task_id" field in the mutation.
+func (m *RelocationPlanMutation) TaskID() (r int, exists bool) {
+	v := m.task_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldTaskID returns the old "task_id" field's value of the RelocationPlan entity.
+// If the RelocationPlan object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *RelocationPlanMutation) OldTaskID(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldTaskID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldTaskID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldTaskID: %w", err)
+	}
+	return oldValue.TaskID, nil
+}
+
+// AddTaskID adds i to the "task_id" field.
+func (m *RelocationPlanMutation) AddTaskID(i int) {
+	if m.addtask_id != nil {
+		*m.addtask_id += i
+	} else {
+		m.addtask_id = &i
+	}
+}
+
+// AddedTaskID returns the value that was added to the "task_id" field in this mutation.
+func (m *RelocationPlanMutation) AddedTaskID() (r int, exists bool) {
+	v := m.addtask_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetTaskID resets all changes to the "task_id" field.
+func (m *RelocationPlanMutation) ResetTaskID() {
+	m.task_id = nil
+	m.addtask_id = nil
+}
+
+// SetOwnerID sets the "owner_id" field.
+func (m *RelocationPlanMutation) SetOwnerID(i int) {
+	m.owner_id = &i
+	m.addowner_id = nil
+}
+
+// OwnerID returns the value of the "owner_id" field in the mutation.
+func (m *RelocationPlanMutation) OwnerID() (r int, exists bool) {
+	v := m.owner_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldOwnerID returns the old "owner_id" field's value of the RelocationPlan entity.
+// If the RelocationPlan object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *RelocationPlanMutation) OldOwnerID(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldOwnerID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldOwnerID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldOwnerID: %w", err)
+	}
+	return oldValue.OwnerID, nil
+}
+
+// AddOwnerID adds i to the "owner_id" field.
+func (m *RelocationPlanMutation) AddOwnerID(i int) {
+	if m.addowner_id != nil {
+		*m.addowner_id += i
+	} else {
+		m.addowner_id = &i
+	}
+}
+
+// AddedOwnerID returns the value that was added to the "owner_id" field in this mutation.
+func (m *RelocationPlanMutation) AddedOwnerID() (r int, exists bool) {
+	v := m.addowner_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetOwnerID resets all changes to the "owner_id" field.
+func (m *RelocationPlanMutation) ResetOwnerID() {
+	m.owner_id = nil
+	m.addowner_id = nil
+}
+
+// SetDestinationPolicyID sets the "destination_policy_id" field.
+func (m *RelocationPlanMutation) SetDestinationPolicyID(i int) {
+	m.destination_policy_id = &i
+	m.adddestination_policy_id = nil
+}
+
+// DestinationPolicyID returns the value of the "destination_policy_id" field in the mutation.
+func (m *RelocationPlanMutation) DestinationPolicyID() (r int, exists bool) {
+	v := m.destination_policy_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldDestinationPolicyID returns the old "destination_policy_id" field's value of the RelocationPlan entity.
+// If the RelocationPlan object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *RelocationPlanMutation) OldDestinationPolicyID(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldDestinationPolicyID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldDestinationPolicyID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldDestinationPolicyID: %w", err)
+	}
+	return oldValue.DestinationPolicyID, nil
+}
+
+// AddDestinationPolicyID adds i to the "destination_policy_id" field.
+func (m *RelocationPlanMutation) AddDestinationPolicyID(i int) {
+	if m.adddestination_policy_id != nil {
+		*m.adddestination_policy_id += i
+	} else {
+		m.adddestination_policy_id = &i
+	}
+}
+
+// AddedDestinationPolicyID returns the value that was added to the "destination_policy_id" field in this mutation.
+func (m *RelocationPlanMutation) AddedDestinationPolicyID() (r int, exists bool) {
+	v := m.adddestination_policy_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetDestinationPolicyID resets all changes to the "destination_policy_id" field.
+func (m *RelocationPlanMutation) ResetDestinationPolicyID() {
+	m.destination_policy_id = nil
+	m.adddestination_policy_id = nil
+}
+
+// SetFileIds sets the "file_ids" field.
+func (m *RelocationPlanMutation) SetFileIds(i []int) {
+	m.file_ids = &i
+	m.appendfile_ids = nil
+}
+
+// FileIds returns the value of the "file_ids" field in the mutation.
+func (m *RelocationPlanMutation) FileIds() (r []int, exists bool) {
+	v := m.file_ids
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldFileIds returns the old "file_ids" field's value of the RelocationPlan entity.
+// If the RelocationPlan object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *RelocationPlanMutation) OldFileIds(ctx context.Context) (v []int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldFileIds is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldFileIds requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldFileIds: %w", err)
+	}
+	return oldValue.FileIds, nil
+}
+
+// AppendFileIds adds i to the "file_ids" field.
+func (m *RelocationPlanMutation) AppendFileIds(i []int) {
+	m.appendfile_ids = append(m.appendfile_ids, i...)
+}
+
+// AppendedFileIds returns the list of values that were appended to the "file_ids" field in this mutation.
+func (m *RelocationPlanMutation) AppendedFileIds() ([]int, bool) {
+	if len(m.appendfile_ids) == 0 {
+		return nil, false
+	}
+	return m.appendfile_ids, true
+}
+
+// ResetFileIds resets all changes to the "file_ids" field.
+func (m *RelocationPlanMutation) ResetFileIds() {
+	m.file_ids = nil
+	m.appendfile_ids = nil
+}
+
+// Where appends a list predicates to the RelocationPlanMutation builder.
+func (m *RelocationPlanMutation) Where(ps ...predicate.RelocationPlan) {
+	m.predicates = append(m.predicates, ps...)
+}
+
+// WhereP appends storage-level predicates to the RelocationPlanMutation builder. Using this method,
+// users can use type-assertion to append predicates that do not depend on any generated package.
+func (m *RelocationPlanMutation) WhereP(ps ...func(*sql.Selector)) {
+	p := make([]predicate.RelocationPlan, len(ps))
+	for i := range ps {
+		p[i] = ps[i]
+	}
+	m.Where(p...)
+}
+
+// Op returns the operation name.
+func (m *RelocationPlanMutation) Op() Op {
+	return m.op
+}
+
+// SetOp allows setting the mutation operation.
+func (m *RelocationPlanMutation) SetOp(op Op) {
+	m.op = op
+}
+
+// Type returns the node type of this mutation (RelocationPlan).
+func (m *RelocationPlanMutation) Type() string {
+	return m.typ
+}
+
+// Fields returns all fields that were changed during this mutation. Note that in
+// order to get all numeric fields that were incremented/decremented, call
+// AddedFields().
+func (m *RelocationPlanMutation) Fields() []string {
+	fields := make([]string, 0, 5)
+	if m.created_at != nil {
+		fields = append(fields, relocationplan.FieldCreatedAt)
+	}
+	if m.task_id != nil {
+		fields = append(fields, relocationplan.FieldTaskID)
+	}
+	if m.owner_id != nil {
+		fields = append(fields, relocationplan.FieldOwnerID)
+	}
+	if m.destination_policy_id != nil {
+		fields = append(fields, relocationplan.FieldDestinationPolicyID)
+	}
+	if m.file_ids != nil {
+		fields = append(fields, relocationplan.FieldFileIds)
+	}
+	return fields
+}
+
+// Field returns the value of a field with the given name. The second boolean
+// return value indicates that this field was not set, or was not defined in the
+// schema.
+func (m *RelocationPlanMutation) Field(name string) (ent.Value, bool) {
+	switch name {
+	case relocationplan.FieldCreatedAt:
+		return m.CreatedAt()
+	case relocationplan.FieldTaskID:
+		return m.TaskID()
+	case relocationplan.FieldOwnerID:
+		return m.OwnerID()
+	case relocationplan.FieldDestinationPolicyID:
+		return m.DestinationPolicyID()
+	case relocationplan.FieldFileIds:
+		return m.FileIds()
+	}
+	return nil, false
+}
+
+// OldField returns the old value of the field from the database. An error is
+// returned if the mutation operation is not UpdateOne, or the query to the
+// database failed.
+func (m *RelocationPlanMutation) OldField(ctx context.Context, name string) (ent.Value, error) {
+	switch name {
+	case relocationplan.FieldCreatedAt:
+		return m.OldCreatedAt(ctx)
+	case relocationplan.FieldTaskID:
+		return m.OldTaskID(ctx)
+	case relocationplan.FieldOwnerID:
+		return m.OldOwnerID(ctx)
+	case relocationplan.FieldDestinationPolicyID:
+		return m.OldDestinationPolicyID(ctx)
+	case relocationplan.FieldFileIds:
+		return m.OldFileIds(ctx)
+	}
+	return nil, fmt.Errorf("unknown RelocationPlan field %s", name)
+}
+
+// SetField sets the value of a field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *RelocationPlanMutation) SetField(name string, value ent.Value) error {
+	switch name {
+	case relocationplan.FieldCreatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCreatedAt(v)
+		return nil
+	case relocationplan.FieldTaskID:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetTaskID(v)
+		return nil
+	case relocationplan.FieldOwnerID:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetOwnerID(v)
+		return nil
+	case relocationplan.FieldDestinationPolicyID:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetDestinationPolicyID(v)
+		return nil
+	case relocationplan.FieldFileIds:
+		v, ok := value.([]int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetFileIds(v)
+		return nil
+	}
+	return fmt.Errorf("unknown RelocationPlan field %s", name)
+}
+
+// AddedFields returns all numeric fields that were incremented/decremented during
+// this mutation.
+func (m *RelocationPlanMutation) AddedFields() []string {
+	var fields []string
+	if m.addtask_id != nil {
+		fields = append(fields, relocationplan.FieldTaskID)
+	}
+	if m.addowner_id != nil {
+		fields = append(fields, relocationplan.FieldOwnerID)
+	}
+	if m.adddestination_policy_id != nil {
+		fields = append(fields, relocationplan.FieldDestinationPolicyID)
+	}
+	return fields
+}
+
+// AddedField returns the numeric value that was incremented/decremented on a field
+// with the given name. The second boolean return value indicates that this field
+// was not set, or was not defined in the schema.
+func (m *RelocationPlanMutation) AddedField(name string) (ent.Value, bool) {
+	switch name {
+	case relocationplan.FieldTaskID:
+		return m.AddedTaskID()
+	case relocationplan.FieldOwnerID:
+		return m.AddedOwnerID()
+	case relocationplan.FieldDestinationPolicyID:
+		return m.AddedDestinationPolicyID()
+	}
+	return nil, false
+}
+
+// AddField adds the value to the field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *RelocationPlanMutation) AddField(name string, value ent.Value) error {
+	switch name {
+	case relocationplan.FieldTaskID:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddTaskID(v)
+		return nil
+	case relocationplan.FieldOwnerID:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddOwnerID(v)
+		return nil
+	case relocationplan.FieldDestinationPolicyID:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddDestinationPolicyID(v)
+		return nil
+	}
+	return fmt.Errorf("unknown RelocationPlan numeric field %s", name)
+}
+
+// ClearedFields returns all nullable fields that were cleared during this
+// mutation.
+func (m *RelocationPlanMutation) ClearedFields() []string {
+	return nil
+}
+
+// FieldCleared returns a boolean indicating if a field with the given name was
+// cleared in this mutation.
+func (m *RelocationPlanMutation) FieldCleared(name string) bool {
+	_, ok := m.clearedFields[name]
+	return ok
+}
+
+// ClearField clears the value of the field with the given name. It returns an
+// error if the field is not defined in the schema.
+func (m *RelocationPlanMutation) ClearField(name string) error {
+	return fmt.Errorf("unknown RelocationPlan nullable field %s", name)
+}
+
+// ResetField resets all changes in the mutation for the field with the given name.
+// It returns an error if the field is not defined in the schema.
+func (m *RelocationPlanMutation) ResetField(name string) error {
+	switch name {
+	case relocationplan.FieldCreatedAt:
+		m.ResetCreatedAt()
+		return nil
+	case relocationplan.FieldTaskID:
+		m.ResetTaskID()
+		return nil
+	case relocationplan.FieldOwnerID:
+		m.ResetOwnerID()
+		return nil
+	case relocationplan.FieldDestinationPolicyID:
+		m.ResetDestinationPolicyID()
+		return nil
+	case relocationplan.FieldFileIds:
+		m.ResetFileIds()
+		return nil
+	}
+	return fmt.Errorf("unknown RelocationPlan field %s", name)
+}
+
+// AddedEdges returns all edge names that were set/added in this mutation.
+func (m *RelocationPlanMutation) AddedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// AddedIDs returns all IDs (to other nodes) that were added for the given edge
+// name in this mutation.
+func (m *RelocationPlanMutation) AddedIDs(name string) []ent.Value {
+	return nil
+}
+
+// RemovedEdges returns all edge names that were removed in this mutation.
+func (m *RelocationPlanMutation) RemovedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// RemovedIDs returns all IDs (to other nodes) that were removed for the edge with
+// the given name in this mutation.
+func (m *RelocationPlanMutation) RemovedIDs(name string) []ent.Value {
+	return nil
+}
+
+// ClearedEdges returns all edge names that were cleared in this mutation.
+func (m *RelocationPlanMutation) ClearedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// EdgeCleared returns a boolean which indicates if the edge with the given name
+// was cleared in this mutation.
+func (m *RelocationPlanMutation) EdgeCleared(name string) bool {
+	return false
+}
+
+// ClearEdge clears the value of the edge with the given name. It returns an error
+// if that edge is not defined in the schema.
+func (m *RelocationPlanMutation) ClearEdge(name string) error {
+	return fmt.Errorf("unknown RelocationPlan unique edge %s", name)
+}
+
+// ResetEdge resets all changes to the edge with the given name in this mutation.
+// It returns an error if the edge is not defined in the schema.
+func (m *RelocationPlanMutation) ResetEdge(name string) error {
+	return fmt.Errorf("unknown RelocationPlan edge %s", name)
 }
 
 // SettingMutation represents an operation that mutates the Setting nodes in the graph.
