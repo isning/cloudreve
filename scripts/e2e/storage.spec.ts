@@ -165,3 +165,92 @@ test("member selects second policy and completes browser multipart upload", asyn
   await expect(dialog.getByText("No available storage policies")).toBeVisible();
   await expect(dialog.getByRole("button", {name: "Choose files"})).toBeDisabled();
 });
+
+for (const outcome of ["selected", "late", "empty", "failed"]) {
+  test(`account switch isolates upload destinations (${outcome})`, async ({page}) => {
+    const a={id:"account-a",nickname:"Alice",email:"alice@example.test",created_at:"2026-01-01T00:00:00Z",language:"en-US",group:{id:"members",name:"Members",permission:"AA=="}};
+    const b={...a,id:"account-b",nickname:"Bob",email:"bob@example.test"};
+    const token=(id:string)=>({access_token:`synthetic-${id}-access`,refresh_token:`synthetic-${id}-refresh`,access_expires:"2099-01-01T00:00:00Z",refresh_expires:"2099-01-01T00:00:00Z"});
+    await page.addInitScript(({a,token})=>{
+      localStorage.setItem("i18nextLng","en-US");
+      localStorage.setItem("cloudreve_session",JSON.stringify({current:a.id,sessions:{[a.id]:{user:a,token,settings:{preferred_dark_mode:true}}},anonymousSettings:{}}));
+    },{a,token:token(a.id)});
+    const policyA={id:"a-only",name:"Alice only",type:"s3",max_size:0};
+    const policyB={id:"b-only",name:"Bob only",type:"s3",max_size:0};
+    let current=a;
+    let aRequests=0;
+    let bRequests=0;
+    let upload:any;
+    let releaseA!:()=>void;
+    const delayedA=new Promise<void>(resolve=>{releaseA=resolve;});
+    await page.route("**/account-storage/**",route=>route.fulfill({status:200,headers:{ETag:'"synthetic-etag"'},body:"<CompleteMultipartUploadResult/>"}));
+    await page.route("**/api/v4/**",async route=>{
+      const req=route.request();
+      const path=new URL(req.url()).pathname.replace("/api/v4","");
+      let data:any={};
+      if(path.startsWith("/site/config/")) data={title:"Accounts",default_theme:"#3f51b5",themes:"#3f51b5",icons:"[]",viewers:"{}",user:current,register_enabled:false};
+      else if(path==="/session/prepare") data={password_enabled:true,webauthn_enabled:false,sso_enabled:false,qq_enabled:false};
+      else if(path==="/session/token" && req.method()==="POST") { current=b; data={user:b,token:token(b.id)}; }
+      else if(path==="/session/token" && req.method()==="DELETE") data=null;
+      else if(path==="/user/capacity") data={total:1000000,used:0};
+      else if(path==="/user/setting/policies") {
+        if(req.headers().authorization===`Bearer ${token(a.id).access_token}`) {
+          aRequests++;
+          if(outcome!=="selected") await delayedA;
+          data=[policyA];
+        } else {
+          expect(req.headers().authorization).toBe(`Bearer ${token(b.id).access_token}`);
+          bRequests++;
+          if(outcome==="failed") { await route.fulfill({json:{code:50001,msg:"Current account destinations unavailable"}}); return; }
+          data=outcome==="empty"?[]:[policyB];
+        }
+      } else if(path==="/file") data={files:[],parent:{id:`root-${current.id}`,type:1,name:"Root",path:"cloudreve://my/",owned:true,capability:"/////w==",metadata:{}},props:{capability:"/////w=="},pagination:{page:0,page_size:50,total_items:0},storage_policy:current.id===a.id?policyA:policyB};
+      else if(path==="/file/upload" && req.method()==="PUT") {
+        expect(req.headers().authorization).toBe(`Bearer ${token(b.id).access_token}`);
+        upload=req.postDataJSON();
+        data={session_id:"synthetic-b-session",expires:Math.floor(Date.now()/1000)+600,chunk_size:5242880,upload_urls:["http://127.0.0.1:43181/account-storage/part"],completeURL:"http://127.0.0.1:43181/account-storage/complete",callback_secret:"synthetic-b-callback",storage_policy:policyB,uri:upload.uri};
+      }
+      await route.fulfill({json:{code:0,data}});
+    });
+    try {
+      await page.goto("/home");
+      await expect.poll(()=>aRequests).toBeGreaterThan(0);
+      if(outcome==="selected") {
+        await page.getByRole("button",{name:"New",exact:true}).click();
+        await page.getByRole("menuitem",{name:"Upload files",exact:true}).click();
+        await page.getByRole("dialog").getByRole("combobox",{name:"Storage policy"}).click();
+        await page.getByRole("option",{name:"Alice only",exact:true}).click();
+        await page.getByRole("dialog").getByRole("button",{name:"Cancel",exact:true}).click();
+      }
+      await page.getByRole("button").filter({has:page.locator(".MuiAvatar-root")}).first().click();
+      await page.getByRole("menuitem",{name:"Sign out",exact:true}).click();
+      await page.locator("input[name=email]").fill(b.email);
+      await page.getByRole("button",{name:"Next",exact:true}).click();
+      await page.locator("input[name=password]").fill("synthetic-password");
+      await page.getByRole("button",{name:"Sign in",exact:true}).click();
+      await expect(page).toHaveURL(/\/home/);
+      await expect.poll(()=>bRequests).toBeGreaterThan(0);
+      releaseA();
+      await page.getByRole("button",{name:"New",exact:true}).click();
+      await page.getByRole("menuitem",{name:"Upload files",exact:true}).click();
+      const dialog=page.getByRole("dialog");
+      if(outcome==="empty" || outcome==="failed") {
+        await expect(dialog.getByText("No available storage policies")).toBeVisible();
+        await expect(dialog.getByRole("button",{name:"Choose files"})).toBeDisabled();
+        await expect(dialog.getByText("Alice only")).toHaveCount(0);
+      } else {
+        const choice=dialog.getByRole("combobox",{name:"Storage policy"});
+        await expect(choice).toHaveText("Automatic");
+        await choice.click();
+        await expect(page.getByRole("option",{name:"Bob only",exact:true})).toBeVisible();
+        await expect(page.getByRole("option",{name:"Alice only",exact:true})).toHaveCount(0);
+        await page.getByRole("option",{name:"Automatic",exact:true}).click();
+        const chooser=page.waitForEvent("filechooser");
+        await dialog.getByRole("button",{name:"Choose files",exact:true}).click();
+        await (await chooser).setFiles({name:"bob.txt",mimeType:"text/plain",buffer:Buffer.from("Bob's fresh automatic placement")});
+        await expect.poll(()=>upload?.uri).toContain("bob.txt");
+        expect(upload).not.toHaveProperty("policy_id");
+      }
+    } finally { releaseA(); }
+  });
+}
