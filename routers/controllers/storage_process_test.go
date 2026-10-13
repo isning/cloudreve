@@ -99,7 +99,11 @@ func launchStorageWorkerMode(t *testing.T, f *storageFixture, workflows bool) *s
 	require.NoError(t, os.WriteFile(file, raw, 0600))
 	log, err := os.Create(file + ".log")
 	require.NoError(t, err)
-	cmd := exec.Command(os.Args[0], "-test.run=^TestStorageStartupWorker$", "-test.timeout=180s")
+	timeout := "180s"
+	if os.Getenv("CLOUDREVE_STORAGE_BROWSER") == "1" {
+		timeout = "360s"
+	}
+	cmd := exec.Command(os.Args[0], "-test.run=^TestStorageStartupWorker$", "-test.timeout="+timeout)
 	cmd.Env = append(os.Environ(), "CLOUDREVE_STORAGE_PROCESS_CONFIG="+file)
 	if workflows {
 		cmd.Env = append(cmd.Env, "CLOUDREVE_STORAGE_RUN_WORKFLOWS=1")

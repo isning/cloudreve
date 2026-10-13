@@ -4,12 +4,12 @@ import { fileURLToPath } from "node:url";
 const root = fileURLToPath(new URL("../../", import.meta.url));
 export default defineConfig({
   testDir: ".",
-  testMatch: "*.spec.ts",
+  testMatch: process.env.CLOUDREVE_STORAGE_BROWSER_CONFIG ? "storage-real.spec.ts" : ["openid.spec.ts", "storage.spec.ts"],
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: 0,
-  workers: 2,
-  timeout: 30_000,
+  workers: process.env.CLOUDREVE_STORAGE_BROWSER_CONFIG ? 1 : 2,
+  timeout: process.env.CLOUDREVE_STORAGE_BROWSER_CONFIG ? 240_000 : 30_000,
   reporter: [
     ["list"],
     ["junit", { outputFile: root + ".scratch/oidc-pro/tmp/browser-junit.xml" }],

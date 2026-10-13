@@ -17,6 +17,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -45,6 +46,7 @@ import (
 	"github.com/cloudreve/Cloudreve/v4/pkg/webdav"
 	ctl "github.com/cloudreve/Cloudreve/v4/routers/controllers"
 	adminsvc "github.com/cloudreve/Cloudreve/v4/service/admin"
+	"github.com/cloudreve/Cloudreve/v4/service/basic"
 	"github.com/cloudreve/Cloudreve/v4/service/explorer"
 	settingsvc "github.com/cloudreve/Cloudreve/v4/service/setting"
 	sharesvc "github.com/cloudreve/Cloudreve/v4/service/share"
@@ -107,6 +109,13 @@ func startStorageS3(t *testing.T) storageS3Service {
 			t.Skip("real S3 integration: provide weed or CLOUDREVE_S3_TEST_SERVER")
 		}
 	}
+	// Serialize owned service startup across local test shards until all listeners
+	// bind. Closing reservations otherwise leaves a cross-process allocation race.
+	startup, err := os.OpenFile(filepath.Join(os.TempDir(), "cloudreve-owned-s3-startup.lock"), os.O_CREATE|os.O_RDWR, 0600)
+	require.NoError(t, err)
+	defer startup.Close()
+	require.NoError(t, syscall.Flock(int(startup.Fd()), syscall.LOCK_EX))
+	defer syscall.Flock(int(startup.Fd()), syscall.LOCK_UN)
 	// Reserve all ports together so a later allocation cannot reuse this
 	// instance's S3 port before SeaweedFS has opened its listeners.
 	var reserved []net.Listener
@@ -206,7 +215,16 @@ func prepareStorageFixture(t *testing.T, legacy bool) *storageFixture {
 	cfg.System().Debug = false
 	var db *ent.Client
 	if legacy {
-		cfg.Database().DBFile = filepath.Join(t.TempDir(), "legacy.db")
+		if driver := os.Getenv("OIDC_TEST_DRIVER"); driver != "" {
+			initial := openAuthenticationDatabaseMode(t, "legacy.db", false)
+			database, ok := authenticationDatabases.Load(initial)
+			require.True(t, ok)
+			cfg.Database().Type = conf.DBType(driver)
+			cfg.Database().DatabaseURL = database.(authenticationDatabase).DSN
+			require.NoError(t, initial.Close())
+		} else {
+			cfg.Database().DBFile = filepath.Join(t.TempDir(), "legacy.db")
+		}
 		db, err = inventory.NewRawEntClient(l, cfg)
 		require.NoError(t, err)
 		var tables []*schema.Table
@@ -321,6 +339,9 @@ func storageRouter(d dependency.Dep, l logging.Logger) *gin.Engine {
 		c.Request = c.Request.WithContext(ctx)
 		c.Next()
 	}, middleware.CurrentUser())
+	r.GET("/api/v4/site/config/:section", ctl.FromUri[basic.GetSettingService](basic.GetSettingParamCtx{}), ctl.SiteConfig)
+	r.GET("/api/v4/session/prepare", ctl.FromQuery[usersvc.PrepareLoginService](usersvc.PrepareLoginParameterCtx{}), ctl.UserPrepareLogin)
+	r.DELETE("/api/v4/session/token", ctl.FromJSON[usersvc.RefreshTokenService](usersvc.RefreshTokenParameterCtx{}), ctl.UserSignOut)
 	r.POST("/api/v4/session/token", ctl.FromJSON[usersvc.UserLoginService](usersvc.LoginParameterCtx{}), ctl.UserLoginValidation, ctl.UserIssueToken)
 	r.PUT("/api/v4/session/openid", ctl.BeginOpenID)
 	r.POST("/api/v4/session/openid", ctl.FinishOpenID)
@@ -358,6 +379,7 @@ func storageRouter(d dependency.Dep, l logging.Logger) *gin.Engine {
 	admin.PUT("/group/:id", ctl.FromJSON[adminsvc.UpsertGroupService](adminsvc.UpsertGroupParamCtx{}), ctl.AdminUpdateGroup)
 	admin.PUT("/group", ctl.FromJSON[adminsvc.UpsertGroupService](adminsvc.UpsertGroupParamCtx{}), ctl.AdminCreateGroup)
 	admin.DELETE("/group/:id", ctl.FromUri[adminsvc.SingleGroupService](adminsvc.SingleGroupParamCtx{}), ctl.AdminDeleteGroup)
+	admin.POST("/policy", ctl.FromJSON[adminsvc.AdminListService](adminsvc.AdminListServiceParamsCtx{}), ctl.AdminListPolicies)
 	admin.GET("/policy/:id", ctl.FromUri[adminsvc.SingleStoragePolicyService](adminsvc.GetStoragePolicyParamCtx{}), ctl.AdminGetPolicy)
 	admin.PUT("/policy/:id", ctl.FromJSON[adminsvc.UpdateStoragePolicyService](adminsvc.UpdateStoragePolicyParamCtx{}), ctl.AdminUpdatePolicy)
 	admin.POST("/user/batch/delete", ctl.FromJSON[adminsvc.BatchUserService](adminsvc.BatchUserParamCtx{}), ctl.AdminDeleteUser)

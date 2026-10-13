@@ -198,6 +198,7 @@ type dependency struct {
 	cron                  *cron.Cron
 	masterEncryptKeyVault encrypt.MasterEncryptKeyVault
 	eventHub              eventhub.EventHub
+	eventHubOnce          sync.Once
 	searchIndexer         searcher.SearchIndexer
 	textExtractor         searcher.TextExtractor
 
@@ -392,10 +393,11 @@ func (d *dependency) NavigatorStateKV() cache.Driver {
 }
 
 func (d *dependency) EventHub() eventhub.EventHub {
-	if d.eventHub != nil {
-		return d.eventHub
-	}
-	d.eventHub = eventhub.NewEventHub(d.UserClient(), d.FsEventClient(), d.SettingProvider())
+	d.eventHubOnce.Do(func() {
+		if d.eventHub == nil {
+			d.eventHub = eventhub.NewEventHub(d.UserClient(), d.FsEventClient(), d.SettingProvider())
+		}
+	})
 	return d.eventHub
 }
 

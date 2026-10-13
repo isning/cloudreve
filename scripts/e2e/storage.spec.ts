@@ -751,3 +751,116 @@ for(const boundary of ["personal","foreign","share","trash","no_group","no_capab
     await expect(page.getByText("Migration task accepted. Follow its progress in Background Tasks.")).toBeVisible();
   });
 }
+
+test("completed migration refreshes split version IDs and leaves unselected copy intact",async({page})=>{
+ const user={id:"member",nickname:"Member",email:"member@example.test",created_at:"2026-01-01T00:00:00Z",language:"en-US",group:{id:"members",name:"Members",permission:"AA=="}};
+ await page.addInitScript(user=>{
+  localStorage.setItem("i18nextLng","en-US");
+  localStorage.setItem("cloudreve_session",JSON.stringify({current:user.id,sessions:{[user.id]:{user,token:{access_token:"synthetic-access",refresh_token:"synthetic-refresh",access_expires:"2099-01-01T00:00:00Z",refresh_expires:"2099-01-01T00:00:00Z"},settings:{preferred_dark_mode:true}}},anonymousSettings:{}}));
+ },user);
+ const a={id:"policy-a",name:"Bucket A",type:"s3",max_size:0};const b={id:"policy-b",name:"Bucket B",type:"s3",max_size:0};
+ const common={type:0,owned:true,capability:"/////w==",metadata:{},size:21,created_at:"2026-01-01T00:00:00Z",updated_at:"2026-01-01T00:00:00Z"};
+ let committed=false;let infos=0;const requested:string[]=[];
+ const source=()=>({...common,id:"stable-file",name:"moving.txt",path:"cloudreve://my/moving.txt",primary_entity:committed?"new-current":"old-current"});
+ const copy={...common,id:"stable-copy",name:"copy.txt",path:"cloudreve://my/copy.txt",primary_entity:"old-current"};
+ await page.route("**/owned-versions/**",async route=>route.fulfill({body:"downloaded retained bytes",headers:{"Content-Disposition":"attachment; filename=version.txt"}}));
+ await page.route("**/api/v4/**",async route=>{
+  const req=route.request();const url=new URL(req.url());const path=url.pathname.replace("/api/v4","");let data:any={};
+  if(path.startsWith("/site/config/")) data={title:"Versions",default_theme:"#3f51b5",themes:"#3f51b5",icons:"[]",viewers:"{}",user};
+  else if(path==="/user/capacity") data={total:1000000,used:82};
+  else if(path==="/user/setting/policies") data=[a,b];
+  else if(path==="/file") data={files:[source(),copy],parent:{id:"root",type:1,name:"Root",path:"cloudreve://my/",owned:true,capability:"/////w==",metadata:{}},props:{capability:"/////w=="},pagination:{page:0,page_size:50,total_items:2},storage_policy:a};
+  else if(path==="/file/info") {
+   infos++;const copying=url.searchParams.get("uri")?.includes("copy.txt");const split=committed&&!copying;
+   data={...(copying?copy:source()),extended_info:{storage_policy:a,entities:[{id:split?"new-current":"old-current",type:0,size:21,created_at:"2026-01-01T00:00:00Z",storage_policy:split?b:a},{id:split?"new-history":"old-history",type:0,size:20,created_at:"2025-12-31T00:00:00Z",storage_policy:split?b:a}]}};
+  } else if(path==="/file/url") {
+   const id=req.postDataJSON().entity;requested.push(id);
+   data={urls:[{url:`http://127.0.0.1:43181/owned-versions/${id}`,expires:"2099-01-01T00:00:00Z"}]};
+  } else if(path==="/workflow") data={tasks:[{id:"task",type:"relocate",status:"completed",created_at:"2026-01-01T00:00:00Z",updated_at:"2026-01-01T00:00:00Z",summary:{phase:"completed",props:{src_multiple:["cloudreve://member@my/moving.txt"],dst_policy_id:b.id}}}],pagination:{page:0,page_size:25,total_items:1}};
+  await route.fulfill({json:{code:0,data}});
+ });
+ const versions=async(name:string)=>{
+  await page.getByRole("main").getByText(name,{exact:true}).click({button:"right"});
+  await page.getByRole("menuitem",{name:"More actions",exact:true}).hover();
+  await page.getByRole("menuitem",{name:"Manage versions",exact:true}).click();
+  return page.getByRole("dialog");
+ };
+ await page.goto("/home");
+ let dialog=await versions("moving.txt");
+ await expect(dialog.getByRole("cell",{name:"Bucket A",exact:true})).toHaveCount(2);
+ await page.keyboard.press("Escape");
+ committed=true;
+ await page.goto("/tasks");await expect(page.getByText("moving.txt",{exact:true}).first()).toBeVisible();
+ await page.goto("/home");
+ dialog=await versions("moving.txt");
+ await expect(dialog.getByRole("cell",{name:"Bucket B",exact:true})).toHaveCount(2);
+ for(const row of [1,2]) {
+  await dialog.getByRole("row").nth(row).getByRole("button").first().click();
+  const downloaded=page.waitForEvent("download");
+  await page.getByRole("menuitem",{name:"Download",exact:true}).click();
+  await downloaded;
+ }
+ expect(requested).toEqual(["new-current","new-history"]);
+ await page.keyboard.press("Escape");
+ dialog=await versions("copy.txt");
+ await expect(dialog.getByRole("cell",{name:"Bucket A",exact:true})).toHaveCount(2);
+ expect(infos).toBe(3);
+});
+
+test("media preview resolves current URL and Live Photo entity after migration",async({page})=>{
+ page.on("pageerror",e=>console.log("Media UI error:",e.message));
+ page.on("console",m=>{if(m.type()==="error")console.log("Media console error:",m.text());});
+ const user={id:"member",nickname:"Member",email:"member@example.test",created_at:"2026-01-01T00:00:00Z",language:"en-US",group:{id:"members",name:"Members",permission:"AA=="}};
+ await page.addInitScript(user=>{
+  localStorage.setItem("i18nextLng","en-US");
+  localStorage.setItem("cloudreve_session",JSON.stringify({current:user.id,sessions:{[user.id]:{user,token:{access_token:"synthetic-access",refresh_token:"synthetic-refresh",access_expires:"2099-01-01T00:00:00Z",refresh_expires:"2099-01-01T00:00:00Z"},settings:{preferred_dark_mode:true}}},anonymousSettings:{}}));
+ },user);
+ let committed=false;let live=false;const links:string[]=[];const objects:string[]=[];
+ const photo=()=>({id:"same-photo",type:0,name:"photo.heic",path:"cloudreve://my/photo.heic",size:68,owned:true,capability:"/////w==",primary_entity:committed?"current-b":"current-a",metadata:live?{"customize:live_photo":"true"}:{},created_at:"2026-01-01T00:00:00Z",updated_at:"2026-01-01T00:00:00Z"});
+ // A non-HEIC image with an HEIC extension exercises the converter's unchanged
+ // bytes path and its module-level cache without installing a new image codec.
+ const png=Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC","base64");
+ await page.route("**/owned-media/**",async route=>{
+  const path=new URL(route.request().url()).pathname;objects.push(path);
+  await route.fulfill({body:png,contentType:"image/png",headers:{"Cache-Control":"no-store"}});
+ });
+ await page.route("**/api/v4/**",async route=>{
+  const req=route.request();const path=new URL(req.url()).pathname.replace("/api/v4","");let data:any={};
+  if(path.startsWith("/site/config/")) data={title:"Media",default_theme:"#3f51b5",themes:"#3f51b5",icons:"[]",file_viewers:[{viewers:[{id:"image",type:"builtin",display_name:"Image",exts:["heic"],icon:"",max_size:0}]}],user};
+  else if(path==="/user/capacity") data={total:1000000,used:68};
+  else if(path==="/user/setting/policies") data=[{id:"a",name:"Bucket A",type:"s3"},{id:"b",name:"Bucket B",type:"s3"}];
+  else if(path==="/file") data={files:[photo()],parent:{id:"root",type:1,name:"Root",path:"cloudreve://my/",owned:true,capability:"/////w==",metadata:{}},props:{capability:"/////w=="},pagination:{page:0,page_size:50,total_items:1}};
+  else if(path==="/file/info") data={...photo(),extended_info:{entities:[{id:committed?"live-b":"live-a",type:2,size:68,storage_policy:{id:committed?"b":"a",name:committed?"Bucket B":"Bucket A"}}]}};
+  else if(path==="/file/url") {
+   const entity=req.postDataJSON().entity;const key=entity??(committed?"current-b":"current-a");links.push(key);
+   data={urls:[{url:`http://127.0.0.1:43181/owned-media/${key}`,expires:"2099-01-01T00:00:00Z"}]};
+  } else if(path==="/workflow") data={tasks:[],pagination:{page:0,page_size:25,total_items:0}};
+  await route.fulfill({json:{code:0,data}});
+ });
+ const preview=async(expected:string)=>{
+  await page.getByRole("main").getByRole("button",{name:"photo.heic",exact:true}).dblclick();
+  const image=page.locator("img.PhotoView__Photo");
+  await expect(image).toHaveAttribute("src",`http://127.0.0.1:43181/owned-media/${expected}`);
+  await expect.poll(()=>image.evaluate((e:HTMLImageElement)=>e.complete&&e.naturalWidth>0)).toBe(true);
+ };
+ await page.goto("/home");await preview("current-a");
+
+ await page.keyboard.press("Escape");
+ await expect(page.locator("img.PhotoView__Photo")).toHaveCount(0);
+ committed=true;
+ // SPA navigation retains the module cache, as actual navigation from a task does.
+ await page.getByRole("button").filter({hasText:"Background Tasks"}).click();
+ await expect(page).toHaveURL(/\/tasks/);
+ await page.getByRole("button",{name:"My Files",exact:true}).click();
+ await expect(page.getByRole("main").getByText("photo.heic",{exact:true})).toBeVisible();
+ await preview("current-b");
+ await page.keyboard.press("Escape");
+ await expect(page.locator("img.PhotoView__Photo")).toHaveCount(0);
+ live=true;
+ await page.reload();
+ await page.getByRole("main").getByRole("button",{name:"photo.heic",exact:true}).dblclick();
+ await expect(page.getByRole("button",{name:"Badge: Live",exact:true})).toBeVisible();
+ await expect.poll(()=>links.includes("live-b")).toBe(true);
+ expect(links.slice(-2).sort()).toEqual(["current-b","live-b"]);
+ expect(objects).toContain("/owned-media/current-b");
+});
