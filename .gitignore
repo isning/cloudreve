@@ -40,6 +40,6 @@ cloudreve
 .DS_Store
 
 # Release verification uses isolated dependencies and workspace-local artifacts.
-/scripts/e2e/node_modules/
+/scripts/e2e/node_modules
 /scripts/__pycache__/
 /.scratch/

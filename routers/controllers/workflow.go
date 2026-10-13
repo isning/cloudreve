@@ -66,3 +66,13 @@ func CancelDownloadTask(c *gin.Context) {
 
 	c.JSON(200, serializer.Response{})
 }
+
+func RelocateStorage(c *gin.Context) {
+	service := ParametersFromContext[*explorer.RelocateService](c, explorer.RelocateParamCtx{})
+	result, err := service.Create(c)
+	if err != nil {
+		c.JSON(200, serializer.Err(c, err))
+		return
+	}
+	c.JSON(200, serializer.Response{Data: result})
+}

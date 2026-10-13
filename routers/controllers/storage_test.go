@@ -33,6 +33,7 @@ import (
 	"github.com/cloudreve/Cloudreve/v4/inventory"
 	"github.com/cloudreve/Cloudreve/v4/inventory/types"
 	"github.com/cloudreve/Cloudreve/v4/middleware"
+	"github.com/cloudreve/Cloudreve/v4/pkg/auth"
 	"github.com/cloudreve/Cloudreve/v4/pkg/boolset"
 	"github.com/cloudreve/Cloudreve/v4/pkg/cache"
 	"github.com/cloudreve/Cloudreve/v4/pkg/conf"
@@ -48,6 +49,7 @@ import (
 	settingsvc "github.com/cloudreve/Cloudreve/v4/service/setting"
 	usersvc "github.com/cloudreve/Cloudreve/v4/service/user"
 	"github.com/gin-gonic/gin"
+	"github.com/gofrs/uuid"
 	"github.com/stretchr/testify/require"
 )
 
@@ -295,6 +297,7 @@ func storageRouter(d dependency.Dep, l logging.Logger) *gin.Engine {
 	r.Use(func(c *gin.Context) {
 		ctx := context.WithValue(c.Request.Context(), dependency.DepCtx{}, d)
 		ctx = context.WithValue(ctx, logging.LoggerCtx{}, l)
+		ctx = context.WithValue(ctx, logging.CorrelationIDCtx{}, uuid.Must(uuid.NewV4()))
 		c.Request = c.Request.WithContext(ctx)
 		c.Next()
 	}, middleware.CurrentUser())
@@ -311,6 +314,9 @@ func storageRouter(d dependency.Dep, l logging.Logger) *gin.Engine {
 	authenticated.PUT("/devices/dav", ctl.FromJSON[settingsvc.CreateDavAccountService](settingsvc.CreateDavAccountParamCtx{}), ctl.CreateDAVAccounts)
 	authenticated.DELETE("/file", ctl.FromJSON[explorer.DeleteFileService](explorer.DeleteFileParameterCtx{}), ctl.Delete)
 	authenticated.POST("/workflow/import", middleware.IsAdmin(), ctl.FromJSON[explorer.ImportWorkflowService](explorer.CreateImportParamCtx{}), ctl.ImportFiles)
+	authenticated.POST("/workflow/reloacte", ctl.FromJSON[explorer.RelocateService](explorer.RelocateParamCtx{}), ctl.RelocateStorage)
+	authenticated.GET("/workflow", ctl.FromQuery[explorer.ListTaskService](explorer.ListTaskParamCtx{}), ctl.ListTasks)
+	authenticated.GET("/workflow/progress/:id", middleware.HashID(hashid.TaskID), ctl.GetTaskPhaseProgress)
 	authenticated.PUT("/file/upload", ctl.FromJSON[explorer.CreateUploadSessionService](explorer.CreateUploadSessionParameterCtx{}), ctl.CreateUploadSession)
 	authenticated.POST("/file/url", ctl.FromJSON[explorer.FileURLService](explorer.FileURLParameterCtx{}), ctl.FileURL)
 	authenticated.GET("/file/info", ctl.FromQuery[explorer.GetFileInfoService](explorer.GetFileInfoParameterCtx{}), ctl.GetFileInfo)
@@ -393,12 +399,13 @@ func (f *storageFixture) request(t *testing.T, method, path string, body, result
 		require.NoError(t, err)
 	}
 	var envelope struct {
-		Code int             `json:"code"`
-		Data json.RawMessage `json:"data"`
-		Msg  string          `json:"msg"`
+		Code  int             `json:"code"`
+		Data  json.RawMessage `json:"data"`
+		Msg   string          `json:"msg"`
+		Error string          `json:"error"`
 	}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &envelope))
-	require.Zero(t, envelope.Code, "HTTP %s %s failed: %s", method, strings.Split(path, "?")[0], envelope.Msg)
+	require.Zero(t, envelope.Code, "HTTP %s %s failed: %s (%s)", method, strings.Split(path, "?")[0], envelope.Msg, auth.RedactSensitiveValues(envelope.Error))
 	if result != nil {
 		require.NoError(t, json.Unmarshal(envelope.Data, result))
 	}

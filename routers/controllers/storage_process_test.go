@@ -53,6 +53,9 @@ func TestStorageStartupWorker(t *testing.T) {
 	defer d.DBClient().Close()
 
 	defer d.Shutdown(context.Background())
+	if os.Getenv("CLOUDREVE_STORAGE_RUN_WORKFLOWS") == "1" {
+		d.IoIntenseQueue(context.Background()).Start()
+	}
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	server := &http.Server{Handler: storageRouter(d, l), ReadHeaderTimeout: 5 * time.Second}
@@ -73,6 +76,14 @@ type storageWorker struct {
 }
 
 func launchStorageWorker(t *testing.T, f *storageFixture) *storageWorker {
+	return launchStorageWorkerMode(t, f, false)
+}
+
+func launchStorageWorkerWithWorkflows(t *testing.T, f *storageFixture) *storageWorker {
+	return launchStorageWorkerMode(t, f, true)
+}
+
+func launchStorageWorkerMode(t *testing.T, f *storageFixture, workflows bool) *storageWorker {
 	t.Helper()
 	file := filepath.Join(t.TempDir(), "storage-worker.json")
 	raw, err := json.Marshal(f.database)
@@ -82,6 +93,9 @@ func launchStorageWorker(t *testing.T, f *storageFixture) *storageWorker {
 	require.NoError(t, err)
 	cmd := exec.Command(os.Args[0], "-test.run=^TestStorageStartupWorker$", "-test.timeout=90s")
 	cmd.Env = append(os.Environ(), "CLOUDREVE_STORAGE_PROCESS_CONFIG="+file)
+	if workflows {
+		cmd.Env = append(cmd.Env, "CLOUDREVE_STORAGE_RUN_WORKFLOWS=1")
+	}
 	cmd.Stdout, cmd.Stderr = log, log
 	require.NoError(t, cmd.Start())
 	w := &storageWorker{cmd: cmd, file: file, done: make(chan error, 1)}

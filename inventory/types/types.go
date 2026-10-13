@@ -254,7 +254,7 @@ const (
 	GroupPermissionShareDownload
 	GroupPermission_CommunityPlaceholder1
 	GroupPermissionRemoteDownload
-	GroupPermission_CommunityPlaceholder2
+	GroupPermissionRelocate
 	GroupPermissionRedirectedSource // not used
 	GroupPermissionAdvanceDelete
 	GroupPermission_CommunityPlaceholder3
@@ -269,7 +269,7 @@ const (
 	NodeCapabilityCreateArchive
 	NodeCapabilityExtractArchive
 	NodeCapabilityRemoteDownload
-	NodeCapability_CommunityPlaceholder
+	NodeCapabilityRelocate
 )
 
 const (

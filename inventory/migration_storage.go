@@ -8,11 +8,14 @@ import (
 	"entgo.io/ent/dialect/sql/schema"
 	"github.com/cloudreve/Cloudreve/v4/ent"
 	entmigrate "github.com/cloudreve/Cloudreve/v4/ent/migrate"
+	"github.com/cloudreve/Cloudreve/v4/ent/node"
 	"github.com/cloudreve/Cloudreve/v4/ent/setting"
 	"github.com/cloudreve/Cloudreve/v4/inventory/debug"
+	"github.com/cloudreve/Cloudreve/v4/inventory/types"
+	"github.com/cloudreve/Cloudreve/v4/pkg/boolset"
 )
 
-const StorageSchemaVersion = "storage_extension_schema_v1"
+const StorageSchemaVersion = "storage_extension_schema_v2"
 
 // EnsureStorageSchema extends existing installations independently of the
 // upstream version marker. It shares the existing extension DDL lock so storage
@@ -37,6 +40,24 @@ func EnsureStorageSchema(ctx context.Context, client *ent.Client) error {
 	}
 	if err := entmigrate.Create(ctx, client.Schema, []*schema.Table{entmigrate.GroupPoliciesTable}, schema.WithAtlas(false)); err != nil {
 		return fmt.Errorf("initialize storage extension schema: %w", err)
+	}
+	nodes, err := client.Node.Query().All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range nodes {
+		capabilities := boolset.BooleanSet{}
+		if n.Capabilities != nil {
+			capabilities = append(capabilities, (*n.Capabilities)...)
+		}
+		supported := n.Type == node.TypeMaster
+		if capabilities.Enabled(int(types.NodeCapabilityRelocate)) == supported {
+			continue
+		}
+		boolset.Set(types.NodeCapabilityRelocate, supported, &capabilities)
+		if err := client.Node.UpdateOne(n).SetCapabilities(&capabilities).Exec(ctx); err != nil {
+			return err
+		}
 	}
 	return client.Setting.Create().SetName(StorageSchemaVersion).SetValue("complete").OnConflictColumns(setting.FieldName).UpdateNewValues().Exec(ctx)
 }

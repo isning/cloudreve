@@ -563,6 +563,11 @@ func initMasterRouter(dep dependency.Dep) *gin.Engine {
 				controllers.FromQuery[explorer.ListTaskService](explorer.ListTaskParamCtx{}),
 				controllers.ListTasks,
 			)
+			wf.POST("reloacte",
+				middleware.RequiredScopes(types.ScopeWorkflowWrite),
+				controllers.FromJSON[explorer.RelocateService](explorer.RelocateParamCtx{}),
+				controllers.RelocateStorage,
+			)
 			// GetTaskProgress
 			wf.GET("progress/:id",
 				middleware.HashID(hashid.TaskID),
