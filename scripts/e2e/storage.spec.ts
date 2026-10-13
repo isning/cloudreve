@@ -542,3 +542,49 @@ test("migration permission refresh hides stale actions without changing upload g
   await dialog.getByRole("button",{name:"Create migration task",exact:true}).click();
   await expect.poll(()=>accepted).toBe(1);
 });
+
+for(const blocked of ["eligible","foreign","symbolic","trash","no_capability","missing_capability"]) {
+  test(`mixed migration selection checks every source (${blocked})`,async ({page})=>{
+    const user={id:"member",nickname:"Member",email:"member@example.test",created_at:"2026-01-01T00:00:00Z",language:"en-US",group:{id:"members",name:"Members",permission:Buffer.from([0,4]).toString("base64")}};
+    await page.addInitScript(user=>{
+      localStorage.setItem("i18nextLng","en-US");
+      localStorage.setItem("cloudreve_session",JSON.stringify({current:user.id,sessions:{[user.id]:{user,token:{access_token:"synthetic-access",refresh_token:"synthetic-refresh",access_expires:"2099-01-01T00:00:00Z",refresh_expires:"2099-01-01T00:00:00Z"},settings:{preferred_dark_mode:true}}},anonymousSettings:{}}));
+    },user);
+    const policy={id:"encoded-policy-b",name:"Bucket B",type:"s3",max_size:0};
+    const common={owned:true,capability:"/////w==",metadata:{},created_at:"2026-01-01T00:00:00Z",updated_at:"2026-01-01T00:00:00Z"};
+    const file={...common,id:"source-file",type:0,name:"picked.txt",path:"cloudreve://my/picked.txt",size:12,primary_entity:"entity-a"};
+    const folder:any={...common,id:"source-folder",type:1,name:"picked-folder",path:"cloudreve://my/picked-folder"};
+    if(blocked==="foreign") folder.owned=false;
+    if(blocked==="symbolic") folder.metadata={"sys:shared_redirect":"https://share.example.test"};
+    if(blocked==="trash") { folder.path="cloudreve://trash/picked-folder";folder.metadata={"sys:restore_uri":"cloudreve://my/picked-folder"}; }
+    if(blocked==="no_capability") folder.capability=Buffer.from([255,255,191,255]).toString("base64");
+    if(blocked==="missing_capability") delete folder.capability;
+    let migration:any;
+    await page.route("**/api/v4/**",async route=>{
+      const req=route.request();
+      const path=new URL(req.url()).pathname.replace("/api/v4","");
+      let data:any={};
+      if(path.startsWith("/site/config/")) data={title:"Mixed selection",default_theme:"#3f51b5",themes:"#3f51b5",icons:"[]",viewers:"{}",user};
+      else if(path==="/user/capacity") data={total:1000000,used:12};
+      else if(path==="/user/setting/policies") data=[policy];
+      else if(path==="/file") data={files:[file,folder],parent:{...common,id:"root",type:1,name:"Root",path:"cloudreve://my/"},props:{capability:"/////w=="},pagination:{page:0,page_size:50,total_items:2},storage_policy:policy};
+      else if(path==="/workflow/reloacte" && req.method()==="POST") { migration=req.postDataJSON();data={id:"encoded-task",type:"relocate",status:"queued",created_at:"2026-01-01T00:00:00Z",updated_at:"2026-01-01T00:00:00Z"}; }
+      await route.fulfill({json:{code:0,data}});
+    });
+    await page.goto("/home");
+    await page.getByRole("main").getByText("picked.txt",{exact:true}).click();
+    await page.getByRole("main").getByText("picked-folder",{exact:true}).click({modifiers:["Control"]});
+    await page.getByRole("main").getByText("picked.txt",{exact:true}).click({button:"right"});
+    const entry=page.getByRole("menuitem",{name:"Relocate storage policy",exact:true});
+    if(blocked!=="eligible") { await expect(entry).toHaveCount(0);expect(migration).toBeUndefined();return; }
+    await entry.click();
+    const dialog=page.getByRole("dialog");
+    await dialog.getByRole("combobox",{name:"Storage policy"}).click();
+    await page.getByRole("option",{name:"Bucket B",exact:true}).click();
+    await dialog.getByRole("button",{name:"Create migration task",exact:true}).click();
+    await expect.poll(()=>migration?.src?.length).toBe(2);
+    expect(migration.dst_policy_id).toBe("encoded-policy-b");
+    expect(migration.src.map((src:string)=>new URL(src).pathname).sort()).toEqual(["/picked-folder","/picked.txt"]);
+    for(const src of migration.src) expect(new URL(src).username).toBe("member");
+  });
+}

@@ -32,6 +32,7 @@ func TestStorageRelocationRejectsInvalidContractsAndSources(t *testing.T) {
 	}
 	for _, uri := range []string{"", "invalid", "cloudreve://my/missing", "cloudreve://trash/valid.txt", "cloudreve://share/unknown", "cloudreve://" + hashid.EncodeUserID(f.dep.HashIDEncoder(), 1) + "@my/valid.txt"} {
 		require.NotZero(t, f.responseCode(t, http.MethodPost, "/api/v4/workflow/reloacte", map[string]any{"src": []string{uri}, "dst_policy_id": a}))
+		require.NotZero(t, f.responseCode(t, http.MethodPost, "/api/v4/workflow/reloacte", map[string]any{"src": []string{src, uri}, "dst_policy_id": a}), "an eligible source cannot authorize another source")
 	}
 	var pending explorer.UploadSessionResponse
 	f.request(t, http.MethodPut, "/api/v4/file/upload", map[string]any{"uri": "cloudreve://my/pending.txt", "size": 17}, &pending)
