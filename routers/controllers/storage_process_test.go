@@ -59,6 +59,10 @@ func TestStorageStartupWorker(t *testing.T) {
 	if os.Getenv("CLOUDREVE_STORAGE_RUN_WORKFLOWS") == "1" {
 		d.IoIntenseQueue(context.Background()).Start()
 		d.ThumbQueue(context.Background()).Start()
+		d.RemoteDownloadQueue(context.Background()).Start()
+	}
+	if os.Getenv("CLOUDREVE_STORAGE_RUN_RECYCLING") == "1" {
+		d.EntityRecycleQueue(context.Background()).Start()
 	}
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
@@ -99,6 +103,9 @@ func launchStorageWorkerMode(t *testing.T, f *storageFixture, workflows bool) *s
 	cmd.Env = append(os.Environ(), "CLOUDREVE_STORAGE_PROCESS_CONFIG="+file)
 	if workflows {
 		cmd.Env = append(cmd.Env, "CLOUDREVE_STORAGE_RUN_WORKFLOWS=1")
+	}
+	if f.recycling {
+		cmd.Env = append(cmd.Env, "CLOUDREVE_STORAGE_RUN_RECYCLING=1")
 	}
 	cmd.Stdout, cmd.Stderr = log, log
 	require.NoError(t, cmd.Start())

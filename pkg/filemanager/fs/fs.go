@@ -397,9 +397,10 @@ type (
 	}
 
 	PreValidateFile struct {
-		Name     string
-		Size     int64
-		OmitName bool // if true, file name will not be validated
+		PreferredStoragePolicy int // Optional fixed destination, reauthorized during validation.
+		Name                   string
+		Size                   int64
+		OmitName               bool // if true, file name will not be validated
 	}
 
 	PhysicalObject struct {
@@ -632,8 +633,9 @@ type (
 		Offset       int64
 		ProgressFunc `json:"-"`
 
-		ImportFrom *PhysicalObject `json:"-"`
-		read       int64
+		ImportFrom     *PhysicalObject                                                `json:"-"`
+		ImportVerifier func(context.Context, *ent.StoragePolicy, string, int64) error `json:"-"`
+		read           int64
 	}
 )
 

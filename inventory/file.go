@@ -3,6 +3,8 @@ package inventory
 import (
 	"context"
 	"fmt"
+	"sort"
+	"strconv"
 	"time"
 
 	"entgo.io/ent/dialect/sql"
@@ -609,6 +611,44 @@ func (f *fileClient) Delete(ctx context.Context, files []*ent.File, options *typ
 
 func (f *fileClient) Copy(ctx context.Context, args *CopyParameter) (map[int][]*ent.File, StorageDiff, error) {
 	files := args.Files
+	// Copy must not resurrect a deleted file or attach an obsolete physical
+	// snapshot after migration. Owner quota is already reserved by DBFS.
+	entityIDs := make(map[int]bool)
+	for _, source := range files {
+		for _, e := range source.Edges.Entities {
+			entityIDs[e.ID] = true
+		}
+	}
+	ordered := make([]int, 0, len(entityIDs))
+	for id := range entityIDs {
+		ordered = append(ordered, id)
+	}
+	sort.Ints(ordered)
+	for _, id := range ordered {
+		if _, err := f.client.ExecContext(ctx, "UPDATE entities SET reference_count = reference_count WHERE id = "+strconv.Itoa(id)); err != nil {
+			return nil, nil, err
+		}
+	}
+	for i, source := range files {
+		current, err := f.client.File.Query().Where(file.ID(source.ID), file.OwnerID(source.OwnerID)).WithEntities().WithMetadata().Only(ctx)
+		if err != nil {
+			return nil, nil, fmt.Errorf("copy source is unavailable: %w", err)
+		}
+		for _, e := range current.Edges.Entities {
+			policy, err := f.client.StoragePolicy.Get(ctx, e.StoragePolicyEntities)
+			if err != nil {
+				return nil, nil, err
+			}
+			location, err := LockStorageObject(ctx, f.client, policy, e.Source)
+			if err != nil {
+				return nil, nil, err
+			}
+			if location.Retired {
+				return nil, nil, ErrRetiredStorageObject
+			}
+		}
+		files[i] = current
+	}
 	dstMap := args.DstMap
 	pageSize := capPageSize(f.maxSQlParam, intsets.MaxInt, 10)
 	// 1. Copy files and metadata
@@ -934,6 +974,17 @@ func (f *fileClient) RemoveStaleEntities(ctx context.Context, file *ent.File) (S
 }
 
 func (f *fileClient) CreateEntity(ctx context.Context, file *ent.File, args *EntityParameters) (*ent.Entity, StorageDiff, error) {
+	policy, err := f.client.StoragePolicy.Get(ctx, args.StoragePolicyID)
+	if err != nil {
+		return nil, nil, err
+	}
+	location, err := LockStorageObject(ctx, f.client, policy, args.Source)
+	if err != nil {
+		return nil, nil, err
+	}
+	if location.Retired {
+		return nil, nil, ErrRetiredStorageObject
+	}
 	createdBy := UserFromContext(ctx)
 	// A derived thumbnail belongs to the file owner even when a read-only
 	// shared viewer triggered its internal generation. Ordinary writes keep

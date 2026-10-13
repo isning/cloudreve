@@ -54,6 +54,10 @@ type Tx struct {
 	Setting *SettingClient
 	// Share is the client for interacting with the Share builders.
 	Share *ShareClient
+	// StorageObject is the client for interacting with the StorageObject builders.
+	StorageObject *StorageObjectClient
+	// StorageObjectReader is the client for interacting with the StorageObjectReader builders.
+	StorageObjectReader *StorageObjectReaderClient
 	// StoragePolicy is the client for interacting with the StoragePolicy builders.
 	StoragePolicy *StoragePolicyClient
 	// Task is the client for interacting with the Task builders.
@@ -211,6 +215,8 @@ func (tx *Tx) init() {
 	tx.RelocationPlan = NewRelocationPlanClient(tx.config)
 	tx.Setting = NewSettingClient(tx.config)
 	tx.Share = NewShareClient(tx.config)
+	tx.StorageObject = NewStorageObjectClient(tx.config)
+	tx.StorageObjectReader = NewStorageObjectReaderClient(tx.config)
 	tx.StoragePolicy = NewStoragePolicyClient(tx.config)
 	tx.Task = NewTaskClient(tx.config)
 	tx.User = NewUserClient(tx.config)

@@ -107,9 +107,14 @@ func (service *DownloadWorkflowService) CreateDownloadTask(c *gin.Context) ([]*T
 	}
 
 	// Validate dst
-	_, err = m.Get(c, dst, dbfs.WithRequiredCapabilities(dbfs.NavigatorCapabilityCreateFile))
+	destination, err := m.Get(c, dst, dbfs.WithRequiredCapabilities(dbfs.NavigatorCapabilityCreateFile))
 	if err != nil {
 		return nil, serializer.NewError(serializer.CodeParamErr, "Invalid destination", err)
+	}
+
+	policy, err := storagepolicy.New(dep.UserClient(), dep.StoragePolicyClient()).SelectForFile(c, destination.OwnerID(), 0, dep.FileClient(), destination.ID())
+	if err != nil {
+		return nil, serializer.NewError(serializer.CodeGroupNotAllowed, "Storage destination is unavailable", err)
 	}
 
 	// 检查批量任务数量
@@ -139,7 +144,7 @@ func (service *DownloadWorkflowService) CreateDownloadTask(c *gin.Context) ([]*T
 			continue
 		}
 
-		t, err := workflows.NewRemoteDownloadTask(c, src, service.SrcFile, service.Dst)
+		t, err := workflows.NewRemoteDownloadTask(c, src, service.SrcFile, service.Dst, policy.ID)
 		if err != nil {
 			ae.Add(src, err)
 			continue
@@ -153,7 +158,7 @@ func (service *DownloadWorkflowService) CreateDownloadTask(c *gin.Context) ([]*T
 	}
 
 	if service.SrcFile != "" {
-		t, err := workflows.NewRemoteDownloadTask(c, "", service.SrcFile, service.Dst)
+		t, err := workflows.NewRemoteDownloadTask(c, "", service.SrcFile, service.Dst, policy.ID)
 		if err != nil {
 			ae.Add(service.SrcFile, err)
 		}

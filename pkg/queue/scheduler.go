@@ -41,6 +41,8 @@ type (
 
 // Queue send Task to the buffer channel
 func (s *fifoScheduler) Queue(task Task) error {
+	s.Lock()
+	defer s.Unlock()
 	if atomic.LoadInt32(&s.stopFlag) == 1 {
 		return ErrQueueShutdown
 	}
@@ -48,16 +50,16 @@ func (s *fifoScheduler) Queue(task Task) error {
 		return ErrMaxCapacity
 	}
 
-	s.Lock()
 	s.taskQueue.Push(task)
 	s.count++
-	s.Unlock()
 
 	return nil
 }
 
 // Request a new Task from channel
 func (s *fifoScheduler) Request() (Task, error) {
+	s.Lock()
+	defer s.Unlock()
 	if atomic.LoadInt32(&s.stopFlag) == 1 {
 		return nil, ErrQueueShutdown
 	}
@@ -65,15 +67,12 @@ func (s *fifoScheduler) Request() (Task, error) {
 	if s.count == 0 {
 		return nil, ErrNoTaskInQueue
 	}
-	s.Lock()
 	if s.taskQueue[s.taskQueue.Len()-1].ResumeTime() > time.Now().Unix() {
-		s.Unlock()
 		return nil, ErrNoTaskInQueue
 	}
 
 	data := s.taskQueue.Pop()
 	s.count--
-	s.Unlock()
 
 	return data.(Task), nil
 }

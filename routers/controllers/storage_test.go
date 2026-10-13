@@ -66,6 +66,7 @@ type storageFixture struct {
 	password      string
 	adminPassword string
 	database      conf.Database
+	recycling     bool
 	remote        string
 	idp           *testIDP
 }
@@ -106,8 +107,22 @@ func startStorageS3(t *testing.T) storageS3Service {
 			t.Skip("real S3 integration: provide weed or CLOUDREVE_S3_TEST_SERVER")
 		}
 	}
+	// Reserve all ports together so a later allocation cannot reuse this
+	// instance's S3 port before SeaweedFS has opened its listeners.
+	var reserved []net.Listener
+	reservePort := func() int {
+		listener, err := net.Listen("tcp", "127.0.0.1:0")
+		require.NoError(t, err)
+		reserved = append(reserved, listener)
+		return listener.Addr().(*net.TCPAddr).Port
+	}
+	defer func() {
+		for _, listener := range reserved {
+			_ = listener.Close()
+		}
+	}()
 	dir := t.TempDir()
-	service := storageS3Service{Endpoint: fmt.Sprintf("http://127.0.0.1:%d", storagePort(t)), AccessKey: storageRandom(t), SecretKey: storageRandom(t)}
+	service := storageS3Service{Endpoint: fmt.Sprintf("http://127.0.0.1:%d", reservePort()), AccessKey: storageRandom(t), SecretKey: storageRandom(t)}
 	raw, err := json.Marshal(map[string]any{"identities": []any{map[string]any{
 		"name":        "cloudreve-owned-test",
 		"credentials": []any{map[string]string{"accessKey": service.AccessKey, "secretKey": service.SecretKey}},
@@ -122,13 +137,17 @@ func startStorageS3(t *testing.T) storageS3Service {
 		"-s3.port=" + u.Port(), "-s3.port.iceberg=0", "-s3.port.lance=0", "-webdav=false", "-admin.ui=false", "-master.telemetry=false",
 		"-filer.localSocket=filer.sock", "-s3.localSocket=s3.sock", "-volume.max=4", "-master.volumeSizeLimitMB=32"}
 	for _, flag := range []string{"master.port", "master.port.grpc", "volume.port", "volume.port.grpc", "filer.port", "filer.port.grpc", "s3.port.grpc"} {
-		args = append(args, fmt.Sprintf("-%s=%d", flag, storagePort(t)))
+		args = append(args, fmt.Sprintf("-%s=%d", flag, reservePort()))
 	}
 	cmd := exec.Command(program, args...)
 	cmd.Dir = dir
 	log, err := os.Create(filepath.Join(dir, "s3.log"))
 	require.NoError(t, err)
 	cmd.Stdout, cmd.Stderr = log, log
+	for _, listener := range reserved {
+		require.NoError(t, listener.Close())
+	}
+	reserved = nil
 	require.NoError(t, cmd.Start())
 	done := make(chan error, 1)
 	go func() { done <- cmd.Wait() }()
@@ -192,7 +211,7 @@ func prepareStorageFixture(t *testing.T, legacy bool) *storageFixture {
 		require.NoError(t, err)
 		var tables []*schema.Table
 		for _, table := range entmigrate.Tables {
-			if table.Name != "group_policies" && table.Name != "relocation_items" && table.Name != "relocation_attempts" && table.Name != "relocation_plans" {
+			if table.Name != "group_policies" && table.Name != "relocation_items" && table.Name != "relocation_attempts" && table.Name != "relocation_plans" && table.Name != "storage_objects" && table.Name != "storage_object_readers" {
 				tables = append(tables, table)
 			}
 		}
@@ -321,6 +340,7 @@ func storageRouter(d dependency.Dep, l logging.Logger) *gin.Engine {
 	authenticated.POST("/workflow/import", middleware.IsAdmin(), ctl.FromJSON[explorer.ImportWorkflowService](explorer.CreateImportParamCtx{}), ctl.ImportFiles)
 	authenticated.POST("/workflow/reloacte", ctl.FromJSON[explorer.RelocateService](explorer.RelocateParamCtx{}), ctl.RelocateStorage)
 	authenticated.POST("/workflow/archive", ctl.FromJSON[explorer.ArchiveWorkflowService](explorer.CreateArchiveParamCtx{}), ctl.CreateArchive)
+	authenticated.POST("/workflow/download", ctl.FromJSON[explorer.DownloadWorkflowService](explorer.CreateDownloadParamCtx{}), ctl.CreateRemoteDownload)
 	authenticated.POST("/workflow/extract", ctl.FromJSON[explorer.ArchiveWorkflowService](explorer.CreateArchiveParamCtx{}), ctl.ExtractArchive)
 	authenticated.GET("/workflow", ctl.FromQuery[explorer.ListTaskService](explorer.ListTaskParamCtx{}), ctl.ListTasks)
 	authenticated.GET("/workflow/progress/:id", middleware.HashID(hashid.TaskID), ctl.GetTaskPhaseProgress)

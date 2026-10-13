@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/cloudreve/Cloudreve/v4/application/dependency"
@@ -453,12 +454,30 @@ func (r *digestReader) Read(p []byte) (int, error) {
 	return n, err
 }
 
+type protectedSource struct {
+	entitysource.EntitySource
+	finish func()
+	once   sync.Once
+}
+
+func (s *protectedSource) Close() error {
+	err := s.EntitySource.Close()
+	s.once.Do(s.finish)
+	return err
+}
+
 func rawSource(ctx context.Context, fm manager.FileManager, entity *ent.Entity, policy *ent.StoragePolicy) (entitysource.EntitySource, error) {
-	r, err := fm.GetEntitySource(ctx, 0, fs.WithEntity(fs.NewEntity(entity)), fs.WithPolicy(policy))
-	if err == nil {
-		r.Apply(entitysource.WithDisableCryptor())
+	finish, err := inventory.BeginStorageObjectRead(ctx, dependency.FromContext(ctx).DBClient(), policy, entity.Source)
+	if err != nil {
+		return nil, err
 	}
-	return r, err
+	r, err := fm.GetEntitySource(ctx, 0, fs.WithEntity(fs.NewEntity(entity)), fs.WithPolicy(policy))
+	if err != nil {
+		finish()
+		return nil, err
+	}
+	r.Apply(entitysource.WithDisableCryptor())
+	return &protectedSource{EntitySource: r, finish: finish}, nil
 }
 
 func copySingle(ctx context.Context, dep dependency.Dep, fm manager.FileManager, item *ent.RelocationItem, uri *fs.URI) error {
@@ -615,6 +634,13 @@ func commitSingle(ctx context.Context, dep dependency.Dep, fm manager.FileManage
 	current, _, _, err := currentSource(ctx, c, item)
 	if err != nil {
 		return err
+	}
+	location, err := inventory.LockStorageObject(ctx, c, b, attempt.TargetKey)
+	if err != nil {
+		return err
+	}
+	if location.Retired {
+		return inventory.ErrRetiredStorageObject
 	}
 	selected := make([]int, 0, len(item.References))
 	for _, ref := range item.References {

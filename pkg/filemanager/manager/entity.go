@@ -5,7 +5,9 @@ import (
 	"crypto/sha1"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"time"
 
 	"github.com/cloudreve/Cloudreve/v4/ent"
@@ -399,6 +401,23 @@ func (l *manager) ImportPhysical(ctx context.Context, dst *fs.URI, policyId int,
 			LastModified:           &src.LastModify,
 		},
 		ImportFrom: &src,
+		ImportVerifier: func(checkCtx context.Context, policy *ent.StoragePolicy, key string, size int64) error {
+			r, err := l.GetEntitySource(checkCtx, 0, fs.WithEntity(fs.NewEntity(&ent.Entity{Source: key, Size: size, StoragePolicyEntities: policy.ID})), fs.WithPolicy(policy))
+			if err != nil {
+				return errors.New("physical import source is unavailable")
+			}
+			defer r.Close()
+			r.Apply(entitysource.WithDisableCryptor(), entitysource.WithPhysicalSource())
+			var probe [1]byte
+			n, err := r.Read(probe[:])
+			if size == 0 && n == 0 && err == io.EOF {
+				return nil
+			}
+			if size > 0 && n == 1 && (err == nil || err == io.EOF) {
+				return nil
+			}
+			return errors.New("physical import source is unavailable")
+		},
 	}
 
 	// Prepare for upload

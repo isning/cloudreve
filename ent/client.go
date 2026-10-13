@@ -35,6 +35,8 @@ import (
 	"github.com/cloudreve/Cloudreve/v4/ent/relocationplan"
 	"github.com/cloudreve/Cloudreve/v4/ent/setting"
 	"github.com/cloudreve/Cloudreve/v4/ent/share"
+	"github.com/cloudreve/Cloudreve/v4/ent/storageobject"
+	"github.com/cloudreve/Cloudreve/v4/ent/storageobjectreader"
 	"github.com/cloudreve/Cloudreve/v4/ent/storagepolicy"
 	"github.com/cloudreve/Cloudreve/v4/ent/task"
 	"github.com/cloudreve/Cloudreve/v4/ent/user"
@@ -87,6 +89,10 @@ type Client struct {
 	Setting *SettingClient
 	// Share is the client for interacting with the Share builders.
 	Share *ShareClient
+	// StorageObject is the client for interacting with the StorageObject builders.
+	StorageObject *StorageObjectClient
+	// StorageObjectReader is the client for interacting with the StorageObjectReader builders.
+	StorageObjectReader *StorageObjectReaderClient
 	// StoragePolicy is the client for interacting with the StoragePolicy builders.
 	StoragePolicy *StoragePolicyClient
 	// Task is the client for interacting with the Task builders.
@@ -124,6 +130,8 @@ func (c *Client) init() {
 	c.RelocationPlan = NewRelocationPlanClient(c.config)
 	c.Setting = NewSettingClient(c.config)
 	c.Share = NewShareClient(c.config)
+	c.StorageObject = NewStorageObjectClient(c.config)
+	c.StorageObjectReader = NewStorageObjectReaderClient(c.config)
 	c.StoragePolicy = NewStoragePolicyClient(c.config)
 	c.Task = NewTaskClient(c.config)
 	c.User = NewUserClient(c.config)
@@ -217,31 +225,33 @@ func (c *Client) Tx(ctx context.Context) (*Tx, error) {
 	cfg := c.config
 	cfg.driver = tx
 	return &Tx{
-		ctx:               ctx,
-		config:            cfg,
-		DavAccount:        NewDavAccountClient(cfg),
-		DirectLink:        NewDirectLinkClient(cfg),
-		Entity:            NewEntityClient(cfg),
-		ExternalIdentity:  NewExternalIdentityClient(cfg),
-		File:              NewFileClient(cfg),
-		FsEvent:           NewFsEventClient(cfg),
-		Group:             NewGroupClient(cfg),
-		GroupPolicy:       NewGroupPolicyClient(cfg),
-		Metadata:          NewMetadataClient(cfg),
-		Node:              NewNodeClient(cfg),
-		OAuthClient:       NewOAuthClientClient(cfg),
-		OAuthGrant:        NewOAuthGrantClient(cfg),
-		OpenIDSession:     NewOpenIDSessionClient(cfg),
-		OpenIDTransaction: NewOpenIDTransactionClient(cfg),
-		Passkey:           NewPasskeyClient(cfg),
-		RelocationAttempt: NewRelocationAttemptClient(cfg),
-		RelocationItem:    NewRelocationItemClient(cfg),
-		RelocationPlan:    NewRelocationPlanClient(cfg),
-		Setting:           NewSettingClient(cfg),
-		Share:             NewShareClient(cfg),
-		StoragePolicy:     NewStoragePolicyClient(cfg),
-		Task:              NewTaskClient(cfg),
-		User:              NewUserClient(cfg),
+		ctx:                 ctx,
+		config:              cfg,
+		DavAccount:          NewDavAccountClient(cfg),
+		DirectLink:          NewDirectLinkClient(cfg),
+		Entity:              NewEntityClient(cfg),
+		ExternalIdentity:    NewExternalIdentityClient(cfg),
+		File:                NewFileClient(cfg),
+		FsEvent:             NewFsEventClient(cfg),
+		Group:               NewGroupClient(cfg),
+		GroupPolicy:         NewGroupPolicyClient(cfg),
+		Metadata:            NewMetadataClient(cfg),
+		Node:                NewNodeClient(cfg),
+		OAuthClient:         NewOAuthClientClient(cfg),
+		OAuthGrant:          NewOAuthGrantClient(cfg),
+		OpenIDSession:       NewOpenIDSessionClient(cfg),
+		OpenIDTransaction:   NewOpenIDTransactionClient(cfg),
+		Passkey:             NewPasskeyClient(cfg),
+		RelocationAttempt:   NewRelocationAttemptClient(cfg),
+		RelocationItem:      NewRelocationItemClient(cfg),
+		RelocationPlan:      NewRelocationPlanClient(cfg),
+		Setting:             NewSettingClient(cfg),
+		Share:               NewShareClient(cfg),
+		StorageObject:       NewStorageObjectClient(cfg),
+		StorageObjectReader: NewStorageObjectReaderClient(cfg),
+		StoragePolicy:       NewStoragePolicyClient(cfg),
+		Task:                NewTaskClient(cfg),
+		User:                NewUserClient(cfg),
 	}, nil
 }
 
@@ -259,31 +269,33 @@ func (c *Client) BeginTx(ctx context.Context, opts *sql.TxOptions) (*Tx, error) 
 	cfg := c.config
 	cfg.driver = &txDriver{tx: tx, drv: c.driver}
 	return &Tx{
-		ctx:               ctx,
-		config:            cfg,
-		DavAccount:        NewDavAccountClient(cfg),
-		DirectLink:        NewDirectLinkClient(cfg),
-		Entity:            NewEntityClient(cfg),
-		ExternalIdentity:  NewExternalIdentityClient(cfg),
-		File:              NewFileClient(cfg),
-		FsEvent:           NewFsEventClient(cfg),
-		Group:             NewGroupClient(cfg),
-		GroupPolicy:       NewGroupPolicyClient(cfg),
-		Metadata:          NewMetadataClient(cfg),
-		Node:              NewNodeClient(cfg),
-		OAuthClient:       NewOAuthClientClient(cfg),
-		OAuthGrant:        NewOAuthGrantClient(cfg),
-		OpenIDSession:     NewOpenIDSessionClient(cfg),
-		OpenIDTransaction: NewOpenIDTransactionClient(cfg),
-		Passkey:           NewPasskeyClient(cfg),
-		RelocationAttempt: NewRelocationAttemptClient(cfg),
-		RelocationItem:    NewRelocationItemClient(cfg),
-		RelocationPlan:    NewRelocationPlanClient(cfg),
-		Setting:           NewSettingClient(cfg),
-		Share:             NewShareClient(cfg),
-		StoragePolicy:     NewStoragePolicyClient(cfg),
-		Task:              NewTaskClient(cfg),
-		User:              NewUserClient(cfg),
+		ctx:                 ctx,
+		config:              cfg,
+		DavAccount:          NewDavAccountClient(cfg),
+		DirectLink:          NewDirectLinkClient(cfg),
+		Entity:              NewEntityClient(cfg),
+		ExternalIdentity:    NewExternalIdentityClient(cfg),
+		File:                NewFileClient(cfg),
+		FsEvent:             NewFsEventClient(cfg),
+		Group:               NewGroupClient(cfg),
+		GroupPolicy:         NewGroupPolicyClient(cfg),
+		Metadata:            NewMetadataClient(cfg),
+		Node:                NewNodeClient(cfg),
+		OAuthClient:         NewOAuthClientClient(cfg),
+		OAuthGrant:          NewOAuthGrantClient(cfg),
+		OpenIDSession:       NewOpenIDSessionClient(cfg),
+		OpenIDTransaction:   NewOpenIDTransactionClient(cfg),
+		Passkey:             NewPasskeyClient(cfg),
+		RelocationAttempt:   NewRelocationAttemptClient(cfg),
+		RelocationItem:      NewRelocationItemClient(cfg),
+		RelocationPlan:      NewRelocationPlanClient(cfg),
+		Setting:             NewSettingClient(cfg),
+		Share:               NewShareClient(cfg),
+		StorageObject:       NewStorageObjectClient(cfg),
+		StorageObjectReader: NewStorageObjectReaderClient(cfg),
+		StoragePolicy:       NewStoragePolicyClient(cfg),
+		Task:                NewTaskClient(cfg),
+		User:                NewUserClient(cfg),
 	}, nil
 }
 
@@ -316,8 +328,8 @@ func (c *Client) Use(hooks ...Hook) {
 		c.DavAccount, c.DirectLink, c.Entity, c.ExternalIdentity, c.File, c.FsEvent,
 		c.Group, c.GroupPolicy, c.Metadata, c.Node, c.OAuthClient, c.OAuthGrant,
 		c.OpenIDSession, c.OpenIDTransaction, c.Passkey, c.RelocationAttempt,
-		c.RelocationItem, c.RelocationPlan, c.Setting, c.Share, c.StoragePolicy,
-		c.Task, c.User,
+		c.RelocationItem, c.RelocationPlan, c.Setting, c.Share, c.StorageObject,
+		c.StorageObjectReader, c.StoragePolicy, c.Task, c.User,
 	} {
 		n.Use(hooks...)
 	}
@@ -330,8 +342,8 @@ func (c *Client) Intercept(interceptors ...Interceptor) {
 		c.DavAccount, c.DirectLink, c.Entity, c.ExternalIdentity, c.File, c.FsEvent,
 		c.Group, c.GroupPolicy, c.Metadata, c.Node, c.OAuthClient, c.OAuthGrant,
 		c.OpenIDSession, c.OpenIDTransaction, c.Passkey, c.RelocationAttempt,
-		c.RelocationItem, c.RelocationPlan, c.Setting, c.Share, c.StoragePolicy,
-		c.Task, c.User,
+		c.RelocationItem, c.RelocationPlan, c.Setting, c.Share, c.StorageObject,
+		c.StorageObjectReader, c.StoragePolicy, c.Task, c.User,
 	} {
 		n.Intercept(interceptors...)
 	}
@@ -380,6 +392,10 @@ func (c *Client) Mutate(ctx context.Context, m Mutation) (Value, error) {
 		return c.Setting.mutate(ctx, m)
 	case *ShareMutation:
 		return c.Share.mutate(ctx, m)
+	case *StorageObjectMutation:
+		return c.StorageObject.mutate(ctx, m)
+	case *StorageObjectReaderMutation:
+		return c.StorageObjectReader.mutate(ctx, m)
 	case *StoragePolicyMutation:
 		return c.StoragePolicy.mutate(ctx, m)
 	case *TaskMutation:
@@ -3588,6 +3604,272 @@ func (c *ShareClient) mutate(ctx context.Context, m *ShareMutation) (Value, erro
 	}
 }
 
+// StorageObjectClient is a client for the StorageObject schema.
+type StorageObjectClient struct {
+	config
+}
+
+// NewStorageObjectClient returns a client for the StorageObject from the given config.
+func NewStorageObjectClient(c config) *StorageObjectClient {
+	return &StorageObjectClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `storageobject.Hooks(f(g(h())))`.
+func (c *StorageObjectClient) Use(hooks ...Hook) {
+	c.hooks.StorageObject = append(c.hooks.StorageObject, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `storageobject.Intercept(f(g(h())))`.
+func (c *StorageObjectClient) Intercept(interceptors ...Interceptor) {
+	c.inters.StorageObject = append(c.inters.StorageObject, interceptors...)
+}
+
+// Create returns a builder for creating a StorageObject entity.
+func (c *StorageObjectClient) Create() *StorageObjectCreate {
+	mutation := newStorageObjectMutation(c.config, OpCreate)
+	return &StorageObjectCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of StorageObject entities.
+func (c *StorageObjectClient) CreateBulk(builders ...*StorageObjectCreate) *StorageObjectCreateBulk {
+	return &StorageObjectCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *StorageObjectClient) MapCreateBulk(slice any, setFunc func(*StorageObjectCreate, int)) *StorageObjectCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &StorageObjectCreateBulk{err: fmt.Errorf("calling to StorageObjectClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*StorageObjectCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &StorageObjectCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for StorageObject.
+func (c *StorageObjectClient) Update() *StorageObjectUpdate {
+	mutation := newStorageObjectMutation(c.config, OpUpdate)
+	return &StorageObjectUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *StorageObjectClient) UpdateOne(so *StorageObject) *StorageObjectUpdateOne {
+	mutation := newStorageObjectMutation(c.config, OpUpdateOne, withStorageObject(so))
+	return &StorageObjectUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *StorageObjectClient) UpdateOneID(id int) *StorageObjectUpdateOne {
+	mutation := newStorageObjectMutation(c.config, OpUpdateOne, withStorageObjectID(id))
+	return &StorageObjectUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for StorageObject.
+func (c *StorageObjectClient) Delete() *StorageObjectDelete {
+	mutation := newStorageObjectMutation(c.config, OpDelete)
+	return &StorageObjectDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *StorageObjectClient) DeleteOne(so *StorageObject) *StorageObjectDeleteOne {
+	return c.DeleteOneID(so.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *StorageObjectClient) DeleteOneID(id int) *StorageObjectDeleteOne {
+	builder := c.Delete().Where(storageobject.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &StorageObjectDeleteOne{builder}
+}
+
+// Query returns a query builder for StorageObject.
+func (c *StorageObjectClient) Query() *StorageObjectQuery {
+	return &StorageObjectQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeStorageObject},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a StorageObject entity by its id.
+func (c *StorageObjectClient) Get(ctx context.Context, id int) (*StorageObject, error) {
+	return c.Query().Where(storageobject.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *StorageObjectClient) GetX(ctx context.Context, id int) *StorageObject {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// Hooks returns the client hooks.
+func (c *StorageObjectClient) Hooks() []Hook {
+	return c.hooks.StorageObject
+}
+
+// Interceptors returns the client interceptors.
+func (c *StorageObjectClient) Interceptors() []Interceptor {
+	return c.inters.StorageObject
+}
+
+func (c *StorageObjectClient) mutate(ctx context.Context, m *StorageObjectMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&StorageObjectCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&StorageObjectUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&StorageObjectUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&StorageObjectDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown StorageObject mutation op: %q", m.Op())
+	}
+}
+
+// StorageObjectReaderClient is a client for the StorageObjectReader schema.
+type StorageObjectReaderClient struct {
+	config
+}
+
+// NewStorageObjectReaderClient returns a client for the StorageObjectReader from the given config.
+func NewStorageObjectReaderClient(c config) *StorageObjectReaderClient {
+	return &StorageObjectReaderClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `storageobjectreader.Hooks(f(g(h())))`.
+func (c *StorageObjectReaderClient) Use(hooks ...Hook) {
+	c.hooks.StorageObjectReader = append(c.hooks.StorageObjectReader, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `storageobjectreader.Intercept(f(g(h())))`.
+func (c *StorageObjectReaderClient) Intercept(interceptors ...Interceptor) {
+	c.inters.StorageObjectReader = append(c.inters.StorageObjectReader, interceptors...)
+}
+
+// Create returns a builder for creating a StorageObjectReader entity.
+func (c *StorageObjectReaderClient) Create() *StorageObjectReaderCreate {
+	mutation := newStorageObjectReaderMutation(c.config, OpCreate)
+	return &StorageObjectReaderCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of StorageObjectReader entities.
+func (c *StorageObjectReaderClient) CreateBulk(builders ...*StorageObjectReaderCreate) *StorageObjectReaderCreateBulk {
+	return &StorageObjectReaderCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *StorageObjectReaderClient) MapCreateBulk(slice any, setFunc func(*StorageObjectReaderCreate, int)) *StorageObjectReaderCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &StorageObjectReaderCreateBulk{err: fmt.Errorf("calling to StorageObjectReaderClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*StorageObjectReaderCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &StorageObjectReaderCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for StorageObjectReader.
+func (c *StorageObjectReaderClient) Update() *StorageObjectReaderUpdate {
+	mutation := newStorageObjectReaderMutation(c.config, OpUpdate)
+	return &StorageObjectReaderUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *StorageObjectReaderClient) UpdateOne(sor *StorageObjectReader) *StorageObjectReaderUpdateOne {
+	mutation := newStorageObjectReaderMutation(c.config, OpUpdateOne, withStorageObjectReader(sor))
+	return &StorageObjectReaderUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *StorageObjectReaderClient) UpdateOneID(id int) *StorageObjectReaderUpdateOne {
+	mutation := newStorageObjectReaderMutation(c.config, OpUpdateOne, withStorageObjectReaderID(id))
+	return &StorageObjectReaderUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for StorageObjectReader.
+func (c *StorageObjectReaderClient) Delete() *StorageObjectReaderDelete {
+	mutation := newStorageObjectReaderMutation(c.config, OpDelete)
+	return &StorageObjectReaderDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *StorageObjectReaderClient) DeleteOne(sor *StorageObjectReader) *StorageObjectReaderDeleteOne {
+	return c.DeleteOneID(sor.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *StorageObjectReaderClient) DeleteOneID(id int) *StorageObjectReaderDeleteOne {
+	builder := c.Delete().Where(storageobjectreader.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &StorageObjectReaderDeleteOne{builder}
+}
+
+// Query returns a query builder for StorageObjectReader.
+func (c *StorageObjectReaderClient) Query() *StorageObjectReaderQuery {
+	return &StorageObjectReaderQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeStorageObjectReader},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a StorageObjectReader entity by its id.
+func (c *StorageObjectReaderClient) Get(ctx context.Context, id int) (*StorageObjectReader, error) {
+	return c.Query().Where(storageobjectreader.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *StorageObjectReaderClient) GetX(ctx context.Context, id int) *StorageObjectReader {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// Hooks returns the client hooks.
+func (c *StorageObjectReaderClient) Hooks() []Hook {
+	return c.hooks.StorageObjectReader
+}
+
+// Interceptors returns the client interceptors.
+func (c *StorageObjectReaderClient) Interceptors() []Interceptor {
+	return c.inters.StorageObjectReader
+}
+
+func (c *StorageObjectReaderClient) mutate(ctx context.Context, m *StorageObjectReaderMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&StorageObjectReaderCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&StorageObjectReaderUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&StorageObjectReaderUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&StorageObjectReaderDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown StorageObjectReader mutation op: %q", m.Op())
+	}
+}
+
 // StoragePolicyClient is a client for the StoragePolicy schema.
 type StoragePolicyClient struct {
 	config
@@ -4287,13 +4569,15 @@ type (
 		DavAccount, DirectLink, Entity, ExternalIdentity, File, FsEvent, Group,
 		GroupPolicy, Metadata, Node, OAuthClient, OAuthGrant, OpenIDSession,
 		OpenIDTransaction, Passkey, RelocationAttempt, RelocationItem, RelocationPlan,
-		Setting, Share, StoragePolicy, Task, User []ent.Hook
+		Setting, Share, StorageObject, StorageObjectReader, StoragePolicy, Task,
+		User []ent.Hook
 	}
 	inters struct {
 		DavAccount, DirectLink, Entity, ExternalIdentity, File, FsEvent, Group,
 		GroupPolicy, Metadata, Node, OAuthClient, OAuthGrant, OpenIDSession,
 		OpenIDTransaction, Passkey, RelocationAttempt, RelocationItem, RelocationPlan,
-		Setting, Share, StoragePolicy, Task, User []ent.Interceptor
+		Setting, Share, StorageObject, StorageObjectReader, StoragePolicy, Task,
+		User []ent.Interceptor
 	}
 )
 

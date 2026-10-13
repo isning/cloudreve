@@ -249,6 +249,30 @@ func (f ShareFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error
 	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.ShareMutation", m)
 }
 
+// The StorageObjectFunc type is an adapter to allow the use of ordinary
+// function as StorageObject mutator.
+type StorageObjectFunc func(context.Context, *ent.StorageObjectMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f StorageObjectFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.StorageObjectMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.StorageObjectMutation", m)
+}
+
+// The StorageObjectReaderFunc type is an adapter to allow the use of ordinary
+// function as StorageObjectReader mutator.
+type StorageObjectReaderFunc func(context.Context, *ent.StorageObjectReaderMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f StorageObjectReaderFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.StorageObjectReaderMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.StorageObjectReaderMutation", m)
+}
+
 // The StoragePolicyFunc type is an adapter to allow the use of ordinary
 // function as StoragePolicy mutator.
 type StoragePolicyFunc func(context.Context, *ent.StoragePolicyMutation) (ent.Value, error)

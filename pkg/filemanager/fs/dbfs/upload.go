@@ -45,14 +45,12 @@ func (f *DBFS) PreValidateUpload(ctx context.Context, dst *fs.URI, files ...fs.P
 		total += file.Size
 	}
 
-	// Get parent folder storage policy and performs validation
-	policy, err := f.getPreferredPolicy(ctx, dstFile)
-	if err != nil {
-		return err
-	}
-
-	// validate upload request
+	// Resolve each request against current grants, including fixed queued destinations.
 	for _, file := range files {
+		policy, err := storagepolicy.New(f.userClient, f.storagePolicyClient).SelectForFile(ctx, dstFile.OwnerID(), file.PreferredStoragePolicy, f.fileClient, dstFile.ID())
+		if err != nil {
+			return err
+		}
 		if file.OmitName {
 			if err := validateFileSize(file.Size, policy); err != nil {
 				return err
@@ -222,6 +220,27 @@ func (f *DBFS) PrepareUpload(ctx context.Context, req *fs.UploadRequest, opts ..
 		return nil, err
 	}
 	policy = current
+	location, err := inventory.LockStorageObject(ctx, fc.GetClient(), policy, req.Props.SavePath)
+	if err != nil {
+		_ = inventory.Rollback(dbTx)
+		return nil, err
+	}
+	if req.ImportFrom != nil {
+		// The physical listing can be stale. Reopen under the deletion gate,
+		// including after a successful deletion whose SQL transaction rolled back.
+		if req.ImportVerifier == nil {
+			_ = inventory.Rollback(dbTx)
+			return nil, errors.New("physical import verifier is unavailable")
+		}
+		if err := req.ImportVerifier(ctx, policy, req.Props.SavePath, req.Props.Size); err != nil {
+			_ = inventory.Rollback(dbTx)
+			return nil, err
+		}
+	}
+	if err := fc.GetClient().StorageObject.UpdateOne(location).SetRetired(false).Exec(ctx); err != nil {
+		_ = inventory.Rollback(dbTx)
+		return nil, err
+	}
 
 	if fileExisted {
 		entityType := types.EntityTypeVersion

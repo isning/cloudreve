@@ -671,6 +671,39 @@ var (
 			},
 		},
 	}
+	// StorageObjectsColumns holds the columns for the "storage_objects" table.
+	StorageObjectsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt, Increment: true},
+		{Name: "key", Type: field.TypeString, Unique: true, Size: 64},
+		{Name: "generation", Type: field.TypeInt64, Default: 0},
+		{Name: "retired", Type: field.TypeBool, Default: false},
+	}
+	// StorageObjectsTable holds the schema information for the "storage_objects" table.
+	StorageObjectsTable = &schema.Table{
+		Name:       "storage_objects",
+		Columns:    StorageObjectsColumns,
+		PrimaryKey: []*schema.Column{StorageObjectsColumns[0]},
+	}
+	// StorageObjectReadersColumns holds the columns for the "storage_object_readers" table.
+	StorageObjectReadersColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt, Increment: true},
+		{Name: "location_key", Type: field.TypeString, Size: 64},
+		{Name: "created_at", Type: field.TypeTime},
+		{Name: "finished", Type: field.TypeBool, Default: false},
+	}
+	// StorageObjectReadersTable holds the schema information for the "storage_object_readers" table.
+	StorageObjectReadersTable = &schema.Table{
+		Name:       "storage_object_readers",
+		Columns:    StorageObjectReadersColumns,
+		PrimaryKey: []*schema.Column{StorageObjectReadersColumns[0]},
+		Indexes: []*schema.Index{
+			{
+				Name:    "storageobjectreader_location_key_finished",
+				Unique:  false,
+				Columns: []*schema.Column{StorageObjectReadersColumns[1], StorageObjectReadersColumns[3]},
+			},
+		},
+	}
 	// StoragePoliciesColumns holds the columns for the "storage_policies" table.
 	StoragePoliciesColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt, Increment: true},
@@ -809,6 +842,8 @@ var (
 		RelocationPlansTable,
 		SettingsTable,
 		SharesTable,
+		StorageObjectsTable,
+		StorageObjectReadersTable,
 		StoragePoliciesTable,
 		TasksTable,
 		UsersTable,

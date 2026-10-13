@@ -26,6 +26,8 @@ import (
 	"github.com/cloudreve/Cloudreve/v4/ent/schema"
 	"github.com/cloudreve/Cloudreve/v4/ent/setting"
 	"github.com/cloudreve/Cloudreve/v4/ent/share"
+	"github.com/cloudreve/Cloudreve/v4/ent/storageobject"
+	"github.com/cloudreve/Cloudreve/v4/ent/storageobjectreader"
 	"github.com/cloudreve/Cloudreve/v4/ent/storagepolicy"
 	"github.com/cloudreve/Cloudreve/v4/ent/task"
 	"github.com/cloudreve/Cloudreve/v4/ent/user"
@@ -526,6 +528,34 @@ func init() {
 	shareDescDownloads := shareFields[2].Descriptor()
 	// share.DefaultDownloads holds the default value on creation for the downloads field.
 	share.DefaultDownloads = shareDescDownloads.Default.(int)
+	storageobjectFields := schema.StorageObject{}.Fields()
+	_ = storageobjectFields
+	// storageobjectDescKey is the schema descriptor for key field.
+	storageobjectDescKey := storageobjectFields[0].Descriptor()
+	// storageobject.KeyValidator is a validator for the "key" field. It is called by the builders before save.
+	storageobject.KeyValidator = storageobjectDescKey.Validators[0].(func(string) error)
+	// storageobjectDescGeneration is the schema descriptor for generation field.
+	storageobjectDescGeneration := storageobjectFields[1].Descriptor()
+	// storageobject.DefaultGeneration holds the default value on creation for the generation field.
+	storageobject.DefaultGeneration = storageobjectDescGeneration.Default.(int64)
+	// storageobjectDescRetired is the schema descriptor for retired field.
+	storageobjectDescRetired := storageobjectFields[2].Descriptor()
+	// storageobject.DefaultRetired holds the default value on creation for the retired field.
+	storageobject.DefaultRetired = storageobjectDescRetired.Default.(bool)
+	storageobjectreaderFields := schema.StorageObjectReader{}.Fields()
+	_ = storageobjectreaderFields
+	// storageobjectreaderDescLocationKey is the schema descriptor for location_key field.
+	storageobjectreaderDescLocationKey := storageobjectreaderFields[0].Descriptor()
+	// storageobjectreader.LocationKeyValidator is a validator for the "location_key" field. It is called by the builders before save.
+	storageobjectreader.LocationKeyValidator = storageobjectreaderDescLocationKey.Validators[0].(func(string) error)
+	// storageobjectreaderDescCreatedAt is the schema descriptor for created_at field.
+	storageobjectreaderDescCreatedAt := storageobjectreaderFields[1].Descriptor()
+	// storageobjectreader.DefaultCreatedAt holds the default value on creation for the created_at field.
+	storageobjectreader.DefaultCreatedAt = storageobjectreaderDescCreatedAt.Default.(func() time.Time)
+	// storageobjectreaderDescFinished is the schema descriptor for finished field.
+	storageobjectreaderDescFinished := storageobjectreaderFields[2].Descriptor()
+	// storageobjectreader.DefaultFinished holds the default value on creation for the finished field.
+	storageobjectreader.DefaultFinished = storageobjectreaderDescFinished.Default.(bool)
 	storagepolicyMixin := schema.StoragePolicy{}.Mixin()
 	storagepolicyMixinHooks0 := storagepolicyMixin[0].Hooks()
 	storagepolicy.Hooks[0] = storagepolicyMixinHooks0[0]

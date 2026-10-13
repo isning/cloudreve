@@ -32,6 +32,8 @@ import (
 	"github.com/cloudreve/Cloudreve/v4/ent/relocationplan"
 	"github.com/cloudreve/Cloudreve/v4/ent/setting"
 	"github.com/cloudreve/Cloudreve/v4/ent/share"
+	"github.com/cloudreve/Cloudreve/v4/ent/storageobject"
+	"github.com/cloudreve/Cloudreve/v4/ent/storageobjectreader"
 	"github.com/cloudreve/Cloudreve/v4/ent/storagepolicy"
 	"github.com/cloudreve/Cloudreve/v4/ent/task"
 	"github.com/cloudreve/Cloudreve/v4/ent/user"
@@ -50,29 +52,31 @@ const (
 	OpUpdateOne = ent.OpUpdateOne
 
 	// Node types.
-	TypeDavAccount        = "DavAccount"
-	TypeDirectLink        = "DirectLink"
-	TypeEntity            = "Entity"
-	TypeExternalIdentity  = "ExternalIdentity"
-	TypeFile              = "File"
-	TypeFsEvent           = "FsEvent"
-	TypeGroup             = "Group"
-	TypeGroupPolicy       = "GroupPolicy"
-	TypeMetadata          = "Metadata"
-	TypeNode              = "Node"
-	TypeOAuthClient       = "OAuthClient"
-	TypeOAuthGrant        = "OAuthGrant"
-	TypeOpenIDSession     = "OpenIDSession"
-	TypeOpenIDTransaction = "OpenIDTransaction"
-	TypePasskey           = "Passkey"
-	TypeRelocationAttempt = "RelocationAttempt"
-	TypeRelocationItem    = "RelocationItem"
-	TypeRelocationPlan    = "RelocationPlan"
-	TypeSetting           = "Setting"
-	TypeShare             = "Share"
-	TypeStoragePolicy     = "StoragePolicy"
-	TypeTask              = "Task"
-	TypeUser              = "User"
+	TypeDavAccount          = "DavAccount"
+	TypeDirectLink          = "DirectLink"
+	TypeEntity              = "Entity"
+	TypeExternalIdentity    = "ExternalIdentity"
+	TypeFile                = "File"
+	TypeFsEvent             = "FsEvent"
+	TypeGroup               = "Group"
+	TypeGroupPolicy         = "GroupPolicy"
+	TypeMetadata            = "Metadata"
+	TypeNode                = "Node"
+	TypeOAuthClient         = "OAuthClient"
+	TypeOAuthGrant          = "OAuthGrant"
+	TypeOpenIDSession       = "OpenIDSession"
+	TypeOpenIDTransaction   = "OpenIDTransaction"
+	TypePasskey             = "Passkey"
+	TypeRelocationAttempt   = "RelocationAttempt"
+	TypeRelocationItem      = "RelocationItem"
+	TypeRelocationPlan      = "RelocationPlan"
+	TypeSetting             = "Setting"
+	TypeShare               = "Share"
+	TypeStorageObject       = "StorageObject"
+	TypeStorageObjectReader = "StorageObjectReader"
+	TypeStoragePolicy       = "StoragePolicy"
+	TypeTask                = "Task"
+	TypeUser                = "User"
 )
 
 // DavAccountMutation represents an operation that mutates the DavAccount nodes in the graph.
@@ -19380,6 +19384,910 @@ func (m *ShareMutation) ResetEdge(name string) error {
 		return nil
 	}
 	return fmt.Errorf("unknown Share edge %s", name)
+}
+
+// StorageObjectMutation represents an operation that mutates the StorageObject nodes in the graph.
+type StorageObjectMutation struct {
+	config
+	op            Op
+	typ           string
+	id            *int
+	key           *string
+	generation    *int64
+	addgeneration *int64
+	retired       *bool
+	clearedFields map[string]struct{}
+	done          bool
+	oldValue      func(context.Context) (*StorageObject, error)
+	predicates    []predicate.StorageObject
+}
+
+var _ ent.Mutation = (*StorageObjectMutation)(nil)
+
+// storageobjectOption allows management of the mutation configuration using functional options.
+type storageobjectOption func(*StorageObjectMutation)
+
+// newStorageObjectMutation creates new mutation for the StorageObject entity.
+func newStorageObjectMutation(c config, op Op, opts ...storageobjectOption) *StorageObjectMutation {
+	m := &StorageObjectMutation{
+		config:        c,
+		op:            op,
+		typ:           TypeStorageObject,
+		clearedFields: make(map[string]struct{}),
+	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
+}
+
+// withStorageObjectID sets the ID field of the mutation.
+func withStorageObjectID(id int) storageobjectOption {
+	return func(m *StorageObjectMutation) {
+		var (
+			err   error
+			once  sync.Once
+			value *StorageObject
+		)
+		m.oldValue = func(ctx context.Context) (*StorageObject, error) {
+			once.Do(func() {
+				if m.done {
+					err = errors.New("querying old values post mutation is not allowed")
+				} else {
+					value, err = m.Client().StorageObject.Get(ctx, id)
+				}
+			})
+			return value, err
+		}
+		m.id = &id
+	}
+}
+
+// withStorageObject sets the old StorageObject of the mutation.
+func withStorageObject(node *StorageObject) storageobjectOption {
+	return func(m *StorageObjectMutation) {
+		m.oldValue = func(context.Context) (*StorageObject, error) {
+			return node, nil
+		}
+		m.id = &node.ID
+	}
+}
+
+// Client returns a new `ent.Client` from the mutation. If the mutation was
+// executed in a transaction (ent.Tx), a transactional client is returned.
+func (m StorageObjectMutation) Client() *Client {
+	client := &Client{config: m.config}
+	client.init()
+	return client
+}
+
+// Tx returns an `ent.Tx` for mutations that were executed in transactions;
+// it returns an error otherwise.
+func (m StorageObjectMutation) Tx() (*Tx, error) {
+	if _, ok := m.driver.(*txDriver); !ok {
+		return nil, errors.New("ent: mutation is not running in a transaction")
+	}
+	tx := &Tx{config: m.config}
+	tx.init()
+	return tx, nil
+}
+
+// ID returns the ID value in the mutation. Note that the ID is only available
+// if it was provided to the builder or after it was returned from the database.
+func (m *StorageObjectMutation) ID() (id int, exists bool) {
+	if m.id == nil {
+		return
+	}
+	return *m.id, true
+}
+
+// IDs queries the database and returns the entity ids that match the mutation's predicate.
+// That means, if the mutation is applied within a transaction with an isolation level such
+// as sql.LevelSerializable, the returned ids match the ids of the rows that will be updated
+// or updated by the mutation.
+func (m *StorageObjectMutation) IDs(ctx context.Context) ([]int, error) {
+	switch {
+	case m.op.Is(OpUpdateOne | OpDeleteOne):
+		id, exists := m.ID()
+		if exists {
+			return []int{id}, nil
+		}
+		fallthrough
+	case m.op.Is(OpUpdate | OpDelete):
+		return m.Client().StorageObject.Query().Where(m.predicates...).IDs(ctx)
+	default:
+		return nil, fmt.Errorf("IDs is not allowed on %s operations", m.op)
+	}
+}
+
+// SetKey sets the "key" field.
+func (m *StorageObjectMutation) SetKey(s string) {
+	m.key = &s
+}
+
+// Key returns the value of the "key" field in the mutation.
+func (m *StorageObjectMutation) Key() (r string, exists bool) {
+	v := m.key
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldKey returns the old "key" field's value of the StorageObject entity.
+// If the StorageObject object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *StorageObjectMutation) OldKey(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldKey is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldKey requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldKey: %w", err)
+	}
+	return oldValue.Key, nil
+}
+
+// ResetKey resets all changes to the "key" field.
+func (m *StorageObjectMutation) ResetKey() {
+	m.key = nil
+}
+
+// SetGeneration sets the "generation" field.
+func (m *StorageObjectMutation) SetGeneration(i int64) {
+	m.generation = &i
+	m.addgeneration = nil
+}
+
+// Generation returns the value of the "generation" field in the mutation.
+func (m *StorageObjectMutation) Generation() (r int64, exists bool) {
+	v := m.generation
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldGeneration returns the old "generation" field's value of the StorageObject entity.
+// If the StorageObject object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *StorageObjectMutation) OldGeneration(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldGeneration is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldGeneration requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldGeneration: %w", err)
+	}
+	return oldValue.Generation, nil
+}
+
+// AddGeneration adds i to the "generation" field.
+func (m *StorageObjectMutation) AddGeneration(i int64) {
+	if m.addgeneration != nil {
+		*m.addgeneration += i
+	} else {
+		m.addgeneration = &i
+	}
+}
+
+// AddedGeneration returns the value that was added to the "generation" field in this mutation.
+func (m *StorageObjectMutation) AddedGeneration() (r int64, exists bool) {
+	v := m.addgeneration
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetGeneration resets all changes to the "generation" field.
+func (m *StorageObjectMutation) ResetGeneration() {
+	m.generation = nil
+	m.addgeneration = nil
+}
+
+// SetRetired sets the "retired" field.
+func (m *StorageObjectMutation) SetRetired(b bool) {
+	m.retired = &b
+}
+
+// Retired returns the value of the "retired" field in the mutation.
+func (m *StorageObjectMutation) Retired() (r bool, exists bool) {
+	v := m.retired
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldRetired returns the old "retired" field's value of the StorageObject entity.
+// If the StorageObject object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *StorageObjectMutation) OldRetired(ctx context.Context) (v bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldRetired is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldRetired requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldRetired: %w", err)
+	}
+	return oldValue.Retired, nil
+}
+
+// ResetRetired resets all changes to the "retired" field.
+func (m *StorageObjectMutation) ResetRetired() {
+	m.retired = nil
+}
+
+// Where appends a list predicates to the StorageObjectMutation builder.
+func (m *StorageObjectMutation) Where(ps ...predicate.StorageObject) {
+	m.predicates = append(m.predicates, ps...)
+}
+
+// WhereP appends storage-level predicates to the StorageObjectMutation builder. Using this method,
+// users can use type-assertion to append predicates that do not depend on any generated package.
+func (m *StorageObjectMutation) WhereP(ps ...func(*sql.Selector)) {
+	p := make([]predicate.StorageObject, len(ps))
+	for i := range ps {
+		p[i] = ps[i]
+	}
+	m.Where(p...)
+}
+
+// Op returns the operation name.
+func (m *StorageObjectMutation) Op() Op {
+	return m.op
+}
+
+// SetOp allows setting the mutation operation.
+func (m *StorageObjectMutation) SetOp(op Op) {
+	m.op = op
+}
+
+// Type returns the node type of this mutation (StorageObject).
+func (m *StorageObjectMutation) Type() string {
+	return m.typ
+}
+
+// Fields returns all fields that were changed during this mutation. Note that in
+// order to get all numeric fields that were incremented/decremented, call
+// AddedFields().
+func (m *StorageObjectMutation) Fields() []string {
+	fields := make([]string, 0, 3)
+	if m.key != nil {
+		fields = append(fields, storageobject.FieldKey)
+	}
+	if m.generation != nil {
+		fields = append(fields, storageobject.FieldGeneration)
+	}
+	if m.retired != nil {
+		fields = append(fields, storageobject.FieldRetired)
+	}
+	return fields
+}
+
+// Field returns the value of a field with the given name. The second boolean
+// return value indicates that this field was not set, or was not defined in the
+// schema.
+func (m *StorageObjectMutation) Field(name string) (ent.Value, bool) {
+	switch name {
+	case storageobject.FieldKey:
+		return m.Key()
+	case storageobject.FieldGeneration:
+		return m.Generation()
+	case storageobject.FieldRetired:
+		return m.Retired()
+	}
+	return nil, false
+}
+
+// OldField returns the old value of the field from the database. An error is
+// returned if the mutation operation is not UpdateOne, or the query to the
+// database failed.
+func (m *StorageObjectMutation) OldField(ctx context.Context, name string) (ent.Value, error) {
+	switch name {
+	case storageobject.FieldKey:
+		return m.OldKey(ctx)
+	case storageobject.FieldGeneration:
+		return m.OldGeneration(ctx)
+	case storageobject.FieldRetired:
+		return m.OldRetired(ctx)
+	}
+	return nil, fmt.Errorf("unknown StorageObject field %s", name)
+}
+
+// SetField sets the value of a field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *StorageObjectMutation) SetField(name string, value ent.Value) error {
+	switch name {
+	case storageobject.FieldKey:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetKey(v)
+		return nil
+	case storageobject.FieldGeneration:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetGeneration(v)
+		return nil
+	case storageobject.FieldRetired:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetRetired(v)
+		return nil
+	}
+	return fmt.Errorf("unknown StorageObject field %s", name)
+}
+
+// AddedFields returns all numeric fields that were incremented/decremented during
+// this mutation.
+func (m *StorageObjectMutation) AddedFields() []string {
+	var fields []string
+	if m.addgeneration != nil {
+		fields = append(fields, storageobject.FieldGeneration)
+	}
+	return fields
+}
+
+// AddedField returns the numeric value that was incremented/decremented on a field
+// with the given name. The second boolean return value indicates that this field
+// was not set, or was not defined in the schema.
+func (m *StorageObjectMutation) AddedField(name string) (ent.Value, bool) {
+	switch name {
+	case storageobject.FieldGeneration:
+		return m.AddedGeneration()
+	}
+	return nil, false
+}
+
+// AddField adds the value to the field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *StorageObjectMutation) AddField(name string, value ent.Value) error {
+	switch name {
+	case storageobject.FieldGeneration:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddGeneration(v)
+		return nil
+	}
+	return fmt.Errorf("unknown StorageObject numeric field %s", name)
+}
+
+// ClearedFields returns all nullable fields that were cleared during this
+// mutation.
+func (m *StorageObjectMutation) ClearedFields() []string {
+	return nil
+}
+
+// FieldCleared returns a boolean indicating if a field with the given name was
+// cleared in this mutation.
+func (m *StorageObjectMutation) FieldCleared(name string) bool {
+	_, ok := m.clearedFields[name]
+	return ok
+}
+
+// ClearField clears the value of the field with the given name. It returns an
+// error if the field is not defined in the schema.
+func (m *StorageObjectMutation) ClearField(name string) error {
+	return fmt.Errorf("unknown StorageObject nullable field %s", name)
+}
+
+// ResetField resets all changes in the mutation for the field with the given name.
+// It returns an error if the field is not defined in the schema.
+func (m *StorageObjectMutation) ResetField(name string) error {
+	switch name {
+	case storageobject.FieldKey:
+		m.ResetKey()
+		return nil
+	case storageobject.FieldGeneration:
+		m.ResetGeneration()
+		return nil
+	case storageobject.FieldRetired:
+		m.ResetRetired()
+		return nil
+	}
+	return fmt.Errorf("unknown StorageObject field %s", name)
+}
+
+// AddedEdges returns all edge names that were set/added in this mutation.
+func (m *StorageObjectMutation) AddedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// AddedIDs returns all IDs (to other nodes) that were added for the given edge
+// name in this mutation.
+func (m *StorageObjectMutation) AddedIDs(name string) []ent.Value {
+	return nil
+}
+
+// RemovedEdges returns all edge names that were removed in this mutation.
+func (m *StorageObjectMutation) RemovedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// RemovedIDs returns all IDs (to other nodes) that were removed for the edge with
+// the given name in this mutation.
+func (m *StorageObjectMutation) RemovedIDs(name string) []ent.Value {
+	return nil
+}
+
+// ClearedEdges returns all edge names that were cleared in this mutation.
+func (m *StorageObjectMutation) ClearedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// EdgeCleared returns a boolean which indicates if the edge with the given name
+// was cleared in this mutation.
+func (m *StorageObjectMutation) EdgeCleared(name string) bool {
+	return false
+}
+
+// ClearEdge clears the value of the edge with the given name. It returns an error
+// if that edge is not defined in the schema.
+func (m *StorageObjectMutation) ClearEdge(name string) error {
+	return fmt.Errorf("unknown StorageObject unique edge %s", name)
+}
+
+// ResetEdge resets all changes to the edge with the given name in this mutation.
+// It returns an error if the edge is not defined in the schema.
+func (m *StorageObjectMutation) ResetEdge(name string) error {
+	return fmt.Errorf("unknown StorageObject edge %s", name)
+}
+
+// StorageObjectReaderMutation represents an operation that mutates the StorageObjectReader nodes in the graph.
+type StorageObjectReaderMutation struct {
+	config
+	op            Op
+	typ           string
+	id            *int
+	location_key  *string
+	created_at    *time.Time
+	finished      *bool
+	clearedFields map[string]struct{}
+	done          bool
+	oldValue      func(context.Context) (*StorageObjectReader, error)
+	predicates    []predicate.StorageObjectReader
+}
+
+var _ ent.Mutation = (*StorageObjectReaderMutation)(nil)
+
+// storageobjectreaderOption allows management of the mutation configuration using functional options.
+type storageobjectreaderOption func(*StorageObjectReaderMutation)
+
+// newStorageObjectReaderMutation creates new mutation for the StorageObjectReader entity.
+func newStorageObjectReaderMutation(c config, op Op, opts ...storageobjectreaderOption) *StorageObjectReaderMutation {
+	m := &StorageObjectReaderMutation{
+		config:        c,
+		op:            op,
+		typ:           TypeStorageObjectReader,
+		clearedFields: make(map[string]struct{}),
+	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
+}
+
+// withStorageObjectReaderID sets the ID field of the mutation.
+func withStorageObjectReaderID(id int) storageobjectreaderOption {
+	return func(m *StorageObjectReaderMutation) {
+		var (
+			err   error
+			once  sync.Once
+			value *StorageObjectReader
+		)
+		m.oldValue = func(ctx context.Context) (*StorageObjectReader, error) {
+			once.Do(func() {
+				if m.done {
+					err = errors.New("querying old values post mutation is not allowed")
+				} else {
+					value, err = m.Client().StorageObjectReader.Get(ctx, id)
+				}
+			})
+			return value, err
+		}
+		m.id = &id
+	}
+}
+
+// withStorageObjectReader sets the old StorageObjectReader of the mutation.
+func withStorageObjectReader(node *StorageObjectReader) storageobjectreaderOption {
+	return func(m *StorageObjectReaderMutation) {
+		m.oldValue = func(context.Context) (*StorageObjectReader, error) {
+			return node, nil
+		}
+		m.id = &node.ID
+	}
+}
+
+// Client returns a new `ent.Client` from the mutation. If the mutation was
+// executed in a transaction (ent.Tx), a transactional client is returned.
+func (m StorageObjectReaderMutation) Client() *Client {
+	client := &Client{config: m.config}
+	client.init()
+	return client
+}
+
+// Tx returns an `ent.Tx` for mutations that were executed in transactions;
+// it returns an error otherwise.
+func (m StorageObjectReaderMutation) Tx() (*Tx, error) {
+	if _, ok := m.driver.(*txDriver); !ok {
+		return nil, errors.New("ent: mutation is not running in a transaction")
+	}
+	tx := &Tx{config: m.config}
+	tx.init()
+	return tx, nil
+}
+
+// ID returns the ID value in the mutation. Note that the ID is only available
+// if it was provided to the builder or after it was returned from the database.
+func (m *StorageObjectReaderMutation) ID() (id int, exists bool) {
+	if m.id == nil {
+		return
+	}
+	return *m.id, true
+}
+
+// IDs queries the database and returns the entity ids that match the mutation's predicate.
+// That means, if the mutation is applied within a transaction with an isolation level such
+// as sql.LevelSerializable, the returned ids match the ids of the rows that will be updated
+// or updated by the mutation.
+func (m *StorageObjectReaderMutation) IDs(ctx context.Context) ([]int, error) {
+	switch {
+	case m.op.Is(OpUpdateOne | OpDeleteOne):
+		id, exists := m.ID()
+		if exists {
+			return []int{id}, nil
+		}
+		fallthrough
+	case m.op.Is(OpUpdate | OpDelete):
+		return m.Client().StorageObjectReader.Query().Where(m.predicates...).IDs(ctx)
+	default:
+		return nil, fmt.Errorf("IDs is not allowed on %s operations", m.op)
+	}
+}
+
+// SetLocationKey sets the "location_key" field.
+func (m *StorageObjectReaderMutation) SetLocationKey(s string) {
+	m.location_key = &s
+}
+
+// LocationKey returns the value of the "location_key" field in the mutation.
+func (m *StorageObjectReaderMutation) LocationKey() (r string, exists bool) {
+	v := m.location_key
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldLocationKey returns the old "location_key" field's value of the StorageObjectReader entity.
+// If the StorageObjectReader object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *StorageObjectReaderMutation) OldLocationKey(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldLocationKey is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldLocationKey requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldLocationKey: %w", err)
+	}
+	return oldValue.LocationKey, nil
+}
+
+// ResetLocationKey resets all changes to the "location_key" field.
+func (m *StorageObjectReaderMutation) ResetLocationKey() {
+	m.location_key = nil
+}
+
+// SetCreatedAt sets the "created_at" field.
+func (m *StorageObjectReaderMutation) SetCreatedAt(t time.Time) {
+	m.created_at = &t
+}
+
+// CreatedAt returns the value of the "created_at" field in the mutation.
+func (m *StorageObjectReaderMutation) CreatedAt() (r time.Time, exists bool) {
+	v := m.created_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCreatedAt returns the old "created_at" field's value of the StorageObjectReader entity.
+// If the StorageObjectReader object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *StorageObjectReaderMutation) OldCreatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCreatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCreatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCreatedAt: %w", err)
+	}
+	return oldValue.CreatedAt, nil
+}
+
+// ResetCreatedAt resets all changes to the "created_at" field.
+func (m *StorageObjectReaderMutation) ResetCreatedAt() {
+	m.created_at = nil
+}
+
+// SetFinished sets the "finished" field.
+func (m *StorageObjectReaderMutation) SetFinished(b bool) {
+	m.finished = &b
+}
+
+// Finished returns the value of the "finished" field in the mutation.
+func (m *StorageObjectReaderMutation) Finished() (r bool, exists bool) {
+	v := m.finished
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldFinished returns the old "finished" field's value of the StorageObjectReader entity.
+// If the StorageObjectReader object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *StorageObjectReaderMutation) OldFinished(ctx context.Context) (v bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldFinished is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldFinished requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldFinished: %w", err)
+	}
+	return oldValue.Finished, nil
+}
+
+// ResetFinished resets all changes to the "finished" field.
+func (m *StorageObjectReaderMutation) ResetFinished() {
+	m.finished = nil
+}
+
+// Where appends a list predicates to the StorageObjectReaderMutation builder.
+func (m *StorageObjectReaderMutation) Where(ps ...predicate.StorageObjectReader) {
+	m.predicates = append(m.predicates, ps...)
+}
+
+// WhereP appends storage-level predicates to the StorageObjectReaderMutation builder. Using this method,
+// users can use type-assertion to append predicates that do not depend on any generated package.
+func (m *StorageObjectReaderMutation) WhereP(ps ...func(*sql.Selector)) {
+	p := make([]predicate.StorageObjectReader, len(ps))
+	for i := range ps {
+		p[i] = ps[i]
+	}
+	m.Where(p...)
+}
+
+// Op returns the operation name.
+func (m *StorageObjectReaderMutation) Op() Op {
+	return m.op
+}
+
+// SetOp allows setting the mutation operation.
+func (m *StorageObjectReaderMutation) SetOp(op Op) {
+	m.op = op
+}
+
+// Type returns the node type of this mutation (StorageObjectReader).
+func (m *StorageObjectReaderMutation) Type() string {
+	return m.typ
+}
+
+// Fields returns all fields that were changed during this mutation. Note that in
+// order to get all numeric fields that were incremented/decremented, call
+// AddedFields().
+func (m *StorageObjectReaderMutation) Fields() []string {
+	fields := make([]string, 0, 3)
+	if m.location_key != nil {
+		fields = append(fields, storageobjectreader.FieldLocationKey)
+	}
+	if m.created_at != nil {
+		fields = append(fields, storageobjectreader.FieldCreatedAt)
+	}
+	if m.finished != nil {
+		fields = append(fields, storageobjectreader.FieldFinished)
+	}
+	return fields
+}
+
+// Field returns the value of a field with the given name. The second boolean
+// return value indicates that this field was not set, or was not defined in the
+// schema.
+func (m *StorageObjectReaderMutation) Field(name string) (ent.Value, bool) {
+	switch name {
+	case storageobjectreader.FieldLocationKey:
+		return m.LocationKey()
+	case storageobjectreader.FieldCreatedAt:
+		return m.CreatedAt()
+	case storageobjectreader.FieldFinished:
+		return m.Finished()
+	}
+	return nil, false
+}
+
+// OldField returns the old value of the field from the database. An error is
+// returned if the mutation operation is not UpdateOne, or the query to the
+// database failed.
+func (m *StorageObjectReaderMutation) OldField(ctx context.Context, name string) (ent.Value, error) {
+	switch name {
+	case storageobjectreader.FieldLocationKey:
+		return m.OldLocationKey(ctx)
+	case storageobjectreader.FieldCreatedAt:
+		return m.OldCreatedAt(ctx)
+	case storageobjectreader.FieldFinished:
+		return m.OldFinished(ctx)
+	}
+	return nil, fmt.Errorf("unknown StorageObjectReader field %s", name)
+}
+
+// SetField sets the value of a field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *StorageObjectReaderMutation) SetField(name string, value ent.Value) error {
+	switch name {
+	case storageobjectreader.FieldLocationKey:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetLocationKey(v)
+		return nil
+	case storageobjectreader.FieldCreatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCreatedAt(v)
+		return nil
+	case storageobjectreader.FieldFinished:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetFinished(v)
+		return nil
+	}
+	return fmt.Errorf("unknown StorageObjectReader field %s", name)
+}
+
+// AddedFields returns all numeric fields that were incremented/decremented during
+// this mutation.
+func (m *StorageObjectReaderMutation) AddedFields() []string {
+	return nil
+}
+
+// AddedField returns the numeric value that was incremented/decremented on a field
+// with the given name. The second boolean return value indicates that this field
+// was not set, or was not defined in the schema.
+func (m *StorageObjectReaderMutation) AddedField(name string) (ent.Value, bool) {
+	return nil, false
+}
+
+// AddField adds the value to the field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *StorageObjectReaderMutation) AddField(name string, value ent.Value) error {
+	switch name {
+	}
+	return fmt.Errorf("unknown StorageObjectReader numeric field %s", name)
+}
+
+// ClearedFields returns all nullable fields that were cleared during this
+// mutation.
+func (m *StorageObjectReaderMutation) ClearedFields() []string {
+	return nil
+}
+
+// FieldCleared returns a boolean indicating if a field with the given name was
+// cleared in this mutation.
+func (m *StorageObjectReaderMutation) FieldCleared(name string) bool {
+	_, ok := m.clearedFields[name]
+	return ok
+}
+
+// ClearField clears the value of the field with the given name. It returns an
+// error if the field is not defined in the schema.
+func (m *StorageObjectReaderMutation) ClearField(name string) error {
+	return fmt.Errorf("unknown StorageObjectReader nullable field %s", name)
+}
+
+// ResetField resets all changes in the mutation for the field with the given name.
+// It returns an error if the field is not defined in the schema.
+func (m *StorageObjectReaderMutation) ResetField(name string) error {
+	switch name {
+	case storageobjectreader.FieldLocationKey:
+		m.ResetLocationKey()
+		return nil
+	case storageobjectreader.FieldCreatedAt:
+		m.ResetCreatedAt()
+		return nil
+	case storageobjectreader.FieldFinished:
+		m.ResetFinished()
+		return nil
+	}
+	return fmt.Errorf("unknown StorageObjectReader field %s", name)
+}
+
+// AddedEdges returns all edge names that were set/added in this mutation.
+func (m *StorageObjectReaderMutation) AddedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// AddedIDs returns all IDs (to other nodes) that were added for the given edge
+// name in this mutation.
+func (m *StorageObjectReaderMutation) AddedIDs(name string) []ent.Value {
+	return nil
+}
+
+// RemovedEdges returns all edge names that were removed in this mutation.
+func (m *StorageObjectReaderMutation) RemovedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// RemovedIDs returns all IDs (to other nodes) that were removed for the edge with
+// the given name in this mutation.
+func (m *StorageObjectReaderMutation) RemovedIDs(name string) []ent.Value {
+	return nil
+}
+
+// ClearedEdges returns all edge names that were cleared in this mutation.
+func (m *StorageObjectReaderMutation) ClearedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// EdgeCleared returns a boolean which indicates if the edge with the given name
+// was cleared in this mutation.
+func (m *StorageObjectReaderMutation) EdgeCleared(name string) bool {
+	return false
+}
+
+// ClearEdge clears the value of the edge with the given name. It returns an error
+// if that edge is not defined in the schema.
+func (m *StorageObjectReaderMutation) ClearEdge(name string) error {
+	return fmt.Errorf("unknown StorageObjectReader unique edge %s", name)
+}
+
+// ResetEdge resets all changes to the edge with the given name in this mutation.
+// It returns an error if the edge is not defined in the schema.
+func (m *StorageObjectReaderMutation) ResetEdge(name string) error {
+	return fmt.Errorf("unknown StorageObjectReader edge %s", name)
 }
 
 // StoragePolicyMutation represents an operation that mutates the StoragePolicy nodes in the graph.

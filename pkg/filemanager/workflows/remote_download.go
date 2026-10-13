@@ -21,12 +21,14 @@ import (
 	"github.com/cloudreve/Cloudreve/v4/pkg/cluster"
 	"github.com/cloudreve/Cloudreve/v4/pkg/downloader"
 	"github.com/cloudreve/Cloudreve/v4/pkg/filemanager/fs"
+	"github.com/cloudreve/Cloudreve/v4/pkg/filemanager/fs/dbfs"
 	"github.com/cloudreve/Cloudreve/v4/pkg/filemanager/manager"
 	"github.com/cloudreve/Cloudreve/v4/pkg/hashid"
 	"github.com/cloudreve/Cloudreve/v4/pkg/logging"
 	"github.com/cloudreve/Cloudreve/v4/pkg/queue"
 	"github.com/cloudreve/Cloudreve/v4/pkg/request"
 	"github.com/cloudreve/Cloudreve/v4/pkg/serializer"
+	"github.com/cloudreve/Cloudreve/v4/pkg/storagepolicy"
 	"github.com/samber/lo"
 )
 
@@ -42,18 +44,19 @@ type (
 	}
 	RemoteDownloadTaskPhase string
 	RemoteDownloadTaskState struct {
-		SrcFileUri         string                 `json:"src_file_uri,omitempty"`
-		SrcUri             string                 `json:"src_uri,omitempty"`
-		Dst                string                 `json:"dst,omitempty"`
-		Handle             *downloader.TaskHandle `json:"handle,omitempty"`
-		Status             *downloader.TaskStatus `json:"status,omitempty"`
-		NodeState          `json:",inline"`
-		Phase              RemoteDownloadTaskPhase `json:"phase,omitempty"`
-		SlaveUploadTaskID  int                     `json:"slave__upload_task_id,omitempty"`
-		SlaveUploadState   *SlaveUploadTaskState   `json:"slave_upload_state,omitempty"`
-		GetTaskStatusTried int                     `json:"get_task_status_tried,omitempty"`
-		Transferred        map[int]interface{}     `json:"transferred,omitempty"`
-		Failed             int                     `json:"failed,omitempty"`
+		SrcFileUri          string                 `json:"src_file_uri,omitempty"`
+		SrcUri              string                 `json:"src_uri,omitempty"`
+		DestinationPolicyID int                    `json:"destination_policy_id,omitempty"`
+		Dst                 string                 `json:"dst,omitempty"`
+		Handle              *downloader.TaskHandle `json:"handle,omitempty"`
+		Status              *downloader.TaskStatus `json:"status,omitempty"`
+		NodeState           `json:",inline"`
+		Phase               RemoteDownloadTaskPhase `json:"phase,omitempty"`
+		SlaveUploadTaskID   int                     `json:"slave__upload_task_id,omitempty"`
+		SlaveUploadState    *SlaveUploadTaskState   `json:"slave_upload_state,omitempty"`
+		GetTaskStatusTried  int                     `json:"get_task_status_tried,omitempty"`
+		Transferred         map[int]interface{}     `json:"transferred,omitempty"`
+		Failed              int                     `json:"failed,omitempty"`
 	}
 )
 
@@ -82,12 +85,13 @@ func init() {
 }
 
 // NewRemoteDownloadTask creates a new RemoteDownloadTask
-func NewRemoteDownloadTask(ctx context.Context, src string, srcFile, dst string) (queue.Task, error) {
+func NewRemoteDownloadTask(ctx context.Context, src string, srcFile, dst string, destinationPolicyID int) (queue.Task, error) {
 	state := &RemoteDownloadTaskState{
-		SrcUri:     src,
-		SrcFileUri: srcFile,
-		Dst:        dst,
-		NodeState:  NodeState{},
+		SrcUri:              src,
+		SrcFileUri:          srcFile,
+		Dst:                 dst,
+		DestinationPolicyID: destinationPolicyID,
+		NodeState:           NodeState{},
 	}
 	stateBytes, err := json.Marshal(state)
 	if err != nil {
@@ -126,6 +130,25 @@ func (m *RemoteDownloadTask) Do(ctx context.Context) (task.Status, error) {
 		return task.StatusError, fmt.Errorf("failed to unmarshal state: %w", err)
 	}
 	m.state = state
+
+	// Old queued commands capture a destination before their next external operation.
+	if m.state.DestinationPolicyID == 0 {
+		uri, err := fs.NewUriFromString(m.state.Dst)
+		if err != nil {
+			return task.StatusError, fmt.Errorf("invalid download destination: %w", queue.CriticalErr)
+		}
+		fm := manager.NewFileManager(dep, inventory.UserFromContext(ctx))
+		defer fm.Recycle()
+		destination, err := fm.Get(ctx, uri, dbfs.WithRequiredCapabilities(dbfs.NavigatorCapabilityCreateFile))
+		if err != nil {
+			return task.StatusError, fmt.Errorf("download destination unavailable: %w", queue.CriticalErr)
+		}
+		policy, err := storagepolicy.New(dep.UserClient(), dep.StoragePolicyClient()).SelectForFile(ctx, destination.OwnerID(), 0, dep.FileClient(), destination.ID())
+		if err != nil {
+			return task.StatusError, fmt.Errorf("download policy unavailable: %w", queue.CriticalErr)
+		}
+		m.state.DestinationPolicyID = policy.ID
+	}
 
 	// select node
 	node, err := allocateNode(ctx, dep, &m.state.NodeState, types.NodeCapabilityRemoteDownload)
@@ -356,10 +379,11 @@ func (m *RemoteDownloadTask) slaveTransfer(ctx context.Context, dep dependency.D
 			dst := dstUri.JoinRaw(sanitizeFileName(f.Name))
 			src := path.Join(m.state.Status.SavePath, f.Name)
 			payload.Files = append(payload.Files, SlaveUploadEntity{
-				Src:   src,
-				Uri:   dst,
-				Size:  f.Size,
-				Index: f.Index,
+				Src:                    src,
+				Uri:                    dst,
+				Size:                   f.Size,
+				Index:                  f.Index,
+				PreferredStoragePolicy: m.state.DestinationPolicyID,
 			})
 		}
 
@@ -498,8 +522,9 @@ func (m *RemoteDownloadTask) masterTransfer(ctx context.Context, dep dependency.
 
 		fileData := &fs.UploadRequest{
 			Props: &fs.UploadProps{
-				Uri:  dst,
-				Size: file.Size,
+				Uri:                    dst,
+				PreferredStoragePolicy: m.state.DestinationPolicyID,
+				Size:                   file.Size,
 			},
 			ProgressFunc: func(current, diff int64, total int64) {
 				atomic.AddInt64(&fileProgress.Current, diff)
@@ -579,9 +604,10 @@ func (m *RemoteDownloadTask) validateFiles(ctx context.Context, dep dependency.D
 
 	validateArgs := lo.Map(selectedFiles, func(f downloader.TaskFile, _ int) fs.PreValidateFile {
 		return fs.PreValidateFile{
-			Name:     sanitizeFileName(f.Name),
-			Size:     f.Size,
-			OmitName: f.Name == "",
+			Name:                   sanitizeFileName(f.Name),
+			PreferredStoragePolicy: m.state.DestinationPolicyID,
+			Size:                   f.Size,
+			OmitName:               f.Name == "",
 		}
 	})
 

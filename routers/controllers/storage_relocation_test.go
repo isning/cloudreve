@@ -30,11 +30,16 @@ func (f *storageFixture) enableMigration(t *testing.T, enabled bool) {
 
 func (f *storageFixture) waitForStorageTask(t *testing.T, id string, status string) explorer.TaskResponse {
 	t.Helper()
+	return f.waitForStorageTaskCategory(t, id, status, "general")
+}
+
+func (f *storageFixture) waitForStorageTaskCategory(t *testing.T, id, status, category string) explorer.TaskResponse {
+	t.Helper()
 	var found explorer.TaskResponse
 	deadline := time.Now().Add(90 * time.Second)
 	for time.Now().Before(deadline) {
 		var list explorer.TaskListResponse
-		f.request(t, http.MethodGet, "/api/v4/workflow?category=general&page_size=100", nil, &list)
+		f.request(t, http.MethodGet, "/api/v4/workflow?category="+category+"&page_size=100", nil, &list)
 		for _, job := range list.Tasks {
 			if job.ID == id {
 				found = job

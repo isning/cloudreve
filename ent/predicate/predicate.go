@@ -66,6 +66,12 @@ type Setting func(*sql.Selector)
 // Share is the predicate function for share builders.
 type Share func(*sql.Selector)
 
+// StorageObject is the predicate function for storageobject builders.
+type StorageObject func(*sql.Selector)
+
+// StorageObjectReader is the predicate function for storageobjectreader builders.
+type StorageObjectReader func(*sql.Selector)
+
 // StoragePolicy is the predicate function for storagepolicy builders.
 type StoragePolicy func(*sql.Selector)
 

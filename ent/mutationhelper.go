@@ -124,6 +124,18 @@ func (m *ShareMutation) SetRawID(t int) {
 
 // SetUpdatedAt sets the "updated_at" field.
 
+func (m *StorageObjectMutation) SetRawID(t int) {
+	m.id = &t
+}
+
+// SetUpdatedAt sets the "updated_at" field.
+
+func (m *StorageObjectReaderMutation) SetRawID(t int) {
+	m.id = &t
+}
+
+// SetUpdatedAt sets the "updated_at" field.
+
 func (m *StoragePolicyMutation) SetRawID(t int) {
 	m.id = &t
 }
