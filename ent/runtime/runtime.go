@@ -482,6 +482,12 @@ func init() {
 	relocationplanDescDestinationPolicyID := relocationplanFields[3].Descriptor()
 	// relocationplan.DestinationPolicyIDValidator is a validator for the "destination_policy_id" field. It is called by the builders before save.
 	relocationplan.DestinationPolicyIDValidator = relocationplanDescDestinationPolicyID.Validators[0].(func(int) error)
+	// relocationplanDescCleanupTaskID is the schema descriptor for cleanup_task_id field.
+	relocationplanDescCleanupTaskID := relocationplanFields[5].Descriptor()
+	// relocationplan.DefaultCleanupTaskID holds the default value on creation for the cleanup_task_id field.
+	relocationplan.DefaultCleanupTaskID = relocationplanDescCleanupTaskID.Default.(int)
+	// relocationplan.CleanupTaskIDValidator is a validator for the "cleanup_task_id" field. It is called by the builders before save.
+	relocationplan.CleanupTaskIDValidator = relocationplanDescCleanupTaskID.Validators[0].(func(int) error)
 	settingMixin := schema.Setting{}.Mixin()
 	settingMixinHooks0 := settingMixin[0].Hooks()
 	setting.Hooks[0] = settingMixinHooks0[0]

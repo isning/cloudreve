@@ -12,6 +12,7 @@ import (
 	"github.com/cloudreve/Cloudreve/v4/ent/task"
 	"github.com/cloudreve/Cloudreve/v4/inventory"
 	"github.com/cloudreve/Cloudreve/v4/inventory/types"
+	"github.com/cloudreve/Cloudreve/v4/pkg/filemanager/manager"
 	"github.com/cloudreve/Cloudreve/v4/pkg/filemanager/relocation"
 	"github.com/cloudreve/Cloudreve/v4/pkg/hashid"
 	"github.com/cloudreve/Cloudreve/v4/pkg/logging"
@@ -66,7 +67,17 @@ func (t *RelocateTask) Do(ctx context.Context) (task.Status, error) {
 		return task.StatusError, fmt.Errorf("no supported migration execution node: %w", queue.CriticalErr)
 	}
 	command.NodeID = state.NodeID
+	// Repair missing maintenance before crossing another external boundary.
+	if err := manager.EnsureRelocationCleanup(ctx, dep, t.ID()); err != nil {
+		return task.StatusError, errors.New("failed to schedule migration compensation")
+	}
 	done, err := relocation.AdvanceSingle(ctx, dep, t.ID(), owner.ID, command.Sources, command.DestinationID)
+	cleanupCtx, cleanupCancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	cleanupErr := manager.EnsureRelocationCleanup(cleanupCtx, dep, t.ID())
+	cleanupCancel()
+	if cleanupErr != nil {
+		dep.Logger().Warning("Migration compensation scheduling deferred; journal retained")
+	}
 	if errors.Is(err, relocation.ErrLeaseBusy) || errors.Is(err, relocation.ErrLeaseLost) {
 		progress, reportErr := relocation.ReadProgress(ctx, dep.DBClient(), t.ID(), false)
 		if reportErr == nil && progress.Phase == "completed" {

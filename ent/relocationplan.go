@@ -27,8 +27,10 @@ type RelocationPlan struct {
 	// DestinationPolicyID holds the value of the "destination_policy_id" field.
 	DestinationPolicyID int `json:"destination_policy_id,omitempty"`
 	// FileIds holds the value of the "file_ids" field.
-	FileIds      []int `json:"file_ids,omitempty"`
-	selectValues sql.SelectValues
+	FileIds []int `json:"file_ids,omitempty"`
+	// CleanupTaskID holds the value of the "cleanup_task_id" field.
+	CleanupTaskID int `json:"cleanup_task_id,omitempty"`
+	selectValues  sql.SelectValues
 }
 
 // scanValues returns the types for scanning values from sql.Rows.
@@ -38,7 +40,7 @@ func (*RelocationPlan) scanValues(columns []string) ([]any, error) {
 		switch columns[i] {
 		case relocationplan.FieldFileIds:
 			values[i] = new([]byte)
-		case relocationplan.FieldID, relocationplan.FieldTaskID, relocationplan.FieldOwnerID, relocationplan.FieldDestinationPolicyID:
+		case relocationplan.FieldID, relocationplan.FieldTaskID, relocationplan.FieldOwnerID, relocationplan.FieldDestinationPolicyID, relocationplan.FieldCleanupTaskID:
 			values[i] = new(sql.NullInt64)
 		case relocationplan.FieldCreatedAt:
 			values[i] = new(sql.NullTime)
@@ -95,6 +97,12 @@ func (rp *RelocationPlan) assignValues(columns []string, values []any) error {
 					return fmt.Errorf("unmarshal field file_ids: %w", err)
 				}
 			}
+		case relocationplan.FieldCleanupTaskID:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field cleanup_task_id", values[i])
+			} else if value.Valid {
+				rp.CleanupTaskID = int(value.Int64)
+			}
 		default:
 			rp.selectValues.Set(columns[i], values[i])
 		}
@@ -145,6 +153,9 @@ func (rp *RelocationPlan) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("file_ids=")
 	builder.WriteString(fmt.Sprintf("%v", rp.FileIds))
+	builder.WriteString(", ")
+	builder.WriteString("cleanup_task_id=")
+	builder.WriteString(fmt.Sprintf("%v", rp.CleanupTaskID))
 	builder.WriteByte(')')
 	return builder.String()
 }

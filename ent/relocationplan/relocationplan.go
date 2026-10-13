@@ -23,6 +23,8 @@ const (
 	FieldDestinationPolicyID = "destination_policy_id"
 	// FieldFileIds holds the string denoting the file_ids field in the database.
 	FieldFileIds = "file_ids"
+	// FieldCleanupTaskID holds the string denoting the cleanup_task_id field in the database.
+	FieldCleanupTaskID = "cleanup_task_id"
 	// Table holds the table name of the relocationplan in the database.
 	Table = "relocation_plans"
 )
@@ -35,6 +37,7 @@ var Columns = []string{
 	FieldOwnerID,
 	FieldDestinationPolicyID,
 	FieldFileIds,
+	FieldCleanupTaskID,
 }
 
 // ValidColumn reports if the column name is valid (part of the table columns).
@@ -56,6 +59,10 @@ var (
 	OwnerIDValidator func(int) error
 	// DestinationPolicyIDValidator is a validator for the "destination_policy_id" field. It is called by the builders before save.
 	DestinationPolicyIDValidator func(int) error
+	// DefaultCleanupTaskID holds the default value on creation for the "cleanup_task_id" field.
+	DefaultCleanupTaskID int
+	// CleanupTaskIDValidator is a validator for the "cleanup_task_id" field. It is called by the builders before save.
+	CleanupTaskIDValidator func(int) error
 )
 
 // OrderOption defines the ordering options for the RelocationPlan queries.
@@ -84,4 +91,9 @@ func ByOwnerID(opts ...sql.OrderTermOption) OrderOption {
 // ByDestinationPolicyID orders the results by the destination_policy_id field.
 func ByDestinationPolicyID(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldDestinationPolicyID, opts...).ToFunc()
+}
+
+// ByCleanupTaskID orders the results by the cleanup_task_id field.
+func ByCleanupTaskID(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldCleanupTaskID, opts...).ToFunc()
 }

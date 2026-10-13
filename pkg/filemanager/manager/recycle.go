@@ -46,6 +46,9 @@ func init() {
 	crontab.Register(setting.CronTypeEntityCollect, func(ctx context.Context) {
 		dep := dependency.FromContext(ctx)
 		l := dep.Logger()
+		if err := ensureAllRelocationCleanup(ctx, dep); err != nil {
+			l.Warning("Migration compensation scheduling deferred; journals retained")
+		}
 		t, err := NewEntityRecycleRoutineTask(ctx)
 		if err != nil {
 			l.Error("Failed to create entity recycle routine task: %s", err)

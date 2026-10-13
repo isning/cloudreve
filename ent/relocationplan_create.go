@@ -60,6 +60,20 @@ func (rpc *RelocationPlanCreate) SetFileIds(i []int) *RelocationPlanCreate {
 	return rpc
 }
 
+// SetCleanupTaskID sets the "cleanup_task_id" field.
+func (rpc *RelocationPlanCreate) SetCleanupTaskID(i int) *RelocationPlanCreate {
+	rpc.mutation.SetCleanupTaskID(i)
+	return rpc
+}
+
+// SetNillableCleanupTaskID sets the "cleanup_task_id" field if the given value is not nil.
+func (rpc *RelocationPlanCreate) SetNillableCleanupTaskID(i *int) *RelocationPlanCreate {
+	if i != nil {
+		rpc.SetCleanupTaskID(*i)
+	}
+	return rpc
+}
+
 // Mutation returns the RelocationPlanMutation object of the builder.
 func (rpc *RelocationPlanCreate) Mutation() *RelocationPlanMutation {
 	return rpc.mutation
@@ -99,6 +113,10 @@ func (rpc *RelocationPlanCreate) defaults() {
 		v := relocationplan.DefaultCreatedAt()
 		rpc.mutation.SetCreatedAt(v)
 	}
+	if _, ok := rpc.mutation.CleanupTaskID(); !ok {
+		v := relocationplan.DefaultCleanupTaskID
+		rpc.mutation.SetCleanupTaskID(v)
+	}
 }
 
 // check runs all checks and user-defined validators on the builder.
@@ -132,6 +150,14 @@ func (rpc *RelocationPlanCreate) check() error {
 	}
 	if _, ok := rpc.mutation.FileIds(); !ok {
 		return &ValidationError{Name: "file_ids", err: errors.New(`ent: missing required field "RelocationPlan.file_ids"`)}
+	}
+	if _, ok := rpc.mutation.CleanupTaskID(); !ok {
+		return &ValidationError{Name: "cleanup_task_id", err: errors.New(`ent: missing required field "RelocationPlan.cleanup_task_id"`)}
+	}
+	if v, ok := rpc.mutation.CleanupTaskID(); ok {
+		if err := relocationplan.CleanupTaskIDValidator(v); err != nil {
+			return &ValidationError{Name: "cleanup_task_id", err: fmt.Errorf(`ent: validator failed for field "RelocationPlan.cleanup_task_id": %w`, err)}
+		}
 	}
 	return nil
 }
@@ -187,6 +213,10 @@ func (rpc *RelocationPlanCreate) createSpec() (*RelocationPlan, *sqlgraph.Create
 		_spec.SetField(relocationplan.FieldFileIds, field.TypeJSON, value)
 		_node.FileIds = value
 	}
+	if value, ok := rpc.mutation.CleanupTaskID(); ok {
+		_spec.SetField(relocationplan.FieldCleanupTaskID, field.TypeInt, value)
+		_node.CleanupTaskID = value
+	}
 	return _node, _spec
 }
 
@@ -238,6 +268,24 @@ type (
 		*sql.UpdateSet
 	}
 )
+
+// SetCleanupTaskID sets the "cleanup_task_id" field.
+func (u *RelocationPlanUpsert) SetCleanupTaskID(v int) *RelocationPlanUpsert {
+	u.Set(relocationplan.FieldCleanupTaskID, v)
+	return u
+}
+
+// UpdateCleanupTaskID sets the "cleanup_task_id" field to the value that was provided on create.
+func (u *RelocationPlanUpsert) UpdateCleanupTaskID() *RelocationPlanUpsert {
+	u.SetExcluded(relocationplan.FieldCleanupTaskID)
+	return u
+}
+
+// AddCleanupTaskID adds v to the "cleanup_task_id" field.
+func (u *RelocationPlanUpsert) AddCleanupTaskID(v int) *RelocationPlanUpsert {
+	u.Add(relocationplan.FieldCleanupTaskID, v)
+	return u
+}
 
 // UpdateNewValues updates the mutable fields using the new values that were set on create.
 // Using this option is equivalent to using:
@@ -294,6 +342,27 @@ func (u *RelocationPlanUpsertOne) Update(set func(*RelocationPlanUpsert)) *Reloc
 		set(&RelocationPlanUpsert{UpdateSet: update})
 	}))
 	return u
+}
+
+// SetCleanupTaskID sets the "cleanup_task_id" field.
+func (u *RelocationPlanUpsertOne) SetCleanupTaskID(v int) *RelocationPlanUpsertOne {
+	return u.Update(func(s *RelocationPlanUpsert) {
+		s.SetCleanupTaskID(v)
+	})
+}
+
+// AddCleanupTaskID adds v to the "cleanup_task_id" field.
+func (u *RelocationPlanUpsertOne) AddCleanupTaskID(v int) *RelocationPlanUpsertOne {
+	return u.Update(func(s *RelocationPlanUpsert) {
+		s.AddCleanupTaskID(v)
+	})
+}
+
+// UpdateCleanupTaskID sets the "cleanup_task_id" field to the value that was provided on create.
+func (u *RelocationPlanUpsertOne) UpdateCleanupTaskID() *RelocationPlanUpsertOne {
+	return u.Update(func(s *RelocationPlanUpsert) {
+		s.UpdateCleanupTaskID()
+	})
 }
 
 // Exec executes the query.
@@ -522,6 +591,27 @@ func (u *RelocationPlanUpsertBulk) Update(set func(*RelocationPlanUpsert)) *Relo
 		set(&RelocationPlanUpsert{UpdateSet: update})
 	}))
 	return u
+}
+
+// SetCleanupTaskID sets the "cleanup_task_id" field.
+func (u *RelocationPlanUpsertBulk) SetCleanupTaskID(v int) *RelocationPlanUpsertBulk {
+	return u.Update(func(s *RelocationPlanUpsert) {
+		s.SetCleanupTaskID(v)
+	})
+}
+
+// AddCleanupTaskID adds v to the "cleanup_task_id" field.
+func (u *RelocationPlanUpsertBulk) AddCleanupTaskID(v int) *RelocationPlanUpsertBulk {
+	return u.Update(func(s *RelocationPlanUpsert) {
+		s.AddCleanupTaskID(v)
+	})
+}
+
+// UpdateCleanupTaskID sets the "cleanup_task_id" field to the value that was provided on create.
+func (u *RelocationPlanUpsertBulk) UpdateCleanupTaskID() *RelocationPlanUpsertBulk {
+	return u.Update(func(s *RelocationPlanUpsert) {
+		s.UpdateCleanupTaskID()
+	})
 }
 
 // Exec executes the query.

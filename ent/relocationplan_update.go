@@ -27,6 +27,27 @@ func (rpu *RelocationPlanUpdate) Where(ps ...predicate.RelocationPlan) *Relocati
 	return rpu
 }
 
+// SetCleanupTaskID sets the "cleanup_task_id" field.
+func (rpu *RelocationPlanUpdate) SetCleanupTaskID(i int) *RelocationPlanUpdate {
+	rpu.mutation.ResetCleanupTaskID()
+	rpu.mutation.SetCleanupTaskID(i)
+	return rpu
+}
+
+// SetNillableCleanupTaskID sets the "cleanup_task_id" field if the given value is not nil.
+func (rpu *RelocationPlanUpdate) SetNillableCleanupTaskID(i *int) *RelocationPlanUpdate {
+	if i != nil {
+		rpu.SetCleanupTaskID(*i)
+	}
+	return rpu
+}
+
+// AddCleanupTaskID adds i to the "cleanup_task_id" field.
+func (rpu *RelocationPlanUpdate) AddCleanupTaskID(i int) *RelocationPlanUpdate {
+	rpu.mutation.AddCleanupTaskID(i)
+	return rpu
+}
+
 // Mutation returns the RelocationPlanMutation object of the builder.
 func (rpu *RelocationPlanUpdate) Mutation() *RelocationPlanMutation {
 	return rpu.mutation
@@ -59,7 +80,20 @@ func (rpu *RelocationPlanUpdate) ExecX(ctx context.Context) {
 	}
 }
 
+// check runs all checks and user-defined validators on the builder.
+func (rpu *RelocationPlanUpdate) check() error {
+	if v, ok := rpu.mutation.CleanupTaskID(); ok {
+		if err := relocationplan.CleanupTaskIDValidator(v); err != nil {
+			return &ValidationError{Name: "cleanup_task_id", err: fmt.Errorf(`ent: validator failed for field "RelocationPlan.cleanup_task_id": %w`, err)}
+		}
+	}
+	return nil
+}
+
 func (rpu *RelocationPlanUpdate) sqlSave(ctx context.Context) (n int, err error) {
+	if err := rpu.check(); err != nil {
+		return n, err
+	}
 	_spec := sqlgraph.NewUpdateSpec(relocationplan.Table, relocationplan.Columns, sqlgraph.NewFieldSpec(relocationplan.FieldID, field.TypeInt))
 	if ps := rpu.mutation.predicates; len(ps) > 0 {
 		_spec.Predicate = func(selector *sql.Selector) {
@@ -67,6 +101,12 @@ func (rpu *RelocationPlanUpdate) sqlSave(ctx context.Context) (n int, err error)
 				ps[i](selector)
 			}
 		}
+	}
+	if value, ok := rpu.mutation.CleanupTaskID(); ok {
+		_spec.SetField(relocationplan.FieldCleanupTaskID, field.TypeInt, value)
+	}
+	if value, ok := rpu.mutation.AddedCleanupTaskID(); ok {
+		_spec.AddField(relocationplan.FieldCleanupTaskID, field.TypeInt, value)
 	}
 	if n, err = sqlgraph.UpdateNodes(ctx, rpu.driver, _spec); err != nil {
 		if _, ok := err.(*sqlgraph.NotFoundError); ok {
@@ -86,6 +126,27 @@ type RelocationPlanUpdateOne struct {
 	fields   []string
 	hooks    []Hook
 	mutation *RelocationPlanMutation
+}
+
+// SetCleanupTaskID sets the "cleanup_task_id" field.
+func (rpuo *RelocationPlanUpdateOne) SetCleanupTaskID(i int) *RelocationPlanUpdateOne {
+	rpuo.mutation.ResetCleanupTaskID()
+	rpuo.mutation.SetCleanupTaskID(i)
+	return rpuo
+}
+
+// SetNillableCleanupTaskID sets the "cleanup_task_id" field if the given value is not nil.
+func (rpuo *RelocationPlanUpdateOne) SetNillableCleanupTaskID(i *int) *RelocationPlanUpdateOne {
+	if i != nil {
+		rpuo.SetCleanupTaskID(*i)
+	}
+	return rpuo
+}
+
+// AddCleanupTaskID adds i to the "cleanup_task_id" field.
+func (rpuo *RelocationPlanUpdateOne) AddCleanupTaskID(i int) *RelocationPlanUpdateOne {
+	rpuo.mutation.AddCleanupTaskID(i)
+	return rpuo
 }
 
 // Mutation returns the RelocationPlanMutation object of the builder.
@@ -133,7 +194,20 @@ func (rpuo *RelocationPlanUpdateOne) ExecX(ctx context.Context) {
 	}
 }
 
+// check runs all checks and user-defined validators on the builder.
+func (rpuo *RelocationPlanUpdateOne) check() error {
+	if v, ok := rpuo.mutation.CleanupTaskID(); ok {
+		if err := relocationplan.CleanupTaskIDValidator(v); err != nil {
+			return &ValidationError{Name: "cleanup_task_id", err: fmt.Errorf(`ent: validator failed for field "RelocationPlan.cleanup_task_id": %w`, err)}
+		}
+	}
+	return nil
+}
+
 func (rpuo *RelocationPlanUpdateOne) sqlSave(ctx context.Context) (_node *RelocationPlan, err error) {
+	if err := rpuo.check(); err != nil {
+		return _node, err
+	}
 	_spec := sqlgraph.NewUpdateSpec(relocationplan.Table, relocationplan.Columns, sqlgraph.NewFieldSpec(relocationplan.FieldID, field.TypeInt))
 	id, ok := rpuo.mutation.ID()
 	if !ok {
@@ -158,6 +232,12 @@ func (rpuo *RelocationPlanUpdateOne) sqlSave(ctx context.Context) (_node *Reloca
 				ps[i](selector)
 			}
 		}
+	}
+	if value, ok := rpuo.mutation.CleanupTaskID(); ok {
+		_spec.SetField(relocationplan.FieldCleanupTaskID, field.TypeInt, value)
+	}
+	if value, ok := rpuo.mutation.AddedCleanupTaskID(); ok {
+		_spec.AddField(relocationplan.FieldCleanupTaskID, field.TypeInt, value)
 	}
 	_node = &RelocationPlan{config: rpuo.config}
 	_spec.Assign = _node.assignValues

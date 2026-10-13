@@ -175,6 +175,7 @@ type dependency struct {
 	oAuthClient           inventory.OAuthClientClient
 	emailClient           email.Driver
 	generalAuth           auth.Auth
+	generalAuthOnce       sync.Once
 	hashidEncoder         hashid.Encoder
 	tokenAuth             auth.TokenAuth
 	lockSystem            lock.LockSystem
@@ -749,7 +750,7 @@ func (d *dependency) EntityRecycleQueue(ctx context.Context) queue.Queue {
 		queue.WithWorkerCount(queueSetting.WorkerNum),
 		queue.WithName("EntityRecycleQueue"),
 		queue.WithMaxTaskExecution(queueSetting.MaxExecution),
-		queue.WithResumeTaskType(queue.EntityRecycleRoutineTaskType, queue.ExplicitEntityRecycleTaskType, queue.UploadSentinelCheckTaskType),
+		queue.WithResumeTaskType(queue.EntityRecycleRoutineTaskType, queue.ExplicitEntityRecycleTaskType, queue.UploadSentinelCheckTaskType, queue.RelocationCleanupTaskType),
 		queue.WithTaskPullInterval(10*time.Second),
 	)
 	return d.entityRecycleQueue
@@ -784,24 +785,21 @@ func (d *dependency) SlaveQueue(ctx context.Context) queue.Queue {
 }
 
 func (d *dependency) GeneralAuth() auth.Auth {
-	if d.generalAuth != nil {
-		return d.generalAuth
-	}
-
-	var secretKey string
-	if d.ConfigProvider().System().Mode == conf.MasterMode {
-		secretKey = d.SettingProvider().SecretKey(context.Background())
-	} else {
-		secretKey = d.ConfigProvider().Slave().Secret
-		if secretKey == "" {
-			d.panicError(errors.New("SlaveSecret is not set, please specify it in config file"))
+	d.generalAuthOnce.Do(func() {
+		if d.generalAuth != nil {
+			return
 		}
-	}
-
-	d.generalAuth = auth.HMACAuth{
-		SecretKey: []byte(secretKey),
-	}
-
+		var secretKey string
+		if d.ConfigProvider().System().Mode == conf.MasterMode {
+			secretKey = d.SettingProvider().SecretKey(context.Background())
+		} else {
+			secretKey = d.ConfigProvider().Slave().Secret
+			if secretKey == "" {
+				d.panicError(errors.New("SlaveSecret is not set, please specify it in config file"))
+			}
+		}
+		d.generalAuth = auth.HMACAuth{SecretKey: []byte(secretKey)}
+	})
 	return d.generalAuth
 }
 

@@ -614,6 +614,7 @@ var (
 		{Name: "owner_id", Type: field.TypeInt},
 		{Name: "destination_policy_id", Type: field.TypeInt},
 		{Name: "file_ids", Type: field.TypeJSON},
+		{Name: "cleanup_task_id", Type: field.TypeInt, Default: 0},
 	}
 	// RelocationPlansTable holds the schema information for the "relocation_plans" table.
 	RelocationPlansTable = &schema.Table{

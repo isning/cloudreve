@@ -17073,6 +17073,8 @@ type RelocationPlanMutation struct {
 	adddestination_policy_id *int
 	file_ids                 *[]int
 	appendfile_ids           []int
+	cleanup_task_id          *int
+	addcleanup_task_id       *int
 	clearedFields            map[string]struct{}
 	done                     bool
 	oldValue                 func(context.Context) (*RelocationPlan, error)
@@ -17432,6 +17434,62 @@ func (m *RelocationPlanMutation) ResetFileIds() {
 	m.appendfile_ids = nil
 }
 
+// SetCleanupTaskID sets the "cleanup_task_id" field.
+func (m *RelocationPlanMutation) SetCleanupTaskID(i int) {
+	m.cleanup_task_id = &i
+	m.addcleanup_task_id = nil
+}
+
+// CleanupTaskID returns the value of the "cleanup_task_id" field in the mutation.
+func (m *RelocationPlanMutation) CleanupTaskID() (r int, exists bool) {
+	v := m.cleanup_task_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCleanupTaskID returns the old "cleanup_task_id" field's value of the RelocationPlan entity.
+// If the RelocationPlan object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *RelocationPlanMutation) OldCleanupTaskID(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCleanupTaskID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCleanupTaskID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCleanupTaskID: %w", err)
+	}
+	return oldValue.CleanupTaskID, nil
+}
+
+// AddCleanupTaskID adds i to the "cleanup_task_id" field.
+func (m *RelocationPlanMutation) AddCleanupTaskID(i int) {
+	if m.addcleanup_task_id != nil {
+		*m.addcleanup_task_id += i
+	} else {
+		m.addcleanup_task_id = &i
+	}
+}
+
+// AddedCleanupTaskID returns the value that was added to the "cleanup_task_id" field in this mutation.
+func (m *RelocationPlanMutation) AddedCleanupTaskID() (r int, exists bool) {
+	v := m.addcleanup_task_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetCleanupTaskID resets all changes to the "cleanup_task_id" field.
+func (m *RelocationPlanMutation) ResetCleanupTaskID() {
+	m.cleanup_task_id = nil
+	m.addcleanup_task_id = nil
+}
+
 // Where appends a list predicates to the RelocationPlanMutation builder.
 func (m *RelocationPlanMutation) Where(ps ...predicate.RelocationPlan) {
 	m.predicates = append(m.predicates, ps...)
@@ -17466,7 +17524,7 @@ func (m *RelocationPlanMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *RelocationPlanMutation) Fields() []string {
-	fields := make([]string, 0, 5)
+	fields := make([]string, 0, 6)
 	if m.created_at != nil {
 		fields = append(fields, relocationplan.FieldCreatedAt)
 	}
@@ -17481,6 +17539,9 @@ func (m *RelocationPlanMutation) Fields() []string {
 	}
 	if m.file_ids != nil {
 		fields = append(fields, relocationplan.FieldFileIds)
+	}
+	if m.cleanup_task_id != nil {
+		fields = append(fields, relocationplan.FieldCleanupTaskID)
 	}
 	return fields
 }
@@ -17500,6 +17561,8 @@ func (m *RelocationPlanMutation) Field(name string) (ent.Value, bool) {
 		return m.DestinationPolicyID()
 	case relocationplan.FieldFileIds:
 		return m.FileIds()
+	case relocationplan.FieldCleanupTaskID:
+		return m.CleanupTaskID()
 	}
 	return nil, false
 }
@@ -17519,6 +17582,8 @@ func (m *RelocationPlanMutation) OldField(ctx context.Context, name string) (ent
 		return m.OldDestinationPolicyID(ctx)
 	case relocationplan.FieldFileIds:
 		return m.OldFileIds(ctx)
+	case relocationplan.FieldCleanupTaskID:
+		return m.OldCleanupTaskID(ctx)
 	}
 	return nil, fmt.Errorf("unknown RelocationPlan field %s", name)
 }
@@ -17563,6 +17628,13 @@ func (m *RelocationPlanMutation) SetField(name string, value ent.Value) error {
 		}
 		m.SetFileIds(v)
 		return nil
+	case relocationplan.FieldCleanupTaskID:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCleanupTaskID(v)
+		return nil
 	}
 	return fmt.Errorf("unknown RelocationPlan field %s", name)
 }
@@ -17580,6 +17652,9 @@ func (m *RelocationPlanMutation) AddedFields() []string {
 	if m.adddestination_policy_id != nil {
 		fields = append(fields, relocationplan.FieldDestinationPolicyID)
 	}
+	if m.addcleanup_task_id != nil {
+		fields = append(fields, relocationplan.FieldCleanupTaskID)
+	}
 	return fields
 }
 
@@ -17594,6 +17669,8 @@ func (m *RelocationPlanMutation) AddedField(name string) (ent.Value, bool) {
 		return m.AddedOwnerID()
 	case relocationplan.FieldDestinationPolicyID:
 		return m.AddedDestinationPolicyID()
+	case relocationplan.FieldCleanupTaskID:
+		return m.AddedCleanupTaskID()
 	}
 	return nil, false
 }
@@ -17623,6 +17700,13 @@ func (m *RelocationPlanMutation) AddField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.AddDestinationPolicyID(v)
+		return nil
+	case relocationplan.FieldCleanupTaskID:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddCleanupTaskID(v)
 		return nil
 	}
 	return fmt.Errorf("unknown RelocationPlan numeric field %s", name)
@@ -17665,6 +17749,9 @@ func (m *RelocationPlanMutation) ResetField(name string) error {
 		return nil
 	case relocationplan.FieldFileIds:
 		m.ResetFileIds()
+		return nil
+	case relocationplan.FieldCleanupTaskID:
+		m.ResetCleanupTaskID()
 		return nil
 	}
 	return fmt.Errorf("unknown RelocationPlan field %s", name)

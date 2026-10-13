@@ -18,5 +18,6 @@ func (RelocationPlan) Fields() []ent.Field {
 		field.Int("owner_id").Positive().Immutable(),
 		field.Int("destination_policy_id").Positive().Immutable(),
 		field.JSON("file_ids", []int{}).Immutable(),
+		field.Int("cleanup_task_id").NonNegative().Default(0),
 	}
 }

@@ -74,6 +74,11 @@ func DestinationPolicyID(v int) predicate.RelocationPlan {
 	return predicate.RelocationPlan(sql.FieldEQ(FieldDestinationPolicyID, v))
 }
 
+// CleanupTaskID applies equality check predicate on the "cleanup_task_id" field. It's identical to CleanupTaskIDEQ.
+func CleanupTaskID(v int) predicate.RelocationPlan {
+	return predicate.RelocationPlan(sql.FieldEQ(FieldCleanupTaskID, v))
+}
+
 // CreatedAtEQ applies the EQ predicate on the "created_at" field.
 func CreatedAtEQ(v time.Time) predicate.RelocationPlan {
 	return predicate.RelocationPlan(sql.FieldEQ(FieldCreatedAt, v))
@@ -232,6 +237,46 @@ func DestinationPolicyIDLT(v int) predicate.RelocationPlan {
 // DestinationPolicyIDLTE applies the LTE predicate on the "destination_policy_id" field.
 func DestinationPolicyIDLTE(v int) predicate.RelocationPlan {
 	return predicate.RelocationPlan(sql.FieldLTE(FieldDestinationPolicyID, v))
+}
+
+// CleanupTaskIDEQ applies the EQ predicate on the "cleanup_task_id" field.
+func CleanupTaskIDEQ(v int) predicate.RelocationPlan {
+	return predicate.RelocationPlan(sql.FieldEQ(FieldCleanupTaskID, v))
+}
+
+// CleanupTaskIDNEQ applies the NEQ predicate on the "cleanup_task_id" field.
+func CleanupTaskIDNEQ(v int) predicate.RelocationPlan {
+	return predicate.RelocationPlan(sql.FieldNEQ(FieldCleanupTaskID, v))
+}
+
+// CleanupTaskIDIn applies the In predicate on the "cleanup_task_id" field.
+func CleanupTaskIDIn(vs ...int) predicate.RelocationPlan {
+	return predicate.RelocationPlan(sql.FieldIn(FieldCleanupTaskID, vs...))
+}
+
+// CleanupTaskIDNotIn applies the NotIn predicate on the "cleanup_task_id" field.
+func CleanupTaskIDNotIn(vs ...int) predicate.RelocationPlan {
+	return predicate.RelocationPlan(sql.FieldNotIn(FieldCleanupTaskID, vs...))
+}
+
+// CleanupTaskIDGT applies the GT predicate on the "cleanup_task_id" field.
+func CleanupTaskIDGT(v int) predicate.RelocationPlan {
+	return predicate.RelocationPlan(sql.FieldGT(FieldCleanupTaskID, v))
+}
+
+// CleanupTaskIDGTE applies the GTE predicate on the "cleanup_task_id" field.
+func CleanupTaskIDGTE(v int) predicate.RelocationPlan {
+	return predicate.RelocationPlan(sql.FieldGTE(FieldCleanupTaskID, v))
+}
+
+// CleanupTaskIDLT applies the LT predicate on the "cleanup_task_id" field.
+func CleanupTaskIDLT(v int) predicate.RelocationPlan {
+	return predicate.RelocationPlan(sql.FieldLT(FieldCleanupTaskID, v))
+}
+
+// CleanupTaskIDLTE applies the LTE predicate on the "cleanup_task_id" field.
+func CleanupTaskIDLTE(v int) predicate.RelocationPlan {
+	return predicate.RelocationPlan(sql.FieldLTE(FieldCleanupTaskID, v))
 }
 
 // And groups predicates with the AND operator between them.

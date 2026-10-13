@@ -64,7 +64,7 @@ func LockStorageObject(ctx context.Context, db *ent.Client, policy *ent.StorageP
 }
 
 // Alias/reference queries are performed after acquiring the same location gate.
-func StorageObjectReferenced(ctx context.Context, db *ent.Client, policy *ent.StoragePolicy, source string) (bool, error) {
+func StorageObjectEntityReferenced(ctx context.Context, db *ent.Client, policy *ent.StoragePolicy, source string) (bool, error) {
 	query := db.Entity.Query().Where(entity.Or(entity.ReferenceCountGT(0), entity.HasFile()))
 	if policy.Type == types.PolicyTypeLocal {
 		query.Where(entity.HasStoragePolicyWith(storagepolicy.Type(types.PolicyTypeLocal)))
@@ -81,7 +81,15 @@ func StorageObjectReferenced(ctx context.Context, db *ent.Client, policy *ent.St
 			return true, nil
 		}
 	}
-	return db.StorageObjectReader.Query().Where(storageobjectreader.LocationKey(key), storageobjectreader.Finished(false)).Exist(ctx)
+	return false, nil
+}
+
+func StorageObjectReferenced(ctx context.Context, db *ent.Client, policy *ent.StoragePolicy, source string) (bool, error) {
+	live, err := StorageObjectEntityReferenced(ctx, db, policy, source)
+	if err != nil || live {
+		return live, err
+	}
+	return db.StorageObjectReader.Query().Where(storageobjectreader.LocationKey(StorageObjectKey(policy, source)), storageobjectreader.Finished(false)).Exist(ctx)
 }
 
 // Reads publish their own durable lifetime before opening any provider stream.

@@ -102,6 +102,7 @@ const (
 	CreateArchiveTaskType         = "create_archive"
 	ExtractArchiveTaskType        = "extract_archive"
 	RelocateTaskType              = "relocate"
+	RelocationCleanupTaskType     = "relocation_cleanup"
 	RemoteDownloadTaskType        = "remote_download"
 	ImportTaskType                = "import"
 

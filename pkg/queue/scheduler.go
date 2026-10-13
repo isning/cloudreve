@@ -1,6 +1,7 @@
 package queue
 
 import (
+	"container/heap"
 	"errors"
 	"github.com/cloudreve/Cloudreve/v4/pkg/logging"
 	"sync"
@@ -50,7 +51,7 @@ func (s *fifoScheduler) Queue(task Task) error {
 		return ErrMaxCapacity
 	}
 
-	s.taskQueue.Push(task)
+	heap.Push(&s.taskQueue, task)
 	s.count++
 
 	return nil
@@ -67,11 +68,11 @@ func (s *fifoScheduler) Request() (Task, error) {
 	if s.count == 0 {
 		return nil, ErrNoTaskInQueue
 	}
-	if s.taskQueue[s.taskQueue.Len()-1].ResumeTime() > time.Now().Unix() {
+	if s.taskQueue[0].ResumeTime() > time.Now().Unix() {
 		return nil, ErrNoTaskInQueue
 	}
 
-	data := s.taskQueue.Pop()
+	data := heap.Pop(&s.taskQueue)
 	s.count--
 
 	return data.(Task), nil
@@ -89,7 +90,7 @@ func (s *fifoScheduler) Shutdown() error {
 // NewFifoScheduler for create new Scheduler instance
 func NewFifoScheduler(queueSize int, logger logging.Logger) Scheduler {
 	w := &fifoScheduler{
-		taskQueue: make([]Task, 2),
+		taskQueue: make(taskHeap, 0),
 		capacity:  queueSize,
 		logger:    logger,
 	}
@@ -103,7 +104,11 @@ func (h taskHeap) Len() int {
 }
 
 func (h taskHeap) Less(i, j int) bool {
-	return h[i].ResumeTime() < h[j].ResumeTime()
+	a, b := h[i].ResumeTime(), h[j].ResumeTime()
+	if a == b {
+		return h[i].ID() < h[j].ID()
+	}
+	return a < b
 }
 
 func (h taskHeap) Swap(i, j int) {

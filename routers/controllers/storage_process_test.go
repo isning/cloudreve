@@ -44,7 +44,7 @@ func TestStorageStartupWorker(t *testing.T) {
 	require.NoError(t, err)
 	var database conf.Database
 	require.NoError(t, json.Unmarshal(raw, &database))
-	l := logging.NewConsoleLogger(logging.LevelError)
+	l := logging.NewConsoleLogger(logging.LevelWarning)
 	cfg, err := conf.NewIniConfigProvider(file+".ini", l)
 	require.NoError(t, err)
 	*cfg.Database() = database
@@ -120,7 +120,10 @@ func (w *storageWorker) stop(t *testing.T) {
 	w.stopOnce.Do(func() {
 		_ = w.cmd.Process.Signal(os.Interrupt)
 		select {
-		case <-w.done:
+		case err := <-w.done:
+			if err != nil {
+				t.Errorf("owned storage worker failed: %v; diagnostics: %s.log", err, w.file)
+			}
 		case <-time.After(10 * time.Second):
 			t.Error("owned storage worker did not stop")
 		}
@@ -226,7 +229,9 @@ func TestStoragePartialInitializationRecoversAfterRestart(t *testing.T) {
 	select {
 	case err := <-failed.done:
 		require.Error(t, err, "invalid partial authorization schema must prevent startup")
-		failed.done <- err
+		require.IsType(t, &exec.ExitError{}, err)
+		require.Equal(t, 2, err.(*exec.ExitError).ExitCode(), "only the expected startup panic is accepted")
+		failed.stopOnce.Do(func() {})
 	case <-time.After(20 * time.Second):
 		t.Fatal("partial initialization did not fail promptly")
 	}
@@ -268,7 +273,9 @@ func TestStoragePartialRelocationJournalUpgradeRecoversFromV2(t *testing.T) {
 	select {
 	case err := <-failed.done:
 		require.Error(t, err, "duplicate journal identity must prevent a false successful upgrade")
-		failed.done <- err
+		require.IsType(t, &exec.ExitError{}, err)
+		require.Equal(t, 2, err.(*exec.ExitError).ExitCode(), "only the expected startup panic is accepted")
+		failed.stopOnce.Do(func() {})
 	case <-time.After(20 * time.Second):
 		t.Fatal("partial journal initialization did not fail promptly")
 	}
