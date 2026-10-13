@@ -99,6 +99,7 @@ type (
 		TraverseFile(ctx context.Context, fileID int) (File, error)
 		// PatchProps patches the props of a file.
 		PatchProps(ctx context.Context, uri *URI, props *types.FileProps, delete bool) error
+		BindPolicy(ctx context.Context, uri *URI, policyID int) error
 	}
 
 	UploadManager interface {

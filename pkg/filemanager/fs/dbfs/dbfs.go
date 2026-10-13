@@ -670,7 +670,7 @@ func (f *DBFS) generateEncryptMetadata(ctx context.Context, uploadRequest *fs.Up
 
 // getPreferredPolicy tries to get the preferred storage policy for the given file.
 func (f *DBFS) getPreferredPolicy(ctx context.Context, file *File) (*ent.StoragePolicy, error) {
-	groupPolicy, err := storagepolicy.New(f.userClient, f.storagePolicyClient).Default(ctx, file.OwnerID())
+	groupPolicy, err := storagepolicy.New(f.userClient, f.storagePolicyClient).SelectForFile(ctx, file.OwnerID(), 0, f.fileClient, file.ID())
 	if err != nil {
 		return nil, serializer.NewError(serializer.CodeDBError, "Failed to get available storage policies", err)
 	}

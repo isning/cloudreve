@@ -47,6 +47,39 @@ func (r *Resolver) Default(ctx context.Context, ownerID int) (*ent.StoragePolicy
 	return r.Select(ctx, ownerID, 0, 0)
 }
 
+// SelectForFile reads current preference ancestry from Ent. Navigation caches
+// carry paths and display data, and are never the authority for placement.
+func (r *Resolver) SelectForFile(ctx context.Context, ownerID, explicitID int, files inventory.FileClient, fileID int) (*ent.StoragePolicy, error) {
+	if explicitID != 0 {
+		return r.Select(ctx, ownerID, explicitID, 0)
+	}
+	fc, _ := inventory.InheritTx(ctx, files)
+	seen := make(map[int]bool)
+	preference := 0
+	for fileID > 0 {
+		if seen[fileID] {
+			return nil, fmt.Errorf("storage preference ancestry has a cycle")
+		}
+		seen[fileID] = true
+		file, err := fc.GetByID(ctx, fileID)
+		if err != nil {
+			return nil, fmt.Errorf("load storage preference ancestry: %w", err)
+		}
+		if file.OwnerID != ownerID {
+			return nil, fmt.Errorf("storage preference owner mismatch")
+		}
+		if file.FileChildren == 0 {
+			break
+		}
+		if file.StoragePolicyFiles > 0 {
+			preference = file.StoragePolicyFiles
+			break
+		}
+		fileID = file.FileChildren
+	}
+	return r.Select(ctx, ownerID, 0, preference)
+}
+
 // Select authorizes explicit destinations before returning them. A stale
 // automatic preference falls directly back to the current first grant.
 func (r *Resolver) Select(ctx context.Context, ownerID, explicitID, preferenceID int) (*ent.StoragePolicy, error) {

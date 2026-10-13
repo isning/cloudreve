@@ -80,6 +80,8 @@ test("member selects second policy and completes browser multipart upload", asyn
   let upload:any;
   let bytes:Buffer|undefined;
   let completed=false;
+  let binding:any;
+  const folder={id:"bound-folder",type:1,name:"Bound folder",path:"cloudreve://my/bound",owned:true,capability:"/////w==",metadata:{},size:0,created_at:"2026-01-01T00:00:00Z",updated_at:"2026-01-01T00:00:00Z"};
   await page.route("**/storage-test/**",async route=>{
     if(route.request().method()==="PUT") {
       bytes=route.request().postDataBuffer()??undefined;
@@ -93,7 +95,8 @@ test("member selects second policy and completes browser multipart upload", asyn
     if(path.startsWith("/site/config/")) data={title:"Storage browser",default_theme:"#3f51b5",themes:"#3f51b5",user,icons:"[]",viewers:"{}"};
     else if(path==="/user/capacity") data={total:1000000,used:0};
     else if(path==="/user/setting/policies") data=policies;
-    else if(path==="/file") data={files:[],parent:{id:"root",type:1,name:"Root",path:"cloudreve://my/",owned:true,capability:"/////w==",metadata:{}},props:{capability:"/////w=="},pagination:{page:0,page_size:50,total_items:0},storage_policy:policies[0]};
+    else if(path==="/file") data={files:[folder],parent:{id:"root",type:1,name:"Root",path:"cloudreve://my/",owned:true,capability:"/////w==",metadata:{}},props:{capability:"/////w=="},pagination:{page:0,page_size:50,total_items:1},storage_policy:policies[0]};
+    else if(path==="/file/policy" && req.method()==="PATCH") binding=req.postDataJSON();
     else if(path==="/file/upload"&&req.method()==="PUT") {
       upload=req.postDataJSON();
       data={session_id:"synthetic-session",expires:Math.floor(Date.now()/1000)+600,chunk_size:5242880,upload_urls:["http://127.0.0.1:43181/storage-test/part"],completeURL:"http://127.0.0.1:43181/storage-test/complete",callback_secret:"synthetic-callback",storage_policy:policies[1],uri:upload.uri};
@@ -118,6 +121,14 @@ test("member selects second policy and completes browser multipart upload", asyn
   // Automatic requests omit the explicit policy and accept the authoritative
   // credential even when the directory descriptor has stricter constraints.
   await page.getByRole("button", {name: "Close", exact: true}).click();
+  await page.getByText("Bound folder", {exact:true}).first().click({button:"right"});
+  await page.getByRole("menuitem", {name:"Bind storage policy", exact:true}).click();
+  const bindDialog=page.getByRole("dialog");
+  await bindDialog.getByRole("combobox",{name:"Storage policy"}).click();
+  await page.getByRole("option",{name:"Bucket B",exact:true}).click();
+  await bindDialog.getByRole("button",{name:"Save",exact:true}).click();
+  await expect.poll(()=>binding?.policy_id).toBe("policy-b");
+  expect(new URL(binding.uri).username).toBe("member");
   await page.getByRole("button", {name: "New", exact: true}).click();
   await page.getByRole("menuitem", {name: "Upload files", exact: true}).click();
   await dialog.getByRole("combobox", {name: "Storage policy"}).click();

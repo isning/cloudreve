@@ -613,6 +613,11 @@ func initMasterRouter(dep dependency.Dep) *gin.Engine {
 				controllers.FromQuery[explorer.ListFileService](explorer.ListFileParameterCtx{}),
 				controllers.ListDirectory,
 			)
+			file.PATCH("policy",
+				middleware.RequiredScopes(types.ScopeFilesWrite),
+				controllers.FromJSON[explorer.BindPolicyService](explorer.BindPolicyParamCtx{}),
+				controllers.BindStoragePolicy,
+			)
 			file.GET("archive",
 				controllers.FromQuery[explorer.ArchiveListFilesService](explorer.ArchiveListFilesParamCtx{}),
 				controllers.ListArchiveFiles,

@@ -233,6 +233,7 @@ type FileClient interface {
 	ListEntities(ctx context.Context, args *ListEntityParameters) (*ListEntityResult, error)
 	// UpdateProps updates props of a file
 	UpdateProps(ctx context.Context, file *ent.File, props *types.FileProps) (*ent.File, error)
+	SetStoragePreference(ctx context.Context, file *ent.File, policyID int) (*ent.File, error)
 	// UpdateModifiedAt updates modified at of a file
 	UpdateModifiedAt(ctx context.Context, file *ent.File, modifiedAt time.Time) error
 	// DeleteAllMetadataByName deletes all metadata by a given name
@@ -1244,4 +1245,8 @@ func (f *fileClient) ListEntities(ctx context.Context, args *ListEntityParameter
 			PageSize:   args.PageSize,
 		},
 	}, nil
+}
+
+func (f *fileClient) SetStoragePreference(ctx context.Context, file *ent.File, policyID int) (*ent.File, error) {
+	return f.client.File.UpdateOne(file).SetStoragePolicyFiles(policyID).Save(ctx)
 }

@@ -116,7 +116,7 @@ func (f *DBFS) PrepareUpload(ctx context.Context, req *fs.UploadRequest, opts ..
 	// Resolve once before locks, placeholders, quota reservation or provider I/O.
 	var policy *ent.StoragePolicy
 	if req.ImportFrom == nil {
-		policy, err = storagepolicy.New(f.userClient, f.storagePolicyClient).Select(ctx, ancestor.OwnerID(), req.Props.PreferredStoragePolicy, 0)
+		policy, err = storagepolicy.New(f.userClient, f.storagePolicyClient).SelectForFile(ctx, ancestor.OwnerID(), req.Props.PreferredStoragePolicy, f.fileClient, ancestor.ID())
 	} else {
 		policy, err = f.storagePolicyClient.GetPolicyByID(ctx, req.Props.PreferredStoragePolicy)
 	}

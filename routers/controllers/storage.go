@@ -23,3 +23,12 @@ func UserAvailableStoragePolicies(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, serializer.Response{Data: result})
 }
+
+func BindStoragePolicy(c *gin.Context) {
+	service := ParametersFromContext[*explorer.BindPolicyService](c, explorer.BindPolicyParamCtx{})
+	if err := service.Bind(c); err != nil {
+		c.JSON(200, serializer.Err(c, err))
+		return
+	}
+	c.JSON(200, serializer.Response{})
+}
