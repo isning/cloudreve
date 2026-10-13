@@ -92,3 +92,24 @@ func TestStorageSamePolicyRelocationPersistsAndCompletesAfterWorkerRestart(t *te
 	f.waitForStorageTask(t, accepted.ID, "completed")
 	require.Equal(t, data, f.readFile(t, uri))
 }
+
+func TestStorageMigrationPermissionIsIndependentOfAllocatedPolicies(t *testing.T) {
+	f := newStorageFixtureWithLegacy(t, true)
+	f.assignPolicies(t, f.policies[0].ID, f.policies[1].ID)
+	uri := "cloudreve://my/permission.txt"
+	f.upload(t, uri, []byte("allocation still permits ordinary uploads"), nil)
+	input := map[string]any{"src": []string{uri}, "dst_policy_id": hashid.EncodePolicyID(f.dep.HashIDEncoder(), f.policies[0].ID)}
+	require.NotZero(t, f.responseCode(t, http.MethodPost, "/api/v4/workflow/reloacte", input))
+	f.enableMigration(t, true)
+	var accepted explorer.TaskResponse
+	f.request(t, http.MethodPost, "/api/v4/workflow/reloacte", input, &accepted)
+	require.Equal(t, "relocate", accepted.Type)
+	f.enableMigration(t, false)
+	require.NotZero(t, f.responseCode(t, http.MethodPost, "/api/v4/workflow/reloacte", input))
+	var policies []explorer.StoragePolicy
+	f.request(t, http.MethodGet, "/api/v4/user/setting/policies", nil, &policies)
+	require.Len(t, policies, 2)
+	require.Equal(t, hashid.EncodePolicyID(f.dep.HashIDEncoder(), f.policies[0].ID), policies[0].ID)
+	require.Equal(t, hashid.EncodePolicyID(f.dep.HashIDEncoder(), f.policies[1].ID), policies[1].ID)
+	f.upload(t, "cloudreve://my/permission-disabled-upload.txt", []byte("migration disable does not disable upload"), policies[1].ID)
+}

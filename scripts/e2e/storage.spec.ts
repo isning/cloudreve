@@ -42,6 +42,16 @@ test("administrator saves and reopens a group with two available policies", asyn
   await page.reload();
   await expect(policies).toContainText("Bucket A");
   await expect(policies).toContainText("Bucket B");
+  const migration=page.getByRole("checkbox",{name:"Relocate storage policy",exact:true});
+  await migration.check();
+  await page.getByRole("button",{name:/save/i,exact:true}).click();
+  await expect.poll(()=>Buffer.from(saved?.group.permissions??"","base64")[1]&4).toBe(4);
+  expect(saved.policy_ids).toEqual([1,2]);
+  await page.reload();
+  await expect(migration).toBeChecked();
+  await migration.uncheck();
+  await page.getByRole("button",{name:/save/i,exact:true}).click();
+  await expect.poll(()=>Buffer.from(saved?.group.permissions??"","base64")[1]&4).toBe(0);
   await page.getByRole("button", {name: "Move Bucket B up"}).click();
   await page.getByRole("button", {name: /save/i, exact: true}).click();
   await expect.poll(() => saved?.policy_ids).toEqual([2, 1]);
