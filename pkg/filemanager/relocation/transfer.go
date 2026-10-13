@@ -50,33 +50,44 @@ func AdvanceSingle(ctx context.Context, dep dependency.Dep, taskID, ownerID int,
 		return false, errors.New("failed to load migration journal")
 	}
 	if len(items) == 0 {
-		plan, err := PlanSingle(ctx, dep, ownerID, sources, destinationID)
+		plans, err := PlanVersions(ctx, dep, ownerID, sources, destinationID)
 		if err != nil {
 			return false, errors.New("migration planning failed")
 		}
-		if plan.Entity.StoragePolicyEntities == destinationID {
-			if err := RecordNoop(ctx, db, taskID, plan); err != nil {
-				return false, errors.New("failed to persist migration plan")
-			}
-			return true, nil
+		if err := recordPlans(ctx, dep, taskID, plans); err != nil {
+			return false, err
 		}
-		return false, recordSinglePlan(ctx, dep, taskID, plan)
+		allNoop := true
+		for _, plan := range plans {
+			allNoop = allNoop && plan.Entity.StoragePolicyEntities == destinationID
+		}
+		return allNoop, nil
 	}
-	if len(items) != 1 || items[0].OwnerID != ownerID || items[0].DestinationPolicyID != destinationID || len(sources) != 1 {
-		return false, errors.New("invalid migration journal")
+	sort.Slice(items, func(i, j int) bool { return items[i].SourceEntityID < items[j].SourceEntityID })
+	var item *ent.RelocationItem
+	for _, candidate := range items {
+		if candidate.OwnerID != ownerID || candidate.DestinationPolicyID != destinationID {
+			return false, errors.New("invalid migration journal")
+		}
+		if candidate.State == relocationitem.StateFailed {
+			return false, errors.New("migration item previously failed")
+		}
+		if candidate.State != relocationitem.StateCommitted && candidate.State != relocationitem.StateNoop && item == nil {
+			item = candidate
+		}
 	}
-	item := items[0]
-	if item.State == relocationitem.StateCommitted || item.State == relocationitem.StateNoop {
+	if item == nil {
 		return true, nil
-	}
-	if item.State == relocationitem.StateFailed {
-		return false, errors.New("migration item previously failed")
 	}
 	item, err = claim(ctx, db, item)
 	if err != nil {
 		return false, err
 	}
-	uri, err := fs.NewUriFromString(sources[0])
+	sourceURI := sources[0]
+	if len(item.References) > 0 && item.References[0].URI != "" {
+		sourceURI = item.References[0].URI
+	}
+	uri, err := fs.NewUriFromString(sourceURI)
 	if err != nil {
 		return false, errors.New("invalid migration source")
 	}
@@ -109,7 +120,7 @@ func AdvanceSingle(ctx context.Context, dep dependency.Dep, taskID, ownerID int,
 		if err != nil {
 			return false, failItem(ctx, db, item, err)
 		}
-		return true, nil
+		return len(items) == 1, nil
 	}
 	err = copySingle(workCtx, dep, fm, item, uri)
 	if err != nil {
@@ -215,35 +226,56 @@ func lockPolicies(ctx context.Context, db *ent.Client, ids ...int) (map[int]*ent
 	return policies, nil
 }
 
-func recordSinglePlan(ctx context.Context, dep dependency.Dep, taskID int, plan *Plan) error {
+// The complete immutable version plan is committed before any target I/O.
+func recordPlans(ctx context.Context, dep dependency.Dep, taskID int, plans []*Plan) error {
+	if len(plans) == 0 {
+		return errors.New("migration plan is empty")
+	}
 	tx, err := dep.DBClient().Tx(ctx)
 	if err != nil {
 		return errors.New("failed to start migration plan transaction")
 	}
 	defer tx.Rollback()
 	c := tx.Client()
-	if err := lockOwner(ctx, c, plan.Owner.ID, plan.Destination.ID); err != nil {
+	if err := lockOwner(ctx, c, plans[0].Owner.ID, plans[0].Destination.ID); err != nil {
 		return err
 	}
-	policies, err := lockPolicies(ctx, c, plan.Entity.StoragePolicyEntities, plan.Destination.ID)
+	ids := []int{plans[0].Destination.ID}
+	for _, p := range plans {
+		ids = append(ids, p.Entity.StoragePolicyEntities)
+	}
+	policies, err := lockPolicies(ctx, c, ids...)
 	if err != nil {
 		return err
 	}
-	e := plan.Entity
-	if err := lockSourceEntity(ctx, c, e.ID); err != nil {
-		return errors.New("migration source lock did not match its snapshot")
-	}
-	current, err := c.Entity.Get(ctx, e.ID)
-	if err != nil || current.UploadSessionID != nil || current.ReferenceCount != 1 || current.Source != e.Source || current.StoragePolicyEntities != e.StoragePolicyEntities || !current.UpdatedAt.Equal(e.UpdatedAt) {
-		return errors.New("migration source changed during planning")
-	}
-	err = c.RelocationItem.Create().SetTaskID(taskID).SetOwnerID(plan.Owner.ID).SetSourceEntityID(e.ID).
-		SetSourcePolicyID(e.StoragePolicyEntities).SetSourceKey(e.Source).SetSourceLocation(Location(policies[e.StoragePolicyEntities])).
-		SetDestinationPolicyID(plan.Destination.ID).SetDestinationLocation(Location(policies[plan.Destination.ID])).
-		SetSnapshot(&types.RelocationSnapshot{Type: e.Type, Size: e.Size, CreatedAt: e.CreatedAt, UpdatedAt: e.UpdatedAt, CreatedBy: e.CreatedBy, Props: e.Props}).SetReferences(plan.References).
-		OnConflictColumns(relocationitem.FieldTaskID, relocationitem.FieldSourceEntityID).DoNothing().Exec(ctx)
-	if err != nil {
-		return errors.New("failed to persist migration plan")
+	for _, plan := range plans {
+		e := plan.Entity
+		if err := lockSourceEntity(ctx, c, e.ID); err != nil {
+			return errors.New("failed to lock migration source")
+		}
+		current, err := c.Entity.Query().Where(entity.ID(e.ID)).WithFile().Only(ctx)
+		if err != nil || current.UploadSessionID != nil || current.ReferenceCount != 1 || current.Source != e.Source || current.StoragePolicyEntities != e.StoragePolicyEntities || !current.UpdatedAt.Equal(e.UpdatedAt) || len(current.Edges.File) != 1 || len(plan.References) != 1 {
+			return ErrConflict
+		}
+		file := current.Edges.File[0]
+		ref := plan.References[0]
+		if file.ID != ref.FileID || file.OwnerID != plan.Owner.ID || file.PrimaryEntity != ref.PrimaryEntityID || !file.UpdatedAt.Equal(ref.UpdatedAt) {
+			return ErrConflict
+		}
+		if e.StoragePolicyEntities == plan.Destination.ID {
+			if err := RecordNoop(ctx, c, taskID, plan); err != nil {
+				return errors.New("failed to persist migration no-op")
+			}
+			continue
+		}
+		err = c.RelocationItem.Create().SetTaskID(taskID).SetOwnerID(plan.Owner.ID).SetSourceEntityID(e.ID).
+			SetSourcePolicyID(e.StoragePolicyEntities).SetSourceKey(e.Source).SetSourceLocation(Location(policies[e.StoragePolicyEntities])).
+			SetDestinationPolicyID(plan.Destination.ID).SetDestinationLocation(Location(policies[plan.Destination.ID])).
+			SetSnapshot(&types.RelocationSnapshot{Type: e.Type, Size: e.Size, CreatedAt: e.CreatedAt, UpdatedAt: e.UpdatedAt, CreatedBy: e.CreatedBy, Props: e.Props}).SetReferences(plan.References).
+			OnConflictColumns(relocationitem.FieldTaskID, relocationitem.FieldSourceEntityID).DoNothing().Exec(ctx)
+		if err != nil {
+			return errors.New("failed to persist migration plan")
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		return errors.New("failed to commit migration plan")

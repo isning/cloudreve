@@ -6,6 +6,7 @@ import "time"
 // copies or versions. It is private migration data, never a public task DTO.
 type RelocationReference struct {
 	FileID          int       `json:"file_id"`
+	URI             string    `json:"uri,omitempty"`
 	PrimaryEntityID int       `json:"primary_entity_id"`
 	UpdatedAt       time.Time `json:"updated_at"`
 }

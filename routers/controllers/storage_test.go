@@ -119,7 +119,7 @@ func startStorageS3(t *testing.T) storageS3Service {
 	require.NoError(t, err)
 	args := []string{"mini", "-dir=" + dir, "-ip=127.0.0.1", "-ip.bind=127.0.0.1", "-s3.config=" + config,
 		"-s3.port=" + u.Port(), "-s3.port.iceberg=0", "-s3.port.lance=0", "-webdav=false", "-admin.ui=false", "-master.telemetry=false",
-		"-filer.localSocket=filer.sock", "-s3.localSocket=s3.sock", "-volume.max=2", "-master.volumeSizeLimitMB=32"}
+		"-filer.localSocket=filer.sock", "-s3.localSocket=s3.sock", "-volume.max=4", "-master.volumeSizeLimitMB=32"}
 	for _, flag := range []string{"master.port", "master.port.grpc", "volume.port", "volume.port.grpc", "filer.port", "filer.port.grpc", "s3.port.grpc"} {
 		args = append(args, fmt.Sprintf("-%s=%d", flag, storagePort(t)))
 	}
@@ -423,7 +423,12 @@ func storageHTTP(t *testing.T, method, target string, body []byte) (*http.Respon
 	defer res.Body.Close()
 	data, err := io.ReadAll(res.Body)
 	require.NoError(t, err)
-	require.Less(t, res.StatusCode, 300, "storage HTTP failed with status %d", res.StatusCode)
+	var providerError struct {
+		Code    string `xml:"Code"`
+		Message string `xml:"Message"`
+	}
+	_ = xml.Unmarshal(data, &providerError)
+	require.Less(t, res.StatusCode, 300, "storage HTTP failed with status %d: %s (%s)", res.StatusCode, providerError.Code, auth.RedactSensitiveValues(providerError.Message))
 	return res, data
 }
 

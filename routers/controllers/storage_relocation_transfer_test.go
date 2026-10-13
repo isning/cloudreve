@@ -171,7 +171,6 @@ func TestStorageRelocationInitialScopeRejectsUnsupportedSources(t *testing.T) {
 	var version explorer.UploadSessionResponse
 	f.request(t, http.MethodPut, "/api/v4/file/upload", map[string]any{"uri": uri, "size": len("version two"), "entity_type": "version"}, &version)
 	f.finishUpload(t, version, []byte("version two"))
-	reject(uri)
 	settings := *f.policies[0].Settings
 	settings.Encryption = true
 	_, err := f.db.StoragePolicy.UpdateOneID(f.policies[0].ID).SetSettings(&settings).Save(context.Background())

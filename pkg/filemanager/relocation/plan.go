@@ -5,6 +5,8 @@ package relocation
 import (
 	"context"
 	"errors"
+	"net/url"
+	"sort"
 
 	"github.com/cloudreve/Cloudreve/v4/application/constants"
 	"github.com/cloudreve/Cloudreve/v4/application/dependency"
@@ -31,6 +33,14 @@ type Plan struct {
 // PlanSingle validates the initial single-file transfer scope. All unsupported
 // sources are rejected before queueing or any destination I/O.
 func PlanSingle(ctx context.Context, dep dependency.Dep, ownerID int, src []string, destinationID int) (*Plan, error) {
+	plans, err := PlanVersions(ctx, dep, ownerID, src, destinationID)
+	if err != nil {
+		return nil, err
+	}
+	return plans[0], nil
+}
+
+func PlanVersions(ctx context.Context, dep dependency.Dep, ownerID int, src []string, destinationID int) ([]*Plan, error) {
 	owner, err := dep.UserClient().GetActiveByID(context.WithValue(ctx, inventory.LoadUserGroup{}, true), ownerID)
 	if err != nil {
 		return nil, serializer.NewError(serializer.CodeNoPermissionErr, "Migration owner is unavailable", nil)
@@ -66,12 +76,18 @@ func PlanSingle(ctx context.Context, dep dependency.Dep, ownerID int, src []stri
 	if err != nil {
 		return nil, serializer.NewError(serializer.CodeDBError, "Failed to load migration source", nil)
 	}
-	if current.OwnerID != owner.ID || current.Type != int(types.FileTypeFile) || current.IsSymbolic || file.InTrashBin() || len(current.Edges.Entities) != 1 {
+	if current.OwnerID != owner.ID || current.Type != int(types.FileTypeFile) || current.IsSymbolic || file.InTrashBin() || len(current.Edges.Entities) == 0 {
 		return nil, fs.ErrNotSupportedAction
 	}
-	entity := fs.NewEntity(current.Edges.Entities[0])
-	if entity.Type() != types.EntityTypeVersion || entity.UploadSessionID() != nil || entity.Encrypted() || entity.ReferenceCount() != 1 {
-		return nil, serializer.NewError(serializer.CodeNoPermissionErr, "This migration source or transfer is not supported yet", nil)
+	uri.U.User = url.User(ownerEncoded)
+	sort.Slice(current.Edges.Entities, func(i, j int) bool { return current.Edges.Entities[i].ID < current.Edges.Entities[j].ID })
+	plans := make([]*Plan, 0, len(current.Edges.Entities))
+	for _, model := range current.Edges.Entities {
+		entity := fs.NewEntity(model)
+		if entity.Type() != types.EntityTypeVersion || entity.UploadSessionID() != nil || entity.Encrypted() || entity.ReferenceCount() != 1 {
+			return nil, serializer.NewError(serializer.CodeNoPermissionErr, "This migration source or transfer is not supported yet", nil)
+		}
+		plans = append(plans, &Plan{Owner: owner, Destination: destination, FileIDs: []int{current.ID}, Entity: model, References: []types.RelocationReference{{FileID: current.ID, URI: uri.String(), PrimaryEntityID: current.PrimaryEntity, UpdatedAt: current.UpdatedAt}}})
 	}
-	return &Plan{Owner: owner, Destination: destination, FileIDs: []int{current.ID}, Entity: entity.Model(), References: []types.RelocationReference{{FileID: current.ID, PrimaryEntityID: current.PrimaryEntity, UpdatedAt: current.UpdatedAt}}}, nil
+	return plans, nil
 }
