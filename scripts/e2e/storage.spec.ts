@@ -113,6 +113,8 @@ test("member selects second policy and completes browser multipart upload", asyn
   await expect.poll(()=>upload?.policy_id).toBe("policy-b");
   await expect.poll(()=>completed).toBe(true);
   expect(bytes?.toString()).toBe("browser chooses B beyond A size/suffix");
+  await page.getByText("browser.txt", {exact:true}).first().click();
+  await expect(page.getByText("Bucket B", {exact:true})).toBeVisible();
   // Automatic requests omit the explicit policy and accept the authoritative
   // credential even when the directory descriptor has stricter constraints.
   await page.getByRole("button", {name: "Close", exact: true}).click();
