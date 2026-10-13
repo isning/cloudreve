@@ -186,8 +186,19 @@ func TestStorageRelocationRecoversCommittedJournalBeforeTaskProgress(t *testing.
 	before := f.fileInfo(t, uri)
 	var capacityBefore fs.Capacity
 	f.request(t, http.MethodGet, "/api/v4/user/capacity", nil, &capacityBefore)
-	_, err := f.db.ExecContext(context.Background(), "CREATE TRIGGER owned_relocation_progress_fail BEFORE UPDATE OF status ON tasks WHEN NEW.type = 'relocate' AND NEW.status = 'completed' BEGIN SELECT RAISE(FAIL, 'owned progress interruption'); END")
-	require.NoError(t, err)
+	create := []string{"CREATE TRIGGER owned_relocation_progress_fail BEFORE UPDATE OF status ON tasks WHEN NEW.type = 'relocate' AND NEW.status = 'completed' BEGIN SELECT RAISE(FAIL, 'owned progress interruption'); END"}
+	drop := "DROP TRIGGER owned_relocation_progress_fail"
+	switch string(f.database.Type) {
+	case "postgres":
+		create = []string{"CREATE FUNCTION owned_relocation_progress_fail_fn() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.type = 'relocate' AND NEW.status = 'completed' THEN RAISE EXCEPTION 'owned progress interruption'; END IF; RETURN NEW; END; $$", "CREATE TRIGGER owned_relocation_progress_fail BEFORE UPDATE OF status ON tasks FOR EACH ROW EXECUTE FUNCTION owned_relocation_progress_fail_fn()"}
+		drop = "DROP TRIGGER owned_relocation_progress_fail ON tasks"
+	case "mysql":
+		create = []string{"CREATE TRIGGER owned_relocation_progress_fail BEFORE UPDATE ON tasks FOR EACH ROW BEGIN IF NEW.type = 'relocate' AND NEW.status = 'completed' THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'owned progress interruption'; END IF; END"}
+	}
+	for _, statement := range create {
+		_, err := f.db.ExecContext(context.Background(), statement)
+		require.NoError(t, err)
+	}
 	var accepted explorer.TaskResponse
 	f.request(t, http.MethodPost, "/api/v4/workflow/reloacte", map[string]any{"src": []string{uri}, "dst_policy_id": hashid.EncodePolicyID(f.dep.HashIDEncoder(), f.policies[1].ID)}, &accepted)
 	w := launchStorageWorkerWithWorkflows(t, f)
@@ -197,7 +208,7 @@ func TestStorageRelocationRecoversCommittedJournalBeforeTaskProgress(t *testing.
 	oldTask, err := f.db.Task.Get(context.Background(), item.TaskID)
 	require.NoError(t, err)
 	require.NotEqual(t, task.StatusCompleted, oldTask.Status, "actual database fault must interrupt progress persistence")
-	_, err = f.db.ExecContext(context.Background(), "DROP TRIGGER owned_relocation_progress_fail")
+	_, err = f.db.ExecContext(context.Background(), drop)
 	require.NoError(t, err)
 	for i := 0; i < 2; i++ {
 		restarted := launchStorageWorkerWithWorkflows(t, f)

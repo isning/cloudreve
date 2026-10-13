@@ -326,7 +326,11 @@ func TestStorageV3JournalUpgradePreservesUnknownAttempts(t *testing.T) {
 		SetDestinationPolicyID(f.policies[1].ID).SetDestinationLocation("prior-owned-location").
 		SetSnapshot(&types.RelocationSnapshot{Type: int(types.EntityTypeVersion)}).SetReferences([]types.RelocationReference{}).Save(ctx)
 	require.NoError(t, err)
-	_, err = f.db.ExecContext(ctx, "INSERT INTO relocation_attempts (created_at, updated_at, item_id, fence, target_key, io_state, verified_size, verified_digest, verified, cleanup, error) VALUES (?, ?, ?, 1, 'prior-owned-target', 'unknown', 0, '', 0, 'pending', '')", time.Now(), time.Now(), item.ID)
+	insert := "INSERT INTO relocation_attempts (created_at, updated_at, item_id, fence, target_key, io_state, verified_size, verified_digest, verified, cleanup, error) VALUES (?, ?, ?, 1, 'prior-owned-target', 'unknown', 0, '', 0, 'pending', '')"
+	if f.database.Type == "postgres" {
+		insert = "INSERT INTO relocation_attempts (created_at, updated_at, item_id, fence, target_key, io_state, verified_size, verified_digest, verified, cleanup, error) VALUES ($1, $2, $3, 1, 'prior-owned-target', 'unknown', 0, '', FALSE, 'pending', '')"
+	}
+	_, err = f.db.ExecContext(ctx, insert, time.Now(), time.Now(), item.ID)
 	require.NoError(t, err)
 	w := launchStorageWorker(t, f)
 	f.remote = w.ready(t)

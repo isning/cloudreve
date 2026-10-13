@@ -24,14 +24,11 @@ var (
 // the owner quota lock first; administrators acquire only this policy lock.
 // A real no-op write supplies a lifecycle lock on every supported dialect.
 func LockStoragePolicy(ctx context.Context, c *ent.Client, id int) (*ent.StoragePolicy, error) {
-	n, err := c.StoragePolicy.Update().Where(storagepolicy.ID(id), storagepolicy.DeletedAtIsNil()).AddMaxSize(0).Save(ctx)
+	err := c.StoragePolicy.Update().Where(storagepolicy.ID(id), storagepolicy.DeletedAtIsNil()).AddMaxSize(0).Exec(ctx)
 	if err != nil {
 		return nil, err
 	}
-	if n != 1 {
-		return nil, &ent.NotFoundError{}
-	}
-	return c.StoragePolicy.Query().Where(storagepolicy.ID(id)).WithNode().Only(ctx)
+	return c.StoragePolicy.Query().Where(storagepolicy.ID(id), storagepolicy.DeletedAtIsNil()).WithNode().Only(ctx)
 }
 
 func SameStorageLocation(a, b *ent.StoragePolicy) bool {

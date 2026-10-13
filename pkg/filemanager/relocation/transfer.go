@@ -21,6 +21,7 @@ import (
 	"github.com/cloudreve/Cloudreve/v4/ent/entity"
 	entfile "github.com/cloudreve/Cloudreve/v4/ent/file"
 	"github.com/cloudreve/Cloudreve/v4/ent/group"
+	"github.com/cloudreve/Cloudreve/v4/ent/predicate"
 	"github.com/cloudreve/Cloudreve/v4/ent/relocationattempt"
 	"github.com/cloudreve/Cloudreve/v4/ent/relocationitem"
 	"github.com/cloudreve/Cloudreve/v4/ent/relocationplan"
@@ -199,9 +200,8 @@ func recoverVerification(ctx context.Context, dep dependency.Dep, fm manager.Fil
 		return false, errors.New("failed to restore migration verification")
 	}
 	defer tx.Rollback()
-	count, err := tx.RelocationItem.Update().Where(relocationitem.ID(item.ID), relocationitem.Fence(item.Fence), relocationitem.LeaseOwner(item.LeaseOwner), relocationitem.LeaseUntilGT(time.Now()), relocationitem.ActiveAttemptID(attempt.ID), relocationitem.StateEQ(relocationitem.StateVerified)).AddFence(0).Save(ctx)
-	if err != nil || count != 1 {
-		return false, ErrLeaseLost
+	if err := guardCurrentLease(ctx, tx.Client(), item, attempt.ID, true); err != nil {
+		return false, err
 	}
 	if err := tx.RelocationAttempt.UpdateOneID(attempt.ID).SetVerified(true).SetVerifiedSize(n).SetVerifiedDigest(attempt.VerifiedDigest).SetSourceReadFinished(true).Exec(ctx); err != nil {
 		return false, errors.New("failed to restore migration verification")
@@ -226,11 +226,11 @@ func authorizedOwner(ctx context.Context, db *ent.Client, ownerID, destinationID
 
 // The owner lifecycle/quota lock is always first. The net quota change is zero.
 func lockOwner(ctx context.Context, db *ent.Client, ownerID, destinationID int) error {
-	n, err := db.User.Update().Where(user.ID(ownerID), user.StatusEQ(user.StatusActive)).AddStorage(0).Save(ctx)
-	if err != nil || n != 1 {
+	err := db.User.Update().Where(user.ID(ownerID), user.StatusEQ(user.StatusActive)).AddStorage(0).Exec(ctx)
+	if err != nil {
 		return errors.New("migration owner is unavailable")
 	}
-	owner, err := db.User.Get(ctx, ownerID)
+	owner, err := db.User.Query().Where(user.ID(ownerID), user.StatusEQ(user.StatusActive)).Only(ctx)
 	if err != nil {
 		return errors.New("failed to load migration owner")
 	}
@@ -599,15 +599,35 @@ func copySingle(ctx context.Context, dep dependency.Dep, fm manager.FileManager,
 	return nil
 }
 
+// MySQL reports changed rows, so a successful no-op lock can report zero.
+// Verify the current predicate after the locked write instead of interpreting
+// its affected-row count as ownership evidence.
+func guardCurrentLease(ctx context.Context, db *ent.Client, item *ent.RelocationItem, attemptID int, verified bool) error {
+	where := []predicate.RelocationItem{relocationitem.ID(item.ID), relocationitem.Fence(item.Fence), relocationitem.LeaseOwner(item.LeaseOwner), relocationitem.ActiveAttemptID(attemptID)}
+	if verified {
+		where = append(where, relocationitem.StateEQ(relocationitem.StateVerified))
+	}
+	if err := db.RelocationItem.Update().Where(where...).Where(relocationitem.LeaseUntilGT(time.Now())).AddFence(0).Exec(ctx); err != nil {
+		return err
+	}
+	live, err := db.RelocationItem.Query().Where(where...).Where(relocationitem.LeaseUntilGT(time.Now())).Exist(ctx)
+	if err != nil {
+		return err
+	}
+	if !live {
+		return ErrLeaseLost
+	}
+	return nil
+}
+
 func beginIO(ctx context.Context, db *ent.Client, item *ent.RelocationItem, attempt *ent.RelocationAttempt) error {
 	tx, err := db.Tx(ctx)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-	n, err := tx.RelocationItem.Update().Where(relocationitem.ID(item.ID), relocationitem.Fence(item.Fence), relocationitem.LeaseOwner(item.LeaseOwner), relocationitem.LeaseUntilGT(time.Now()), relocationitem.ActiveAttemptID(attempt.ID)).AddFence(0).Save(ctx)
-	if err != nil || n != 1 {
-		return ErrLeaseLost
+	if err := guardCurrentLease(ctx, tx.Client(), item, attempt.ID, false); err != nil {
+		return err
 	}
 	if err := tx.RelocationAttempt.UpdateOneID(attempt.ID).SetIoState(relocationattempt.IoStateInFlight).Exec(ctx); err != nil {
 		return err

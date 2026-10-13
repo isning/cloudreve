@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/cloudreve/Cloudreve/v4/ent"
+	"github.com/cloudreve/Cloudreve/v4/ent/relocationitem"
 	"github.com/cloudreve/Cloudreve/v4/inventory/types"
 	"github.com/cloudreve/Cloudreve/v4/pkg/boolset"
 	"github.com/cloudreve/Cloudreve/v4/pkg/filemanager/fs"
@@ -84,10 +85,12 @@ func TestStorageRelocationSplitsOnlySelectedSharedVersions(t *testing.T) {
 		model, err := f.db.Entity.Get(context.Background(), id)
 		require.NoError(t, err)
 		require.Equal(t, 1, model.ReferenceCount)
+		journal, err := f.db.RelocationItem.Query().Where(relocationitem.TargetEntityID(model.ID)).Only(context.Background())
+		require.NoError(t, err)
 		var original *ent.Entity
 		var oldID string
 		for encoded, candidate := range models {
-			if candidate.CreatedAt.Equal(model.CreatedAt) {
+			if candidate.ID == journal.SourceEntityID {
 				original = candidate
 				oldID = encoded
 			}

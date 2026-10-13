@@ -22,12 +22,25 @@ var authenticationDatabases sync.Map
 // An opted-in database run creates a fresh database for each HTTP fixture inside
 // the operator-owned disposable service; ordinary runs use isolated SQLite files.
 func openAuthenticationDatabase(t *testing.T, name string) *ent.Client {
+	return openAuthenticationDatabaseMode(t, name, true)
+}
+
+func openAuthenticationDatabaseMode(t *testing.T, name string, migrate bool) *ent.Client {
 	t.Helper()
+	open := func(driver, dsn string) *ent.Client {
+		if migrate {
+			return enttest.Open(t, driver, dsn)
+		}
+		client, err := ent.Open(driver, dsn)
+		require.NoError(t, err)
+		t.Cleanup(func() { require.NoError(t, client.Close()) })
+		return client
+	}
 	driver := os.Getenv("OIDC_TEST_DRIVER")
 	dsn := os.Getenv("OIDC_TEST_DSN")
 	if driver == "" {
 		dsn = filepath.Join(t.TempDir(), name) + "?_pragma=busy_timeout(5000)"
-		client := enttest.Open(t, "sqlite3", dsn)
+		client := open("sqlite3", dsn)
 		authenticationDatabases.Store(client, authenticationDatabase{"sqlite3", dsn})
 		return client
 	}
@@ -56,7 +69,7 @@ func openAuthenticationDatabase(t *testing.T, name string) *ent.Client {
 		config.DBName = database
 		dsn = config.FormatDSN()
 	}
-	client := enttest.Open(t, driver, dsn)
+	client := open(driver, dsn)
 	authenticationDatabases.Store(client, authenticationDatabase{driver, dsn})
 	return client
 }
