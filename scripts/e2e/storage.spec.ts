@@ -254,3 +254,164 @@ for (const outcome of ["selected", "late", "empty", "failed"]) {
     } finally { releaseA(); }
   });
 }
+
+for (const resume of [false,true]) {
+  test(`binding refreshes current automatic placement and preserves issued A (${resume?"resume":"queued"})`,async ({page})=>{
+    const user={id:"member",nickname:"Member",email:"member@example.test",created_at:"2026-01-01T00:00:00Z",language:"en-US",group:{id:"members",name:"Members",permission:"AA=="}};
+    await page.addInitScript(user=>{
+      localStorage.setItem("i18nextLng","en-US");
+      localStorage.setItem("cloudreve_session",JSON.stringify({current:user.id,sessions:{[user.id]:{user,token:{access_token:"synthetic-access",refresh_token:"synthetic-refresh",access_expires:"2099-01-01T00:00:00Z",refresh_expires:"2099-01-01T00:00:00Z"},settings:{preferred_dark_mode:true,concurrent_limit:1}}},anonymousSettings:{}}));
+    },user);
+    const policies=[{id:"policy-a",name:"Bucket A",type:"s3",max_size:0},{id:"policy-b",name:"Bucket B",type:"s3",max_size:0}];
+    const folder={id:"bound",type:1,name:"bound",path:"cloudreve://my/bound",owned:true,capability:"/////w==",metadata:{},created_at:"2026-01-01T00:00:00Z",updated_at:"2026-01-01T00:00:00Z"};
+    let bound=false;
+    let oldStarted=false;
+    let allowOld=!resume;
+    let releaseOld!:()=>void;
+    const oldBarrier=new Promise<void>(resolve=>{releaseOld=resolve;});
+    const sessions:any[]=[];
+    const callbacks:string[]=[];
+    const bytes:Record<string,string>={};
+    await page.route("**/binding-storage/**",async route=>{
+      const path=new URL(route.request().url()).pathname;
+      if(path.endsWith("/a-part")) { oldStarted=true; await oldBarrier; if(!allowOld) { await route.abort("failed"); return; } }
+      if(route.request().method()==="PUT") bytes[path]=route.request().postDataBuffer()?.toString()??"";
+      await route.fulfill({status:200,headers:{ETag:'"synthetic-etag"'},contentType:"application/xml",body:'<CompleteMultipartUploadResult><ETag>"synthetic-etag"</ETag></CompleteMultipartUploadResult>'});
+    });
+    await page.route("**/api/v4/**",async route=>{
+      const req=route.request();
+      const path=new URL(req.url()).pathname.replace("/api/v4","");
+      let data:any={};
+      if(path.startsWith("/site/config/")) data={title:"Bindings",default_theme:"#3f51b5",themes:"#3f51b5",icons:"[]",viewers:"{}",user};
+      else if(path==="/user/capacity") data={total:1000000,used:0};
+      else if(path==="/user/setting/policies") data=policies;
+      else if(path==="/file") data={files:[],parent:folder,props:{capability:"/////w=="},pagination:{page:0,page_size:50,total_items:0},storage_policy:policies[bound?1:0]};
+      else if(path==="/file/info") data={...folder,extended_info:{storage_policy:policies[bound?1:0],entities:[],shares:[]}};
+      else if(path==="/file/policy" && req.method()==="PATCH") { expect(req.postDataJSON().policy_id).toBe("policy-b"); bound=true; }
+      else if(path==="/file/upload" && req.method()==="PUT") {
+        const upload=req.postDataJSON();
+        sessions.push(upload);
+        const which=bound?"b":"a";
+        data={session_id:`synthetic-${which}`,expires:Math.floor(Date.now()/1000)+600,chunk_size:5242880,upload_urls:[`http://127.0.0.1:43181/binding-storage/${which}-part`],completeURL:`http://127.0.0.1:43181/binding-storage/${which}-complete`,callback_secret:`synthetic-${which}-callback`,storage_policy:policies[bound?1:0],uri:upload.uri};
+      } else if(path.startsWith("/callback/s3/")) callbacks.push(path);
+      await route.fulfill({json:{code:0,data}});
+    });
+    const selectFile=async (name:string,expected:string)=>{
+      await page.getByRole("button",{name:"New",exact:true}).click();
+      await page.getByRole("menuitem",{name:"Upload files",exact:true}).click();
+      const dialog=page.getByRole("dialog");
+      await expect(dialog.getByText(`Current folder destination: ${expected}`,{exact:true})).toBeVisible();
+      const chooser=page.waitForEvent("filechooser");
+      await dialog.getByRole("button",{name:"Choose files",exact:true}).click();
+      await (await chooser).setFiles({name,mimeType:"text/plain",buffer:Buffer.from(name)});
+    };
+    try {
+      await page.goto("/home?path="+encodeURIComponent(folder.path));
+      await selectFile("issued-a.txt","Bucket A");
+      await expect.poll(()=>oldStarted).toBe(true);
+      await page.getByRole("button",{name:"Close",exact:true}).click();
+      await page.getByRole("main").getByRole("button",{name:"bound",exact:true}).click();
+      await page.getByRole("menuitem",{name:"Bind storage policy",exact:true}).click();
+      const bind=page.getByRole("dialog");
+      await expect(bind.getByText("New uploads use this policy. Existing content keeps its current location.")).toBeVisible();
+      await bind.getByRole("combobox",{name:"Storage policy"}).click();
+      await page.getByRole("option",{name:"Bucket B",exact:true}).click();
+      await bind.getByRole("button",{name:"Save",exact:true}).click();
+      await expect.poll(()=>bound).toBe(true);
+      await expect(bind).toHaveCount(0);
+      await selectFile("new-b.txt","Bucket B");
+      // The second uploader is queued while the issued A transfer is paused.
+      expect(sessions).toHaveLength(1);
+      releaseOld();
+      if(resume) {
+        await page.getByText("issued-a.txt",{exact:true}).first().hover();
+        await expect(page.getByRole("button",{name:"Retry",exact:true})).toBeVisible({timeout:15000});
+        allowOld=true;
+        await page.getByRole("button",{name:"Retry",exact:true}).click();
+      }
+      await expect.poll(()=>callbacks.length).toBe(2);
+      expect(sessions).toHaveLength(2);
+      for(const upload of sessions) expect(upload).not.toHaveProperty("policy_id");
+      expect(callbacks.some(path=>path.includes("synthetic-a/"))).toBe(true);
+      expect(callbacks.some(path=>path.includes("synthetic-b/"))).toBe(true);
+      expect(bytes["/binding-storage/a-part"]).toBe("issued-a.txt");
+      expect(bytes["/binding-storage/b-part"]).toBe("new-b.txt");
+    } finally { releaseOld(); }
+  });
+}
+
+test("binding boundaries and rejected destination keep automatic placement",async ({page})=>{
+  const user={id:"member",nickname:"Member",email:"member@example.test",created_at:"2026-01-01T00:00:00Z",language:"en-US",group:{id:"members",name:"Members",permission:"AA=="}};
+  await page.addInitScript(user=>{
+    localStorage.setItem("i18nextLng","en-US");
+    localStorage.setItem("cloudreve_session",JSON.stringify({current:user.id,sessions:{[user.id]:{user,token:{access_token:"synthetic-access",refresh_token:"synthetic-refresh",access_expires:"2099-01-01T00:00:00Z",refresh_expires:"2099-01-01T00:00:00Z"},settings:{preferred_dark_mode:true}}},anonymousSettings:{}}));
+  },user);
+  const policies=[{id:"encoded-policy-a",name:"Bucket A",type:"s3",max_size:0},{id:"encoded-policy-b",name:"Bucket B",type:"s3",max_size:0}];
+  const base={type:1,owned:true,capability:"/////w==",metadata:{},created_at:"2026-01-01T00:00:00Z",updated_at:"2026-01-01T00:00:00Z"};
+  const rejected=[
+    {...base,id:"plain-row",name:"plain.txt",type:0,path:"cloudreve://my/plain.txt",primary_entity:"entity-a"},
+    {...base,id:"symbolic-row",name:"Symbolic folder",path:"cloudreve://my/shortcut",metadata:{"sys:shared_redirect":"https://share.example.test"}},
+    {...base,id:"foreign-row",name:"Foreign folder",path:"cloudreve://foreign@my/folder",owned:false},
+    {...base,id:"read-only-row",name:"No binding capability",path:"cloudreve://my/read-only",capability:Buffer.from([255,255,223,255]).toString("base64")},
+  ];
+  const valid={...base,id:"valid-row",name:"Owned folder",path:"cloudreve://my/owned"};
+  let patch:any;
+  let upload:any;
+  await page.route("**/boundary-storage/**",route=>route.fulfill({status:200,headers:{ETag:'"synthetic-etag"'},contentType:"application/xml",body:'<CompleteMultipartUploadResult><ETag>"synthetic-etag"</ETag></CompleteMultipartUploadResult>'}));
+  await page.route("**/api/v4/**",async route=>{
+    const req=route.request();
+    const path=new URL(req.url()).pathname.replace("/api/v4","");
+    let data:any={};
+    if(path.startsWith("/site/config/")) data={title:"Bind boundaries",default_theme:"#3f51b5",themes:"#3f51b5",icons:"[]",viewers:"{}",user};
+    else if(path==="/user/capacity") data={total:1000000,used:0};
+    else if(path==="/user/setting/policies") data=policies;
+    else if(path==="/file") {
+      const trash=new URL(req.url()).searchParams.get("uri")?.includes("trash");
+      data={files:trash?[{...base,id:"trash-row",name:"Trash folder"}]:[...rejected,valid],parent:{...base,id:"root",name:"Root",path:trash?"cloudreve://trash":"cloudreve://my/"},props:{capability:"/////w=="},pagination:{page:0,page_size:50,total_items:trash?1:5},storage_policy:policies[0]};
+    }
+    else if(path==="/file/policy" && req.method()==="PATCH") {
+      patch=req.postDataJSON();
+      await route.fulfill({json:{code:40007,msg:"Storage destination revoked"}});
+      return;
+    } else if(path==="/file/upload" && req.method()==="PUT") {
+      upload=req.postDataJSON();
+      data={session_id:"synthetic-a",expires:Math.floor(Date.now()/1000)+600,chunk_size:5242880,upload_urls:["http://127.0.0.1:43181/boundary-storage/part"],completeURL:"http://127.0.0.1:43181/boundary-storage/complete",callback_secret:"synthetic-callback",storage_policy:policies[0],uri:upload.uri};
+    }
+    await route.fulfill({json:{code:0,data}});
+  });
+  await page.goto("/home");
+  await page.getByRole("main").getByRole("button",{name:"My Files",exact:true}).click();
+  await expect(page.getByRole("menuitem",{name:"Bind storage policy",exact:true})).toHaveCount(0);
+  for(const target of rejected) {
+    await page.getByText(target.name,{exact:true}).first().click({button:"right"});
+    await expect(page.getByRole("menuitem",{name:"Bind storage policy",exact:true})).toHaveCount(0);
+    await page.keyboard.press("Escape");
+  }
+  await page.goto("/home?path="+encodeURIComponent("cloudreve://trash"));
+  await page.getByText("Trash folder",{exact:true}).first().click({button:"right"});
+  await expect(page.getByRole("menuitem",{name:"Bind storage policy",exact:true})).toHaveCount(0);
+  await page.keyboard.press("Escape");
+  expect(patch).toBeUndefined();
+  await page.goto("/home");
+  await page.getByText("Owned folder",{exact:true}).first().click({button:"right"});
+  await page.getByRole("menuitem",{name:"Bind storage policy",exact:true}).click();
+  const bind=page.getByRole("dialog");
+  await bind.getByRole("combobox",{name:"Storage policy"}).click();
+  await page.getByRole("option",{name:"Bucket B",exact:true}).click();
+  await bind.getByRole("button",{name:"Save",exact:true}).click();
+  await expect(page.getByText("Current group have no permission to perform such action.",{exact:true})).toBeVisible();
+  await expect(bind.getByRole("combobox",{name:"Storage policy"})).toHaveText("Bucket B");
+  await expect(bind.getByRole("button",{name:"Save",exact:true})).toBeEnabled();
+  expect(patch.policy_id).toBe("encoded-policy-b");
+  expect(new URL(patch.uri).username).toBe("member");
+  await bind.getByRole("button",{name:"Cancel",exact:true}).click();
+  await page.getByRole("button",{name:"New",exact:true}).click();
+  await page.getByRole("menuitem",{name:"Upload files",exact:true}).click();
+  const dialog=page.getByRole("dialog");
+  await expect(dialog.getByText("Current folder destination: Bucket A",{exact:true})).toBeVisible();
+  const chooser=page.waitForEvent("filechooser");
+  await dialog.getByRole("button",{name:"Choose files",exact:true}).click();
+  await (await chooser).setFiles({name:"after-rejected-bind.txt",mimeType:"text/plain",buffer:Buffer.from("old placement survives rejection")});
+  await expect.poll(()=>upload?.uri).toContain("after-rejected-bind.txt");
+  expect(upload).not.toHaveProperty("policy_id");
+});
