@@ -326,6 +326,7 @@ func storageRouter(d dependency.Dep, l logging.Logger) *gin.Engine {
 	authenticated.PUT("/file/upload", ctl.FromJSON[explorer.CreateUploadSessionService](explorer.CreateUploadSessionParameterCtx{}), ctl.CreateUploadSession)
 	authenticated.POST("/file/url", ctl.FromJSON[explorer.FileURLService](explorer.FileURLParameterCtx{}), ctl.FileURL)
 	authenticated.GET("/file/info", ctl.FromQuery[explorer.GetFileInfoService](explorer.GetFileInfoParameterCtx{}), ctl.GetFileInfo)
+	authenticated.GET("/file/thumb", ctl.FromQuery[explorer.FileThumbService](explorer.FileThumbParameterCtx{}), ctl.Thumb)
 	authenticated.GET("/user/capacity", ctl.UserStorage)
 	authenticated.GET("/user/setting", ctl.UserSetting)
 	authenticated.GET("/user/setting/policies", ctl.UserAvailableStoragePolicies)

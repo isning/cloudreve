@@ -935,6 +935,19 @@ func (f *fileClient) RemoveStaleEntities(ctx context.Context, file *ent.File) (S
 
 func (f *fileClient) CreateEntity(ctx context.Context, file *ent.File, args *EntityParameters) (*ent.Entity, StorageDiff, error) {
 	createdBy := UserFromContext(ctx)
+	// A derived thumbnail belongs to the file owner even when a read-only
+	// shared viewer triggered its internal generation. Ordinary writes keep
+	// their existing actor attribution.
+	if args.EntityType == types.EntityTypeThumbnail {
+		if args.OwnerID != file.OwnerID {
+			return nil, nil, fmt.Errorf("thumbnail owner mismatch")
+		}
+		owner, err := f.client.User.Get(ctx, args.OwnerID)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to load thumbnail owner: %w", err)
+		}
+		createdBy = owner
+	}
 	var opt *types.EntityProps
 	if args.EncryptMetadata != nil {
 		opt = &types.EntityProps{

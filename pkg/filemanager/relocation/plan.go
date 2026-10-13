@@ -84,7 +84,8 @@ func PlanVersions(ctx context.Context, dep dependency.Dep, ownerID int, src []st
 	plans := make([]*Plan, 0, len(current.Edges.Entities))
 	for _, model := range current.Edges.Entities {
 		entity := fs.NewEntity(model)
-		if entity.Type() != types.EntityTypeVersion || entity.UploadSessionID() != nil || entity.ReferenceCount() < 1 {
+		supportedType := entity.Type() == types.EntityTypeVersion || entity.Type() == types.EntityTypeThumbnail || entity.Type() == types.EntityTypeLivePhoto
+		if !supportedType || entity.UploadSessionID() != nil || entity.ReferenceCount() < 1 {
 			return nil, serializer.NewError(serializer.CodeNoPermissionErr, "This migration source or transfer is not supported yet", nil)
 		}
 		plans = append(plans, &Plan{Owner: owner, Destination: destination, FileIDs: []int{current.ID}, Entity: model, References: []types.RelocationReference{{FileID: current.ID, URI: uri.String(), PrimaryEntityID: current.PrimaryEntity, UpdatedAt: current.UpdatedAt}}})

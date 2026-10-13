@@ -121,7 +121,12 @@ func AdvanceSingle(ctx context.Context, dep dependency.Dep, taskID, ownerID int,
 		if err != nil {
 			return false, failItem(ctx, db, item, err)
 		}
-		return len(items) == 1, nil
+		for _, other := range items {
+			if other.ID != item.ID && other.State != relocationitem.StateCommitted && other.State != relocationitem.StateNoop {
+				return false, nil
+			}
+		}
+		return true, nil
 	}
 	err = copySingle(workCtx, dep, fm, item, uri)
 	if err != nil {

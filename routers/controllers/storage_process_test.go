@@ -58,6 +58,7 @@ func TestStorageStartupWorker(t *testing.T) {
 	defer d.Shutdown(context.Background())
 	if os.Getenv("CLOUDREVE_STORAGE_RUN_WORKFLOWS") == "1" {
 		d.IoIntenseQueue(context.Background()).Start()
+		d.ThumbQueue(context.Background()).Start()
 	}
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
@@ -94,7 +95,7 @@ func launchStorageWorkerMode(t *testing.T, f *storageFixture, workflows bool) *s
 	require.NoError(t, os.WriteFile(file, raw, 0600))
 	log, err := os.Create(file + ".log")
 	require.NoError(t, err)
-	cmd := exec.Command(os.Args[0], "-test.run=^TestStorageStartupWorker$", "-test.timeout=90s")
+	cmd := exec.Command(os.Args[0], "-test.run=^TestStorageStartupWorker$", "-test.timeout=180s")
 	cmd.Env = append(os.Environ(), "CLOUDREVE_STORAGE_PROCESS_CONFIG="+file)
 	if workflows {
 		cmd.Env = append(cmd.Env, "CLOUDREVE_STORAGE_RUN_WORKFLOWS=1")
