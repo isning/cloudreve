@@ -2,25 +2,16 @@ package relocation
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
-	"encoding/json"
 
 	"github.com/cloudreve/Cloudreve/v4/ent"
 	"github.com/cloudreve/Cloudreve/v4/ent/relocationitem"
+	"github.com/cloudreve/Cloudreve/v4/inventory"
 	"github.com/cloudreve/Cloudreve/v4/inventory/types"
 )
 
-// Location fingerprints only physical addressing properties, so credential
-// rotation does not invalidate durable plans or expose secrets in the journal.
+// Location excludes credentials so rotation preserves durable plans.
 func Location(policy *ent.StoragePolicy) string {
-	settings := policy.Settings
-	if settings == nil {
-		settings = &types.PolicySetting{}
-	}
-	b, _ := json.Marshal([]any{policy.Type, policy.Server, policy.BucketName, policy.NodeID, settings.ServerSideEndpoint, settings.OdDriver, settings.Region, settings.S3ForcePathStyle})
-	digest := sha256.Sum256(b)
-	return hex.EncodeToString(digest[:])
+	return inventory.StorageLocationFingerprint(policy)
 }
 
 // RecordNoop records the first supported plan without generating a target

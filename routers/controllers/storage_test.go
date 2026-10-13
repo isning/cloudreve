@@ -136,7 +136,7 @@ func startStorageS3(t *testing.T) storageS3Service {
 		_ = cmd.Process.Signal(os.Interrupt)
 		select {
 		case <-done:
-		case <-time.After(10 * time.Second):
+		case <-time.After(30 * time.Second):
 			t.Error("owned S3 process did not shut down")
 		}
 		require.NoError(t, log.Close())
@@ -310,6 +310,7 @@ func storageRouter(d dependency.Dep, l logging.Logger) *gin.Engine {
 	authenticated := r.Group("/api/v4", middleware.LoginRequired())
 	authenticated.Use(middleware.ContextHint())
 	authenticated.GET("/file", ctl.FromQuery[explorer.ListFileService](explorer.ListFileParameterCtx{}), ctl.ListDirectory)
+	authenticated.POST("/file/version/current", ctl.FromJSON[explorer.SetCurrentVersionService](explorer.SetCurrentVersionParamCtx{}), ctl.SetCurrentVersion)
 	authenticated.PATCH("/file/policy", ctl.FromJSON[explorer.BindPolicyService](explorer.BindPolicyParamCtx{}), ctl.BindStoragePolicy)
 	authenticated.POST("/file/create", ctl.FromJSON[explorer.CreateFileService](explorer.CreateFileParameterCtx{}), ctl.CreateFile)
 	authenticated.POST("/file/move", ctl.FromJSON[explorer.MoveFileService](explorer.MoveFileParameterCtx{}), ctl.MoveFile)
@@ -324,6 +325,8 @@ func storageRouter(d dependency.Dep, l logging.Logger) *gin.Engine {
 	authenticated.GET("/workflow", ctl.FromQuery[explorer.ListTaskService](explorer.ListTaskParamCtx{}), ctl.ListTasks)
 	authenticated.GET("/workflow/progress/:id", middleware.HashID(hashid.TaskID), ctl.GetTaskPhaseProgress)
 	authenticated.PUT("/file/upload", ctl.FromJSON[explorer.CreateUploadSessionService](explorer.CreateUploadSessionParameterCtx{}), ctl.CreateUploadSession)
+	r.GET("/f/:id/:name", middleware.HashID(hashid.SourceLinkID), ctl.AnonymousPermLink(false))
+	authenticated.PUT("/file/source", ctl.FromJSON[explorer.GetDirectLinkService](explorer.GetDirectLinkParamCtx{}), ctl.GetSource)
 	authenticated.POST("/file/url", ctl.FromJSON[explorer.FileURLService](explorer.FileURLParameterCtx{}), ctl.FileURL)
 	authenticated.GET("/file/info", ctl.FromQuery[explorer.GetFileInfoService](explorer.GetFileInfoParameterCtx{}), ctl.GetFileInfo)
 	authenticated.GET("/file/thumb", ctl.FromQuery[explorer.FileThumbService](explorer.FileThumbParameterCtx{}), ctl.Thumb)

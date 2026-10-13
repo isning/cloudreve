@@ -262,6 +262,15 @@ func recordPlans(ctx context.Context, dep dependency.Dep, taskID int, selection 
 	if existing {
 		return nil
 	}
+	for _, id := range selection.FileIDs {
+		file, err := c.File.Get(ctx, id)
+		if err != nil {
+			return ErrConflict
+		}
+		if err := validateLineage(ctx, c, file, selection.Owner.ID); err != nil {
+			return err
+		}
+	}
 	ids := []int{selection.Destination.ID}
 	for _, p := range plans {
 		ids = append(ids, p.Entity.StoragePolicyEntities)
@@ -389,6 +398,9 @@ func currentSource(ctx context.Context, db *ent.Client, item *ent.RelocationItem
 		}
 		if f == nil || f.OwnerID != item.OwnerID || f.IsSymbolic || !f.UpdatedAt.Equal(ref.UpdatedAt) {
 			return nil, nil, nil, ErrConflict
+		}
+		if err := validateLineage(ctx, db, f, item.OwnerID); err != nil {
+			return nil, nil, nil, err
 		}
 		expectedPrimary := ref.PrimaryEntityID
 		if f.PrimaryEntity != expectedPrimary {
