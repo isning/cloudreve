@@ -290,6 +290,7 @@ func (f *DBFS) CreateEntity(ctx context.Context, file fs.File, policy *ent.Stora
 		Source:          req.Props.SavePath,
 		Size:            req.Props.Size,
 		UploadSessionID: uuid.FromStringOrNil(o.UploadRequest.Props.UploadSessionID),
+		UploadExpiresAt: req.Props.ExpireAt,
 		EncryptMetadata: o.encryptMetadata,
 	})
 	if err != nil {
@@ -620,6 +621,7 @@ func (f *DBFS) createFile(ctx context.Context, parent *File, name string, fileTy
 			Size:            o.UploadRequest.Props.Size,
 			ModifiedAt:      o.UploadRequest.Props.LastModified,
 			UploadSessionID: uuid.FromStringOrNil(o.UploadRequest.Props.UploadSessionID),
+			UploadExpiresAt: o.UploadRequest.Props.ExpireAt,
 			Importing:       o.UploadRequest.ImportFrom != nil,
 			EncryptMetadata: o.encryptMetadata,
 		}

@@ -177,6 +177,7 @@ type (
 	}
 
 	EntityProps struct {
+		UploadExpiresAt int64            `json:"upload_expires_at,omitempty"`
 		UnlinkOnly      bool             `json:"unlink_only,omitempty"`
 		EncryptMetadata *EncryptMetadata `json:"encrypt_metadata,omitempty"`
 	}

@@ -77,6 +77,27 @@ func (c *storagePolicyClient) GetClient() *ent.Client {
 }
 
 func (c *storagePolicyClient) Delete(ctx context.Context, policy *ent.StoragePolicy) error {
+	sc, tx, ctx, err := WithTx(ctx, c)
+	if err != nil {
+		return err
+	}
+	defer Rollback(tx)
+	if _, err = LockStoragePolicy(ctx, sc.client, policy.ID); err != nil {
+		return err
+	}
+	if err = checkGroupPolicyDependencies(ctx, sc.client, policy.ID); err != nil {
+		return err
+	}
+	if err = checkUploadPolicyDependencies(ctx, sc.client, policy.ID); err != nil {
+		return err
+	}
+	if err = sc.delete(ctx, policy); err != nil {
+		return err
+	}
+	return Commit(tx)
+}
+
+func (c *storagePolicyClient) delete(ctx context.Context, policy *ent.StoragePolicy) error {
 	if err := c.client.StoragePolicy.DeleteOne(policy).Exec(ctx); err != nil {
 		return fmt.Errorf("failed to delete storage policy: %w", err)
 	}
@@ -89,6 +110,34 @@ func (c *storagePolicyClient) Delete(ctx context.Context, policy *ent.StoragePol
 }
 
 func (c *storagePolicyClient) Upsert(ctx context.Context, policy *ent.StoragePolicy) (*ent.StoragePolicy, error) {
+	if policy.ID == 0 {
+		return c.upsert(ctx, policy)
+	}
+	sc, tx, ctx, err := WithTx(ctx, c)
+	if err != nil {
+		return nil, err
+	}
+	defer Rollback(tx)
+	stored, err := LockStoragePolicy(ctx, sc.client, policy.ID)
+	if err != nil {
+		return nil, err
+	}
+	if !SameStorageLocation(stored, policy) {
+		if err = checkUploadPolicyDependencies(ctx, sc.client, policy.ID); err != nil {
+			return nil, err
+		}
+	}
+	result, err := sc.upsert(ctx, policy)
+	if err != nil {
+		return nil, err
+	}
+	if err = Commit(tx); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func (c *storagePolicyClient) upsert(ctx context.Context, policy *ent.StoragePolicy) (*ent.StoragePolicy, error) {
 	var nodeId *int
 	if policy.NodeID != 0 {
 		nodeId = &policy.NodeID

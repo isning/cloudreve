@@ -314,6 +314,9 @@ func storageRouter(d dependency.Dep, l logging.Logger) *gin.Engine {
 	admin := authenticated.Group("/admin", middleware.IsAdmin())
 	admin.GET("/group/:id", ctl.FromUri[adminsvc.SingleGroupService](adminsvc.SingleGroupParamCtx{}), ctl.AdminGetGroup)
 	admin.PUT("/group/:id", ctl.FromJSON[adminsvc.UpsertGroupService](adminsvc.UpsertGroupParamCtx{}), ctl.AdminUpdateGroup)
+	admin.GET("/policy/:id", ctl.FromUri[adminsvc.SingleStoragePolicyService](adminsvc.GetStoragePolicyParamCtx{}), ctl.AdminGetPolicy)
+	admin.PUT("/policy/:id", ctl.FromJSON[adminsvc.UpdateStoragePolicyService](adminsvc.UpdateStoragePolicyParamCtx{}), ctl.AdminUpdatePolicy)
+	admin.DELETE("/policy/:id", ctl.FromUri[adminsvc.SingleStoragePolicyService](adminsvc.GetStoragePolicyParamCtx{}), ctl.AdminDeletePolicy)
 	return r
 }
 
@@ -528,4 +531,37 @@ func TestStorageUpgradePreservesExistingContentAndIdentity(t *testing.T) {
 	require.NoError(t, err)
 	f.request(t, http.MethodGet, "/api/v4/user/setting/policies", nil, &policies)
 	require.Empty(t, policies)
+}
+
+// responseCode observes the native envelope across local and independent-worker
+// HTTP without printing signed credentials or request payloads.
+func (f *storageFixture) responseCode(t *testing.T, method, path string, body any) int {
+	t.Helper()
+	raw, err := json.Marshal(body)
+	require.NoError(t, err)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	req := httptest.NewRequest(method, path, bytes.NewReader(raw)).WithContext(ctx)
+	req.Header.Set("Content-Type", "application/json")
+	if f.token != "" {
+		req.Header.Set("Authorization", "Bearer "+f.token)
+	}
+	w := httptest.NewRecorder()
+	if f.remote == "" {
+		f.router.ServeHTTP(w, req)
+	} else {
+		req.URL, err = url.Parse(f.remote + path)
+		require.NoError(t, err)
+		req.RequestURI = ""
+		res, err := (&http.Client{Timeout: 12 * time.Second}).Do(req)
+		require.True(t, err == nil, "storage HTTP transport failed")
+		defer res.Body.Close()
+		_, err = io.Copy(w, res.Body)
+		require.NoError(t, err)
+	}
+	var envelope struct {
+		Code int `json:"code"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &envelope))
+	return envelope.Code
 }

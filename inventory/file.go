@@ -129,6 +129,7 @@ type (
 		Source          string
 		Size            int64
 		UploadSessionID uuid.UUID
+		UploadExpiresAt time.Time
 		Importing       bool
 		EncryptMetadata *types.EncryptMetadata
 	}
@@ -942,6 +943,12 @@ func (f *fileClient) CreateEntity(ctx context.Context, file *ent.File, args *Ent
 				IV:        args.EncryptMetadata.IV,
 			},
 		}
+	}
+	if !args.UploadExpiresAt.IsZero() && args.UploadSessionID != uuid.Nil && !args.Importing {
+		if opt == nil {
+			opt = &types.EntityProps{}
+		}
+		opt.UploadExpiresAt = args.UploadExpiresAt.UnixMilli()
 	}
 
 	stm := f.client.Entity.

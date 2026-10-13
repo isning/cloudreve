@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/cloudreve/Cloudreve/v4/ent"
+	entuser "github.com/cloudreve/Cloudreve/v4/ent/user"
 	"github.com/cloudreve/Cloudreve/v4/inventory"
 	"github.com/cloudreve/Cloudreve/v4/inventory/types"
 	"github.com/cloudreve/Cloudreve/v4/pkg/filemanager/fs"
@@ -194,6 +195,33 @@ func (f *DBFS) PrepareUpload(ctx context.Context, req *fs.UploadRequest, opts ..
 		}
 		return nil, serializer.NewError(serializer.CodeDBError, "Failed to reserve storage capacity", err)
 	}
+	// Zero-byte uploads still need the same owner -> policy lock ordering.
+	if req.Props.Size == 0 {
+		if err := fc.GetClient().User.Update().Where(entuser.ID(owner.ID)).AddStorage(0).Exec(ctx); err != nil {
+			_ = inventory.Rollback(dbTx)
+			return nil, err
+		}
+	}
+	current, err := inventory.LockStoragePolicy(ctx, fc.GetClient(), policy.ID)
+	if err != nil {
+		_ = inventory.Rollback(dbTx)
+		return nil, err
+	}
+	if !inventory.SameStorageLocation(current, policy) {
+		_ = inventory.Rollback(dbTx)
+		return nil, serializer.NewError(serializer.CodeLockConflict, "Storage destination changed; retry upload", nil)
+	}
+	if req.ImportFrom == nil {
+		if _, err = storagepolicy.New(f.userClient, f.storagePolicyClient).Select(ctx, owner.ID, current.ID, 0); err != nil {
+			_ = inventory.Rollback(dbTx)
+			return nil, serializer.NewError(serializer.CodeGroupNotAllowed, "Storage policy is unavailable", err)
+		}
+	}
+	if err = validateNewFile(req.Props.Uri.Name(), req.Props.Size, current); err != nil {
+		_ = inventory.Rollback(dbTx)
+		return nil, err
+	}
+	policy = current
 
 	if fileExisted {
 		entityType := types.EntityTypeVersion
