@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, Route } from "@playwright/test";
 
 // Production frontend, controlled public HTTP boundary. Backend/S3 behavior is
 // verified independently by the native-auth Go storage integration suite.
@@ -41,4 +41,30 @@ test("administrator saves and reopens a group with two available policies", asyn
   await page.reload();
   await expect(policies).toContainText("Bucket A");
   await expect(policies).toContainText("Bucket B");
+  await page.getByRole("button", {name: "Move Bucket B up"}).click();
+  await page.getByRole("button", {name: /save/i, exact: true}).click();
+  await expect.poll(() => saved?.policy_ids).toEqual([2, 1]);
+  expect(saved.group.edges.storage_policies.id).toBe(2);
+  await page.reload();
+  await expect(policies).toContainText("Bucket B · Default");
+  const rejectSave = async (route: Route) => {
+    if (route.request().method() === "PUT") {
+      await route.fulfill({json: {code: 40001, msg: "Invalid storage policy assignment"}});
+    } else await route.fallback();
+  };
+  await page.route("**/api/v4/admin/group/2", rejectSave);
+  await policies.click();
+  await page.getByRole("option", {name: /Bucket A/}).click();
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", {name: /save/i, exact: true}).click();
+  await expect(page.getByText("Invalid storage policy assignment")).toBeVisible();
+  await page.reload();
+  await expect(policies).toContainText("Bucket A");
+  await expect(policies).toContainText("Bucket B · Default");
+  await page.unroute("**/api/v4/admin/group/2", rejectSave);
+  await policies.click();
+  await page.getByRole("option", {name: /Bucket A/}).click();
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", {name: /save/i, exact: true}).click();
+  await expect.poll(() => saved?.policy_ids).toEqual([2]);
 });
