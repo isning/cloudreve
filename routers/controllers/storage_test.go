@@ -305,6 +305,7 @@ func storageRouter(d dependency.Dep, l logging.Logger) *gin.Engine {
 	r.PUT("/api/v4/session/openid", ctl.BeginOpenID)
 	r.POST("/api/v4/session/openid", ctl.FinishOpenID)
 	r.GET("/api/v4/callback/s3/:sessionID/:key", middleware.UseUploadSession(types.PolicyTypeS3), ctl.ProcessCallback(http.StatusBadRequest, false))
+	r.GET("/api/v4/file/content/:id/:speed/:name", middleware.SignRequired(d.GeneralAuth()), middleware.HashID(hashid.EntityID), ctl.FromUri[explorer.EntityDownloadService](explorer.EntityDownloadParameterCtx{}), ctl.ServeEntity)
 	authenticated := r.Group("/api/v4", middleware.LoginRequired())
 	authenticated.Use(middleware.ContextHint())
 	authenticated.GET("/file", ctl.FromQuery[explorer.ListFileService](explorer.ListFileParameterCtx{}), ctl.ListDirectory)

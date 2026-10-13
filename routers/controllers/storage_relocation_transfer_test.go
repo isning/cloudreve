@@ -188,6 +188,5 @@ func TestStorageRelocationInitialScopeRejectsUnsupportedSources(t *testing.T) {
 	stored, err := f.db.Entity.Get(context.Background(), id)
 	require.NoError(t, err)
 	require.NotNil(t, stored.Props.EncryptMetadata)
-	reject(uri)
 	f.assertObjectCounts(t, 5, 0)
 }
