@@ -22,6 +22,7 @@ import (
 	"github.com/cloudreve/Cloudreve/v4/pkg/logging"
 	"github.com/cloudreve/Cloudreve/v4/pkg/serializer"
 	"github.com/cloudreve/Cloudreve/v4/pkg/setting"
+	"github.com/cloudreve/Cloudreve/v4/pkg/storagepolicy"
 	"github.com/cloudreve/Cloudreve/v4/pkg/util"
 	"github.com/gofrs/uuid"
 	"github.com/samber/lo"
@@ -667,13 +668,7 @@ func (f *DBFS) generateEncryptMetadata(ctx context.Context, uploadRequest *fs.Up
 
 // getPreferredPolicy tries to get the preferred storage policy for the given file.
 func (f *DBFS) getPreferredPolicy(ctx context.Context, file *File) (*ent.StoragePolicy, error) {
-	ownerGroup := file.Owner().Edges.Group
-	if ownerGroup == nil {
-		return nil, fmt.Errorf("owner group not loaded")
-	}
-
-	sc, _ := inventory.InheritTx(ctx, f.storagePolicyClient)
-	groupPolicy, err := sc.GetByGroup(ctx, ownerGroup)
+	groupPolicy, err := storagepolicy.New(f.userClient, f.storagePolicyClient).Default(ctx, file.OwnerID())
 	if err != nil {
 		return nil, serializer.NewError(serializer.CodeDBError, "Failed to get available storage policies", err)
 	}

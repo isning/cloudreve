@@ -310,3 +310,23 @@ func TestStorageLegacyS3UploadAndRead(t *testing.T) {
 		}
 	}
 }
+
+func TestStorageFailureDoesNotChooseAnotherBucket(t *testing.T) {
+	f := newStorageFixture(t)
+	_, err := f.db.StoragePolicy.UpdateOneID(f.policies[0].ID).SetServer("http://127.0.0.1:1").Save(context.Background())
+	require.NoError(t, err)
+	w := openIDRequest(t, f.router, http.MethodPut, "/api/v4/file/upload", map[string]any{"uri": "cloudreve://my/unavailable.txt", "size": 5}, nil, f.token)
+	var response struct {
+		Code int `json:"code"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &response))
+	require.NotZero(t, response.Code)
+	var capacity fs.Capacity
+	f.request(t, http.MethodGet, "/api/v4/user/capacity", nil, &capacity)
+	require.Zero(t, capacity.Used)
+	for _, policy := range f.policies {
+		objects, err := f.s3.ListObjectsV2(&s3.ListObjectsV2Input{Bucket: aws.String(policy.BucketName)})
+		require.NoError(t, err)
+		require.Empty(t, objects.Contents)
+	}
+}
