@@ -9,12 +9,14 @@ import (
 	"github.com/cloudreve/Cloudreve/v4/ent/entity"
 	"github.com/cloudreve/Cloudreve/v4/ent/group"
 	"github.com/cloudreve/Cloudreve/v4/ent/grouppolicy"
+	"github.com/cloudreve/Cloudreve/v4/ent/relocationattempt"
+	"github.com/cloudreve/Cloudreve/v4/ent/relocationitem"
 	"github.com/cloudreve/Cloudreve/v4/ent/storagepolicy"
 	"github.com/cloudreve/Cloudreve/v4/inventory/types"
 )
 
 var (
-	ErrStoragePolicyInUse   = errors.New("storage policy has active upload dependencies")
+	ErrStoragePolicyInUse   = errors.New("storage policy has active upload or migration dependencies")
 	ErrStoragePolicyGranted = errors.New("storage policy is granted to an active group")
 )
 
@@ -57,6 +59,30 @@ func checkUploadPolicyDependencies(ctx context.Context, c *ent.Client, id int) e
 		if item.Props == nil || item.Props.UploadExpiresAt == 0 || item.Props.UploadExpiresAt > now {
 			return ErrStoragePolicyInUse
 		}
+	}
+	return checkRelocationPolicyDependencies(ctx, c, id)
+}
+
+// Durable records remain authoritative after terminal status, history cleanup
+// or account deletion. Unknown external writes are dependencies even if an
+// earlier compensation pass observed no object at their exact owned key.
+func checkRelocationPolicyDependencies(ctx context.Context, c *ent.Client, id int) error {
+	used, err := c.RelocationItem.Query().Where(
+		relocationitem.Or(relocationitem.SourcePolicyID(id), relocationitem.DestinationPolicyID(id)),
+		relocationitem.Or(
+			relocationitem.StateNotIn(relocationitem.StateCommitted, relocationitem.StateNoop, relocationitem.StateFailed),
+			relocationitem.SourceCleanupEQ(relocationitem.SourceCleanupPending),
+			relocationitem.HasAttemptsWith(relocationattempt.Or(
+				relocationattempt.CleanupEQ(relocationattempt.CleanupPending),
+				relocationattempt.IoStateIn(relocationattempt.IoStateInFlight, relocationattempt.IoStateUnknown),
+			)),
+		),
+	).Exist(ctx)
+	if err != nil {
+		return err
+	}
+	if used {
+		return ErrStoragePolicyInUse
 	}
 	return nil
 }
