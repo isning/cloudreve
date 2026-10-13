@@ -44,7 +44,7 @@ func (s *RelocateService) Create(c *gin.Context) (*TaskResponse, error) {
 		return nil, serializer.NewError(serializer.CodeCreateTaskError, "Failed to create migration task", err)
 	}
 	ctx = context.WithValue(ctx, logging.CorrelationIDCtx{}, job.CorrelationID())
-	if err = dep.IoIntenseQueue(c).QueueTask(c, job); err != nil {
+	if err = dep.IoIntenseQueue(c).QueueTask(ctx, job); err != nil {
 		return nil, serializer.NewError(serializer.CodeCreateTaskError, "Failed to queue migration task", err)
 	}
 	return BuildTaskResponse(job, nil, dep.HashIDEncoder()), nil
