@@ -21,6 +21,8 @@ import (
 
 type RelocateTask struct{ *queue.DBTask }
 
+func (*RelocateTask) PreserveCompleted() bool { return true }
+
 func (*RelocateTask) CancellationDrainTimeout() time.Duration { return 5 * time.Second }
 
 type RelocateCommand struct {
@@ -65,10 +67,16 @@ func (t *RelocateTask) Do(ctx context.Context) (task.Status, error) {
 	}
 	command.NodeID = state.NodeID
 	done, err := relocation.AdvanceSingle(ctx, dep, t.ID(), owner.ID, command.Sources, command.DestinationID)
-	if errors.Is(err, relocation.ErrLeaseBusy) {
-		t.ResumeAfter(30 * time.Second)
-		return task.StatusSuspending, nil
+	if errors.Is(err, relocation.ErrLeaseBusy) || errors.Is(err, relocation.ErrLeaseLost) {
+		progress, reportErr := relocation.ReadProgress(ctx, dep.DBClient(), t.ID(), false)
+		if reportErr == nil && progress.Phase == "completed" {
+			done, err = true, nil
+		} else {
+			t.ResumeAfter(30 * time.Second)
+			return task.StatusSuspending, nil
+		}
 	}
+
 	if err != nil {
 		command.Phase = "failed"
 		reportCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)

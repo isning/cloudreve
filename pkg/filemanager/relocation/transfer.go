@@ -678,6 +678,9 @@ func lockSourceEntity(ctx context.Context, db *ent.Client, id int) error {
 func failItem(ctx context.Context, db *ent.Client, item *ent.RelocationItem, cause error) error {
 	recordCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
-	_, _ = db.RelocationItem.Update().Where(relocationitem.ID(item.ID), relocationitem.Fence(item.Fence), relocationitem.LeaseOwner(item.LeaseOwner), relocationitem.LeaseUntilGT(time.Now()), relocationitem.StateNotIn(relocationitem.StateCommitted, relocationitem.StateNoop)).SetState(relocationitem.StateFailed).SetError(cause.Error()).SetLeaseOwner("").ClearLeaseUntil().Save(recordCtx)
+	n, err := db.RelocationItem.Update().Where(relocationitem.ID(item.ID), relocationitem.Fence(item.Fence), relocationitem.LeaseOwner(item.LeaseOwner), relocationitem.LeaseUntilGT(time.Now()), relocationitem.StateNotIn(relocationitem.StateCommitted, relocationitem.StateNoop)).SetState(relocationitem.StateFailed).SetError(cause.Error()).SetLeaseOwner("").ClearLeaseUntil().Save(recordCtx)
+	if err == nil && n != 1 {
+		return ErrLeaseLost
+	}
 	return cause
 }
