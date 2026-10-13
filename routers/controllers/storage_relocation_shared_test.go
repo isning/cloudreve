@@ -56,6 +56,8 @@ func TestStorageRelocationSplitsOnlySelectedSharedVersions(t *testing.T) {
 		f.request(t, http.MethodPost, "/api/v4/file/url", map[string]any{"uris": []string{src}, "entity": e.ID}, &links)
 		_, contents[e.ID] = storageHTTP(t, http.MethodGet, links.Urls[0].Url, nil)
 	}
+	f.fillMigrationQuota(t)
+	capacitiesBefore := f.migrationCapacities(t)
 	var capacityBefore fs.Capacity
 	f.request(t, http.MethodGet, "/api/v4/user/capacity", nil, &capacityBefore)
 	var accepted explorer.TaskResponse
@@ -113,5 +115,6 @@ func TestStorageRelocationSplitsOnlySelectedSharedVersions(t *testing.T) {
 	var capacityAfter fs.Capacity
 	f.request(t, http.MethodGet, "/api/v4/user/capacity", nil, &capacityAfter)
 	require.Equal(t, capacityBefore.Used, capacityAfter.Used)
+	require.Equal(t, capacitiesBefore, f.migrationCapacities(t))
 	f.assertObjectCounts(t, 3, 2)
 }

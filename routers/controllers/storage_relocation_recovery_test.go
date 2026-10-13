@@ -227,6 +227,8 @@ func TestStorageRelocationRechecksMissingOrInvalidVerification(t *testing.T) {
 			data := []byte("recovery must not trust object existence or a broken record")
 			f.upload(t, uri, data, nil)
 			before := f.fileInfo(t, uri)
+			f.fillMigrationQuota(t)
+			capacitiesBefore := f.migrationCapacities(t)
 			var accepted explorer.TaskResponse
 			f.request(t, http.MethodPost, "/api/v4/workflow/reloacte", map[string]any{"src": []string{uri}, "dst_policy_id": hashid.EncodePolicyID(f.dep.HashIDEncoder(), f.policies[1].ID)}, &accepted)
 			w := launchStorageWorkerWithWorkflows(t, f)
@@ -255,6 +257,22 @@ func TestStorageRelocationRechecksMissingOrInvalidVerification(t *testing.T) {
 			require.Equal(t, before.ExtendedInfo.Entities[0].ID, after.ExtendedInfo.Entities[0].ID)
 			require.Len(t, after.ExtendedInfo.Entities, 1)
 			require.True(t, bytes.Equal(data, f.readFile(t, uri)))
+			require.Equal(t, capacitiesBefore, f.migrationCapacities(t))
+			// Redeliver the completed command twice. Durable references and
+			// accounting must not be applied again on either recovery.
+			for i := 0; i < 2; i++ {
+				restarted.stop(t)
+				jobID, err := f.dep.HashIDEncoder().Decode(accepted.ID, hashid.TaskID)
+				require.NoError(t, err)
+				require.NoError(t, f.db.Task.UpdateOneID(jobID).SetStatus(task.StatusProcessing).Exec(context.Background()))
+				restarted = launchStorageWorkerWithWorkflows(t, f)
+				f.remote = restarted.ready(t)
+				f.login(t)
+				report := f.waitForStorageTask(t, accepted.ID, "completed")
+				require.Equal(t, float64(len(data)), report.Summary.Props["bytes_copied"])
+				require.Equal(t, capacitiesBefore, f.migrationCapacities(t))
+				require.Len(t, f.fileInfo(t, uri).ExtendedInfo.Entities, 1)
+			}
 			if fault == "corrupt_target" {
 				f.assertObjectCounts(t, 2, 2)
 			} else {
