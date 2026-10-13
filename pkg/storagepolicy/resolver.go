@@ -12,6 +12,7 @@ import (
 )
 
 var ErrNoAvailablePolicies = errors.New("no available storage policies")
+var ErrPolicyNotGranted = errors.New("storage policy is not granted to current owner")
 
 type Resolver struct {
 	users    inventory.UserClient
@@ -43,12 +44,31 @@ func (r *Resolver) Available(ctx context.Context, ownerID int) ([]*ent.StoragePo
 }
 
 func (r *Resolver) Default(ctx context.Context, ownerID int) (*ent.StoragePolicy, error) {
+	return r.Select(ctx, ownerID, 0, 0)
+}
+
+// Select authorizes explicit destinations before returning them. A stale
+// automatic preference falls directly back to the current first grant.
+func (r *Resolver) Select(ctx context.Context, ownerID, explicitID, preferenceID int) (*ent.StoragePolicy, error) {
 	policies, err := r.Available(ctx, ownerID)
 	if err != nil {
 		return nil, err
 	}
+	if explicitID != 0 {
+		for _, policy := range policies {
+			if policy.ID == explicitID {
+				return policy, nil
+			}
+		}
+		return nil, ErrPolicyNotGranted
+	}
 	if len(policies) == 0 {
 		return nil, ErrNoAvailablePolicies
+	}
+	for _, policy := range policies {
+		if policy.ID == preferenceID {
+			return policy, nil
+		}
 	}
 	return policies[0], nil
 }

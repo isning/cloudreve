@@ -301,6 +301,8 @@ func storageRouter(d dependency.Dep, l logging.Logger) *gin.Engine {
 	r.POST("/api/v4/session/openid", ctl.FinishOpenID)
 	r.GET("/api/v4/callback/s3/:sessionID/:key", middleware.UseUploadSession(types.PolicyTypeS3), ctl.ProcessCallback(http.StatusBadRequest, false))
 	authenticated := r.Group("/api/v4", middleware.LoginRequired())
+	authenticated.GET("/file", ctl.FromQuery[explorer.ListFileService](explorer.ListFileParameterCtx{}), ctl.ListDirectory)
+	authenticated.POST("/workflow/import", middleware.IsAdmin(), ctl.FromJSON[explorer.ImportWorkflowService](explorer.CreateImportParamCtx{}), ctl.ImportFiles)
 	authenticated.PUT("/file/upload", ctl.FromJSON[explorer.CreateUploadSessionService](explorer.CreateUploadSessionParameterCtx{}), ctl.CreateUploadSession)
 	authenticated.POST("/file/url", ctl.FromJSON[explorer.FileURLService](explorer.FileURLParameterCtx{}), ctl.FileURL)
 	authenticated.GET("/file/info", ctl.FromQuery[explorer.GetFileInfoService](explorer.GetFileInfoParameterCtx{}), ctl.GetFileInfo)

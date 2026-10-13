@@ -17,6 +17,7 @@ test("administrator saves and reopens a group with two available policies", asyn
     let data: any = {};
     if (path.startsWith("/site/config/")) data = {title: "Cloudreve storage test", default_theme: "#3f51b5", themes: "#3f51b5", user};
     else if (path === "/user/capacity") data = {total: 1000000, used: 0};
+    else if (path === "/user/setting/policies") data = [];
     else if (path === "/admin/group/2") {
       if (request.method() === "PUT") {
         saved = request.postDataJSON();
@@ -67,4 +68,69 @@ test("administrator saves and reopens a group with two available policies", asyn
   await page.keyboard.press("Escape");
   await page.getByRole("button", {name: /save/i, exact: true}).click();
   await expect.poll(() => saved?.policy_ids).toEqual([2]);
+});
+
+test("member selects second policy and completes browser multipart upload", async ({page}) => {
+  const user={id:"member",nickname:"Member",email:"member@example.test",created_at:"2026-01-01T00:00:00Z",language:"en-US",group:{id:"members",name:"Members",permission:"AA=="}};
+  await page.addInitScript((user)=>{
+    localStorage.setItem("i18nextLng","en-US");
+    localStorage.setItem("cloudreve_session",JSON.stringify({current:"member",sessions:{member:{user,token:{access_token:"synthetic-access",refresh_token:"synthetic-refresh",access_expires:"2099-01-01T00:00:00Z",refresh_expires:"2099-01-01T00:00:00Z"},settings:{preferred_dark_mode:true}}},anonymousSettings:{}}));
+  },user);
+  const policies=[{id:"policy-a",name:"Bucket A",type:"s3",max_size:1,allowed_suffix:["bin"]},{id:"policy-b",name:"Bucket B",type:"s3",max_size:0}];
+  let upload:any;
+  let bytes:Buffer|undefined;
+  let completed=false;
+  await page.route("**/storage-test/**",async route=>{
+    if(route.request().method()==="PUT") {
+      bytes=route.request().postDataBuffer()??undefined;
+      await route.fulfill({status:200,headers:{ETag:'"synthetic-etag"'}});
+    } else await route.fulfill({contentType:"application/xml",body:'<CompleteMultipartUploadResult><ETag>"synthetic-etag"</ETag></CompleteMultipartUploadResult>'});
+  });
+  await page.route("**/api/v4/**",async route=>{
+    const req=route.request();
+    const path=new URL(req.url()).pathname.replace("/api/v4","");
+    let data:any={};
+    if(path.startsWith("/site/config/")) data={title:"Storage browser",default_theme:"#3f51b5",themes:"#3f51b5",user,icons:"[]",viewers:"{}"};
+    else if(path==="/user/capacity") data={total:1000000,used:0};
+    else if(path==="/user/setting/policies") data=policies;
+    else if(path==="/file") data={files:[],parent:{id:"root",type:1,name:"Root",path:"cloudreve://my/",owned:true,capability:"/////w==",metadata:{}},props:{capability:"/////w=="},pagination:{page:0,page_size:50,total_items:0},storage_policy:policies[0]};
+    else if(path==="/file/upload"&&req.method()==="PUT") {
+      upload=req.postDataJSON();
+      data={session_id:"synthetic-session",expires:Math.floor(Date.now()/1000)+600,chunk_size:5242880,upload_urls:["http://127.0.0.1:43181/storage-test/part"],completeURL:"http://127.0.0.1:43181/storage-test/complete",callback_secret:"synthetic-callback",storage_policy:policies[1],uri:upload.uri};
+    } else if(path.startsWith("/callback/s3/")) completed=true;
+    await route.fulfill({json:{code:0,data}});
+  });
+  await page.goto("/home");
+  await page.getByRole("button",{name:"New",exact:true}).click();
+  await page.getByRole("menuitem",{name:"Upload files",exact:true}).click();
+  const dialog=page.getByRole("dialog");
+  await expect(dialog.getByRole("combobox",{name:"Storage policy"})).toBeVisible();
+  await dialog.getByRole("combobox",{name:"Storage policy"}).click();
+  await page.getByRole("option",{name:"Bucket B",exact:true}).click();
+  const chooser=page.waitForEvent("filechooser");
+  await dialog.getByRole("button",{name:"Choose files"}).click();
+  await (await chooser).setFiles({name:"browser.txt",mimeType:"text/plain",buffer:Buffer.from("browser chooses B beyond A size/suffix")});
+  await expect.poll(()=>upload?.policy_id).toBe("policy-b");
+  await expect.poll(()=>completed).toBe(true);
+  expect(bytes?.toString()).toBe("browser chooses B beyond A size/suffix");
+  // Automatic requests omit the explicit policy and accept the authoritative
+  // credential even when the directory descriptor has stricter constraints.
+  await page.getByRole("button", {name: "Close", exact: true}).click();
+  await page.getByRole("button", {name: "New", exact: true}).click();
+  await page.getByRole("menuitem", {name: "Upload files", exact: true}).click();
+  await dialog.getByRole("combobox", {name: "Storage policy"}).click();
+  await page.getByRole("option", {name: "Automatic", exact: true}).click();
+  const automaticChooser = page.waitForEvent("filechooser");
+  await dialog.getByRole("button", {name: "Choose files"}).click();
+  await (await automaticChooser).setFiles({name:"automatic.txt",mimeType:"text/plain",buffer:Buffer.from("automatic server choice")});
+  await expect.poll(() => upload?.uri).toContain("automatic.txt");
+  expect(upload).not.toHaveProperty("policy_id");
+  await expect.poll(() => bytes?.toString()).toBe("automatic server choice");
+
+  await page.route("**/api/v4/user/setting/policies", route => route.fulfill({json:{code:0,data:[]}}));
+  await page.reload();
+  await page.getByRole("button", {name: "New", exact: true}).click();
+  await page.getByRole("menuitem", {name: "Upload files", exact: true}).click();
+  await expect(dialog.getByText("No available storage policies")).toBeVisible();
+  await expect(dialog.getByRole("button", {name: "Choose files"})).toBeDisabled();
 });

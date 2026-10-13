@@ -14,6 +14,7 @@ import (
 	"github.com/cloudreve/Cloudreve/v4/pkg/filemanager/fs"
 	"github.com/cloudreve/Cloudreve/v4/pkg/hashid"
 	"github.com/cloudreve/Cloudreve/v4/pkg/serializer"
+	"github.com/cloudreve/Cloudreve/v4/pkg/storagepolicy"
 	"github.com/cloudreve/Cloudreve/v4/pkg/util"
 )
 
@@ -111,25 +112,26 @@ func (f *DBFS) PrepareUpload(ctx context.Context, req *fs.UploadRequest, opts ..
 		return nil, fs.ErrOwnerOnly
 	}
 
+	// Resolve once before locks, placeholders, quota reservation or provider I/O.
+	var policy *ent.StoragePolicy
+	if req.ImportFrom == nil {
+		policy, err = storagepolicy.New(f.userClient, f.storagePolicyClient).Select(ctx, ancestor.OwnerID(), req.Props.PreferredStoragePolicy, 0)
+	} else {
+		policy, err = f.storagePolicyClient.GetPolicyByID(ctx, req.Props.PreferredStoragePolicy)
+	}
+	if err != nil {
+		if errors.Is(err, storagepolicy.ErrPolicyNotGranted) || errors.Is(err, storagepolicy.ErrNoAvailablePolicies) {
+			return nil, serializer.NewError(serializer.CodeGroupNotAllowed, "Storage policy is unavailable", err)
+		}
+		return nil, err
+	}
+
 	// Lock target
 	lockedPath := ancestor.RootUri().JoinRaw(req.Props.Uri.PathTrimmed())
 	lr := &LockByPath{lockedPath, ancestor, types.FileTypeFile, ""}
 	ls, err := f.acquireByPath(ctx, time.Until(req.Props.ExpireAt), f.user, false, fs.LockApp(fs.ApplicationUpload), lr)
 	defer func() { _ = f.Release(ctx, ls) }()
 	ctx = fs.LockSessionToContext(ctx, ls)
-	if err != nil {
-		return nil, err
-	}
-
-	// Get parent folder storage policy and performs validation
-	var (
-		policy *ent.StoragePolicy
-	)
-	if req.ImportFrom == nil {
-		policy, err = f.getPreferredPolicy(ctx, ancestor)
-	} else {
-		policy, err = f.storagePolicyClient.GetPolicyByID(ctx, req.Props.PreferredStoragePolicy)
-	}
 	if err != nil {
 		return nil, err
 	}

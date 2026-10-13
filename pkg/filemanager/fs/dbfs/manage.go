@@ -122,9 +122,13 @@ func (f *DBFS) Create(ctx context.Context, path *fs.URI, fileType types.FileType
 			f.emitFileCreated(ctx, ancestor)
 		} else {
 			// valide file name
-			policy, err := f.getPreferredPolicy(ctx, ancestor)
-			if err != nil {
-				return nil, err
+			policy := o.preferredStoragePolicy
+			if policy == nil {
+				var err error
+				policy, err = f.getPreferredPolicy(ctx, ancestor)
+				if err != nil {
+					return nil, err
+				}
 			}
 
 			if err := validateExtension(desired[i], policy); err != nil {

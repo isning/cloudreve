@@ -60,7 +60,7 @@ func (service *CreateUploadSessionService) Create(c context.Context) (*UploadSes
 	policyId := 0
 	if service.PolicyID != "" {
 		policyId, err = hasher.Decode(service.PolicyID, hashid.PolicyID)
-		if err != nil {
+		if err != nil || policyId <= 0 {
 			return nil, serializer.NewError(serializer.CodeParamErr, "unknown policy id", err)
 		}
 	}
