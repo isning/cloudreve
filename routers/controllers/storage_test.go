@@ -41,9 +41,11 @@ import (
 	"github.com/cloudreve/Cloudreve/v4/pkg/logging"
 	"github.com/cloudreve/Cloudreve/v4/pkg/oidc"
 	"github.com/cloudreve/Cloudreve/v4/pkg/setting"
+	"github.com/cloudreve/Cloudreve/v4/pkg/webdav"
 	ctl "github.com/cloudreve/Cloudreve/v4/routers/controllers"
 	adminsvc "github.com/cloudreve/Cloudreve/v4/service/admin"
 	"github.com/cloudreve/Cloudreve/v4/service/explorer"
+	settingsvc "github.com/cloudreve/Cloudreve/v4/service/setting"
 	usersvc "github.com/cloudreve/Cloudreve/v4/service/user"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
@@ -305,6 +307,8 @@ func storageRouter(d dependency.Dep, l logging.Logger) *gin.Engine {
 	authenticated.GET("/file", ctl.FromQuery[explorer.ListFileService](explorer.ListFileParameterCtx{}), ctl.ListDirectory)
 	authenticated.PATCH("/file/policy", ctl.FromJSON[explorer.BindPolicyService](explorer.BindPolicyParamCtx{}), ctl.BindStoragePolicy)
 	authenticated.POST("/file/create", ctl.FromJSON[explorer.CreateFileService](explorer.CreateFileParameterCtx{}), ctl.CreateFile)
+	authenticated.PUT("/file/content", ctl.FromQuery[explorer.FileUpdateService](explorer.FileUpdateParameterCtx{}), ctl.PutContent)
+	authenticated.PUT("/devices/dav", ctl.FromJSON[settingsvc.CreateDavAccountService](settingsvc.CreateDavAccountParamCtx{}), ctl.CreateDAVAccounts)
 	authenticated.DELETE("/file", ctl.FromJSON[explorer.DeleteFileService](explorer.DeleteFileParameterCtx{}), ctl.Delete)
 	authenticated.POST("/workflow/import", middleware.IsAdmin(), ctl.FromJSON[explorer.ImportWorkflowService](explorer.CreateImportParamCtx{}), ctl.ImportFiles)
 	authenticated.PUT("/file/upload", ctl.FromJSON[explorer.CreateUploadSessionService](explorer.CreateUploadSessionParameterCtx{}), ctl.CreateUploadSession)
@@ -321,6 +325,9 @@ func storageRouter(d dependency.Dep, l logging.Logger) *gin.Engine {
 	admin.GET("/policy/:id", ctl.FromUri[adminsvc.SingleStoragePolicyService](adminsvc.GetStoragePolicyParamCtx{}), ctl.AdminGetPolicy)
 	admin.PUT("/policy/:id", ctl.FromJSON[adminsvc.UpdateStoragePolicyService](adminsvc.UpdateStoragePolicyParamCtx{}), ctl.AdminUpdatePolicy)
 	admin.DELETE("/policy/:id", ctl.FromUri[adminsvc.SingleStoragePolicyService](adminsvc.GetStoragePolicyParamCtx{}), ctl.AdminDeletePolicy)
+	dav := r.Group("/dav", middleware.CacheControl(), middleware.WebDAVAuth())
+	dav.Any("/*path", webdav.ServeHTTP)
+	dav.Handle("MKCOL", "/*path", webdav.ServeHTTP)
 	return r
 }
 
