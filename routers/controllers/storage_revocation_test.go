@@ -28,6 +28,13 @@ func TestStorageRevocationUsesFreshGrantsForNativeAndOIDCSessions(t *testing.T) 
 	native := f.token
 	f.oidcLogin(t)
 	external := f.token
+	var nativePolicies, externalPolicies []explorer.StoragePolicy
+	f.token = native
+	f.request(t, http.MethodGet, "/api/v4/user/setting/policies", nil, &nativePolicies)
+	f.token = external
+	f.request(t, http.MethodGet, "/api/v4/user/setting/policies", nil, &externalPolicies)
+	require.Equal(t, nativePolicies, externalPolicies)
+	require.Len(t, externalPolicies, 2)
 	// Enable native version retention to prove historical version reads too.
 	_, err := f.db.User.UpdateOneID(2).SetSettings(&types.UserSetting{VersionRetention: true, VersionRetentionMax: 5}).Save(context.Background())
 	require.NoError(t, err)
@@ -36,6 +43,7 @@ func TestStorageRevocationUsesFreshGrantsForNativeAndOIDCSessions(t *testing.T) 
 	uri := "cloudreve://my/history.txt"
 	original := []byte("historical B version remains readable")
 	f.upload(t, uri, original, b)
+	f.token = external
 	var newer explorer.UploadSessionResponse
 	f.request(t, http.MethodPut, "/api/v4/file/upload", map[string]any{"uri": uri, "size": len("latest B version"), "policy_id": b, "entity_type": "version"}, &newer)
 	f.finishUpload(t, newer, []byte("latest B version"))
