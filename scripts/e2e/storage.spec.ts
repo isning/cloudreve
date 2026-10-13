@@ -619,3 +619,93 @@ for(const available of [true,false]) {
     await expect(page.getByText("Old stored bucket name",{exact:false})).toHaveCount(0);
   });
 }
+
+for(const language of ["en-US","zh-CN"]) {
+  test(`migration progress measures entities and stored bytes (${language})`,async ({page})=>{
+    const user={id:"member",nickname:"Member",email:"member@example.test",created_at:"2026-01-01T00:00:00Z",language,group:{id:"members",name:"Members",permission:"AA=="}};
+    await page.addInitScript(({user,language})=>{
+      localStorage.setItem("i18nextLng",language);
+      localStorage.setItem("cloudreve_session",JSON.stringify({current:user.id,sessions:{[user.id]:{user,token:{access_token:"synthetic-access",refresh_token:"synthetic-refresh",access_expires:"2099-01-01T00:00:00Z",refresh_expires:"2099-01-01T00:00:00Z"},settings:{preferred_dark_mode:true}}},anonymousSettings:{}}));
+    },{user,language});
+    let zero=false;
+    let phase="transferring";
+    let status="processing";
+    let queriedProgress=0;
+    await page.route("**/api/v4/**",async route=>{
+      const path=new URL(route.request().url()).pathname.replace("/api/v4","");
+      let data:any={};
+      if(path.startsWith("/site/config/")) data={title:"Progress",default_theme:"#3f51b5",themes:"#3f51b5",icons:"[]",viewers:"{}",user};
+      else if(path==="/user/capacity") data={total:1000000,used:4096};
+      else if(path==="/user/setting/policies") data=[{id:"encoded-policy-b",name:"Bucket B",type:"s3",max_size:0}];
+      else if(path==="/workflow") data={tasks:[{id:"encoded-task",type:"relocate",status,created_at:"2026-01-01T00:00:00Z",updated_at:"2026-01-01T00:00:00Z",summary:{phase,props:{src_multiple:["cloudreve://member@my/flow.txt"],dst_policy_id:"encoded-policy-b",entities_total:zero?0:5,entities_completed:zero?0:2,entities_failed:0,bytes_total:zero?0:4096,bytes_copied:zero?0:1024}}}],pagination:{page:0,page_size:25,total_items:1}};
+      else if(path==="/workflow/progress/encoded-task") { queriedProgress++;data={relocate_count:{total:zero?0:5,current:zero?0:2,identifier:""},relocate_size:{total:zero?0:4096,current:zero?0:1024,identifier:""},relocate_failed:{total:zero?0:5,current:0,identifier:""}}; }
+      await route.fulfill({json:{code:0,data}});
+    });
+    const entity=language==="en-US"?"Completed entities":"已迁移实体";
+    const copied=language==="en-US"?"Copied bytes":"已复制字节";
+    await page.goto("/tasks");
+    await page.getByRole("button").filter({hasText:"flow.txt"}).first().click();
+    await expect(page.getByText(`${entity}: 2 / 5`,{exact:true})).toBeVisible();
+    await expect(page.getByText(`${copied}: 1.0 KB / 4.0 KB`,{exact:true})).toBeVisible();
+    const transfer=page.getByText(language==="en-US"?"Transfer":"转存",{exact:true});
+    await transfer.hover();
+    await expect.poll(()=>queriedProgress).toBeGreaterThan(0);
+    await expect(page.getByText("2 / 5",{exact:true})).toBeVisible();
+    await expect(page.getByText("1.0 KB / 4.0 KB",{exact:true})).toBeVisible();
+    const content=await page.locator("body").innerText();
+    for(const key of ["relocatedEntities","transferringRelocateDes","relocateFinishing"]) expect(content).not.toContain(key);
+    phase="planning";
+    await page.reload();
+    await page.getByRole("button").filter({hasText:"flow.txt"}).first().click();
+    await expect(page.locator(".MuiStepLabel-label.Mui-active")).toHaveText(language==="en-US"?"Index files":"检索文件");
+    phase="finish";
+    await page.reload();
+    await page.getByRole("button").filter({hasText:"flow.txt"}).first().click();
+    await expect(page.locator(".MuiStepLabel-label.Mui-active")).toHaveText(language==="en-US"?"Commit changes":"提交更改");
+    zero=true;status="completed";phase="completed";
+    await page.reload();
+    await page.getByRole("button").filter({hasText:"flow.txt"}).first().click();
+    await expect(page.getByText(`${entity}: 0 / 0`,{exact:true})).toBeVisible();
+    await expect(page.getByText(`${copied}: 0 B / 0 B`,{exact:true})).toBeVisible();
+    expect(await page.locator("body").innerText()).not.toContain("NaN");
+  });
+}
+
+test("partial migration failure retains progress and native recovery history",async ({page})=>{
+  const user={id:"member",nickname:"Member",email:"member@example.test",created_at:"2026-01-01T00:00:00Z",language:"en-US",group:{id:"members",name:"Members",permission:"AA=="}};
+  await page.addInitScript(user=>{
+    localStorage.setItem("i18nextLng","en-US");
+    localStorage.setItem("cloudreve_session",JSON.stringify({current:user.id,sessions:{[user.id]:{user,token:{access_token:"synthetic-access",refresh_token:"synthetic-refresh",access_expires:"2099-01-01T00:00:00Z",refresh_expires:"2099-01-01T00:00:00Z"},settings:{preferred_dark_mode:true}}},anonymousSettings:{}}));
+  },user);
+  let status="error";
+  const summary={phase:"failed",props:{src_multiple:["cloudreve://member@my/partial.txt"],dst_policy_id:"encoded-policy-b",entities_total:3,entities_completed:1,entities_failed:2,bytes_total:4096,bytes_copied:1024}};
+  await page.route("**/api/v4/**",async route=>{
+    const path=new URL(route.request().url()).pathname.replace("/api/v4","");
+    let data:any={};
+    if(path.startsWith("/site/config/")) data={title:"Partial recovery",default_theme:"#3f51b5",themes:"#3f51b5",icons:"[]",viewers:"{}",user};
+    else if(path==="/user/capacity") data={total:1000000,used:4096};
+    else if(path==="/user/setting/policies") data=[{id:"encoded-policy-b",name:"Bucket B",type:"s3",max_size:0}];
+    else if(path==="/workflow") data={tasks:[{id:"encoded-task",type:"relocate",status,created_at:"2026-01-01T00:00:00Z",updated_at:"2026-01-01T00:00:00Z",summary:{...summary,phase:status==="suspending"?"transferring":"failed"},error:"migration copy failed",error_history:["migration verification source length mismatch"],retry_count:2,resume_time:Math.floor(Date.now()/1000)+600,private_state:"fixture-private-state-must-not-render"}],pagination:{page:0,page_size:25,total_items:1}};
+    await route.fulfill({json:{code:0,data}});
+  });
+  const open=async()=>{
+    await page.getByRole("button").filter({hasText:"partial.txt"}).first().click();
+    await expect(page.getByText("Completed entities: 1 / 3",{exact:true})).toBeVisible();
+    await expect(page.getByText("Copied bytes: 1.0 KB / 4.0 KB",{exact:true})).toBeVisible();
+    await expect(page.getByText("Completed 1; failed or unprocessed 2. Committed content stays available.",{exact:true})).toBeVisible();
+    await expect(page.getByText("migration verification source length mismatch",{exact:true})).toBeVisible();
+    await expect(page.getByRole("button",{name:"Retry",exact:true})).toHaveCount(0);
+    await expect(page.getByRole("button",{name:"Cancel",exact:true})).toHaveCount(0);
+    expect(await page.locator("body").innerText()).not.toContain("fixture-private-state-must-not-render");
+  };
+  await page.goto("/tasks");
+  await open();
+  await expect(page.getByText("migration copy failed",{exact:true}).first()).toBeVisible();
+  await expect(page.getByText("Completed",{exact:true})).toHaveCount(0);
+  status="suspending";
+  await page.reload();
+  await open();
+  await expect(page.getByText("Retried",{exact:true})).toBeVisible();
+  await expect(page.getByText("2",{exact:true}).first()).toBeVisible();
+  await expect(page.getByText("Resume at",{exact:true})).toBeVisible();
+});
