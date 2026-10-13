@@ -322,6 +322,20 @@ func (q *queue) run(ctx context.Context, t Task) (task.Status, error) {
 	case p := <-panicChan:
 		panic(p)
 	case <-ctx.Done(): // timeout reached
+		// Durable I/O tasks can briefly drain canceled local work before the
+		// dependency graph closes its database. Other tasks retain their native
+		// cancellation behavior; this does not claim remote writes have ended.
+		if drainer, ok := t.(interface{ CancellationDrainTimeout() time.Duration }); ok {
+			timer := time.NewTimer(drainer.CancellationDrainTimeout())
+			defer timer.Stop()
+			select {
+			case r := <-done:
+				return r.next, r.err
+			case p := <-panicChan:
+				panic(p)
+			case <-timer.C:
+			}
+		}
 		return task.StatusError, ctx.Err()
 	case <-q.quit: // shutdown service
 		// cancel job

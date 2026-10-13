@@ -48,6 +48,20 @@ func (rau *RelocationAttemptUpdate) SetNillableIoState(rs *relocationattempt.IoS
 	return rau
 }
 
+// SetSourceReadFinished sets the "source_read_finished" field.
+func (rau *RelocationAttemptUpdate) SetSourceReadFinished(b bool) *RelocationAttemptUpdate {
+	rau.mutation.SetSourceReadFinished(b)
+	return rau
+}
+
+// SetNillableSourceReadFinished sets the "source_read_finished" field if the given value is not nil.
+func (rau *RelocationAttemptUpdate) SetNillableSourceReadFinished(b *bool) *RelocationAttemptUpdate {
+	if b != nil {
+		rau.SetSourceReadFinished(*b)
+	}
+	return rau
+}
+
 // SetVerifiedSize sets the "verified_size" field.
 func (rau *RelocationAttemptUpdate) SetVerifiedSize(i int64) *RelocationAttemptUpdate {
 	rau.mutation.ResetVerifiedSize()
@@ -207,6 +221,9 @@ func (rau *RelocationAttemptUpdate) sqlSave(ctx context.Context) (n int, err err
 	if value, ok := rau.mutation.IoState(); ok {
 		_spec.SetField(relocationattempt.FieldIoState, field.TypeEnum, value)
 	}
+	if value, ok := rau.mutation.SourceReadFinished(); ok {
+		_spec.SetField(relocationattempt.FieldSourceReadFinished, field.TypeBool, value)
+	}
 	if value, ok := rau.mutation.VerifiedSize(); ok {
 		_spec.SetField(relocationattempt.FieldVerifiedSize, field.TypeInt64, value)
 	}
@@ -261,6 +278,20 @@ func (rauo *RelocationAttemptUpdateOne) SetIoState(rs relocationattempt.IoState)
 func (rauo *RelocationAttemptUpdateOne) SetNillableIoState(rs *relocationattempt.IoState) *RelocationAttemptUpdateOne {
 	if rs != nil {
 		rauo.SetIoState(*rs)
+	}
+	return rauo
+}
+
+// SetSourceReadFinished sets the "source_read_finished" field.
+func (rauo *RelocationAttemptUpdateOne) SetSourceReadFinished(b bool) *RelocationAttemptUpdateOne {
+	rauo.mutation.SetSourceReadFinished(b)
+	return rauo
+}
+
+// SetNillableSourceReadFinished sets the "source_read_finished" field if the given value is not nil.
+func (rauo *RelocationAttemptUpdateOne) SetNillableSourceReadFinished(b *bool) *RelocationAttemptUpdateOne {
+	if b != nil {
+		rauo.SetSourceReadFinished(*b)
 	}
 	return rauo
 }
@@ -453,6 +484,9 @@ func (rauo *RelocationAttemptUpdateOne) sqlSave(ctx context.Context) (_node *Rel
 	}
 	if value, ok := rauo.mutation.IoState(); ok {
 		_spec.SetField(relocationattempt.FieldIoState, field.TypeEnum, value)
+	}
+	if value, ok := rauo.mutation.SourceReadFinished(); ok {
+		_spec.SetField(relocationattempt.FieldSourceReadFinished, field.TypeBool, value)
 	}
 	if value, ok := rauo.mutation.VerifiedSize(); ok {
 		_spec.SetField(relocationattempt.FieldVerifiedSize, field.TypeInt64, value)

@@ -14081,27 +14081,28 @@ func (m *PasskeyMutation) ResetEdge(name string) error {
 // RelocationAttemptMutation represents an operation that mutates the RelocationAttempt nodes in the graph.
 type RelocationAttemptMutation struct {
 	config
-	op               Op
-	typ              string
-	id               *int
-	created_at       *time.Time
-	updated_at       *time.Time
-	fence            *int64
-	addfence         *int64
-	target_key       *string
-	io_state         *relocationattempt.IoState
-	verified_size    *int64
-	addverified_size *int64
-	verified_digest  *string
-	verified         *bool
-	cleanup          *relocationattempt.Cleanup
-	error            *string
-	clearedFields    map[string]struct{}
-	item             *int
-	cleareditem      bool
-	done             bool
-	oldValue         func(context.Context) (*RelocationAttempt, error)
-	predicates       []predicate.RelocationAttempt
+	op                   Op
+	typ                  string
+	id                   *int
+	created_at           *time.Time
+	updated_at           *time.Time
+	fence                *int64
+	addfence             *int64
+	target_key           *string
+	io_state             *relocationattempt.IoState
+	source_read_finished *bool
+	verified_size        *int64
+	addverified_size     *int64
+	verified_digest      *string
+	verified             *bool
+	cleanup              *relocationattempt.Cleanup
+	error                *string
+	clearedFields        map[string]struct{}
+	item                 *int
+	cleareditem          bool
+	done                 bool
+	oldValue             func(context.Context) (*RelocationAttempt, error)
+	predicates           []predicate.RelocationAttempt
 }
 
 var _ ent.Mutation = (*RelocationAttemptMutation)(nil)
@@ -14438,6 +14439,42 @@ func (m *RelocationAttemptMutation) ResetIoState() {
 	m.io_state = nil
 }
 
+// SetSourceReadFinished sets the "source_read_finished" field.
+func (m *RelocationAttemptMutation) SetSourceReadFinished(b bool) {
+	m.source_read_finished = &b
+}
+
+// SourceReadFinished returns the value of the "source_read_finished" field in the mutation.
+func (m *RelocationAttemptMutation) SourceReadFinished() (r bool, exists bool) {
+	v := m.source_read_finished
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldSourceReadFinished returns the old "source_read_finished" field's value of the RelocationAttempt entity.
+// If the RelocationAttempt object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *RelocationAttemptMutation) OldSourceReadFinished(ctx context.Context) (v bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldSourceReadFinished is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldSourceReadFinished requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldSourceReadFinished: %w", err)
+	}
+	return oldValue.SourceReadFinished, nil
+}
+
+// ResetSourceReadFinished resets all changes to the "source_read_finished" field.
+func (m *RelocationAttemptMutation) ResetSourceReadFinished() {
+	m.source_read_finished = nil
+}
+
 // SetVerifiedSize sets the "verified_size" field.
 func (m *RelocationAttemptMutation) SetVerifiedSize(i int64) {
 	m.verified_size = &i
@@ -14699,7 +14736,7 @@ func (m *RelocationAttemptMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *RelocationAttemptMutation) Fields() []string {
-	fields := make([]string, 0, 11)
+	fields := make([]string, 0, 12)
 	if m.created_at != nil {
 		fields = append(fields, relocationattempt.FieldCreatedAt)
 	}
@@ -14717,6 +14754,9 @@ func (m *RelocationAttemptMutation) Fields() []string {
 	}
 	if m.io_state != nil {
 		fields = append(fields, relocationattempt.FieldIoState)
+	}
+	if m.source_read_finished != nil {
+		fields = append(fields, relocationattempt.FieldSourceReadFinished)
 	}
 	if m.verified_size != nil {
 		fields = append(fields, relocationattempt.FieldVerifiedSize)
@@ -14753,6 +14793,8 @@ func (m *RelocationAttemptMutation) Field(name string) (ent.Value, bool) {
 		return m.TargetKey()
 	case relocationattempt.FieldIoState:
 		return m.IoState()
+	case relocationattempt.FieldSourceReadFinished:
+		return m.SourceReadFinished()
 	case relocationattempt.FieldVerifiedSize:
 		return m.VerifiedSize()
 	case relocationattempt.FieldVerifiedDigest:
@@ -14784,6 +14826,8 @@ func (m *RelocationAttemptMutation) OldField(ctx context.Context, name string) (
 		return m.OldTargetKey(ctx)
 	case relocationattempt.FieldIoState:
 		return m.OldIoState(ctx)
+	case relocationattempt.FieldSourceReadFinished:
+		return m.OldSourceReadFinished(ctx)
 	case relocationattempt.FieldVerifiedSize:
 		return m.OldVerifiedSize(ctx)
 	case relocationattempt.FieldVerifiedDigest:
@@ -14844,6 +14888,13 @@ func (m *RelocationAttemptMutation) SetField(name string, value ent.Value) error
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetIoState(v)
+		return nil
+	case relocationattempt.FieldSourceReadFinished:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetSourceReadFinished(v)
 		return nil
 	case relocationattempt.FieldVerifiedSize:
 		v, ok := value.(int64)
@@ -14973,6 +15024,9 @@ func (m *RelocationAttemptMutation) ResetField(name string) error {
 		return nil
 	case relocationattempt.FieldIoState:
 		m.ResetIoState()
+		return nil
+	case relocationattempt.FieldSourceReadFinished:
+		m.ResetSourceReadFinished()
 		return nil
 	case relocationattempt.FieldVerifiedSize:
 		m.ResetVerifiedSize()

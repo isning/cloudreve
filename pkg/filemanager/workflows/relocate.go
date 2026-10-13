@@ -20,6 +20,9 @@ import (
 )
 
 type RelocateTask struct{ *queue.DBTask }
+
+func (*RelocateTask) CancellationDrainTimeout() time.Duration { return 5 * time.Second }
+
 type RelocateCommand struct {
 	Sources         []string `json:"sources"`
 	DestinationID   int      `json:"destination_id"`

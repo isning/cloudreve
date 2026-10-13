@@ -27,6 +27,8 @@ const (
 	FieldTargetKey = "target_key"
 	// FieldIoState holds the string denoting the io_state field in the database.
 	FieldIoState = "io_state"
+	// FieldSourceReadFinished holds the string denoting the source_read_finished field in the database.
+	FieldSourceReadFinished = "source_read_finished"
 	// FieldVerifiedSize holds the string denoting the verified_size field in the database.
 	FieldVerifiedSize = "verified_size"
 	// FieldVerifiedDigest holds the string denoting the verified_digest field in the database.
@@ -59,6 +61,7 @@ var Columns = []string{
 	FieldFence,
 	FieldTargetKey,
 	FieldIoState,
+	FieldSourceReadFinished,
 	FieldVerifiedSize,
 	FieldVerifiedDigest,
 	FieldVerified,
@@ -87,6 +90,8 @@ var (
 	ItemIDValidator func(int) error
 	// FenceValidator is a validator for the "fence" field. It is called by the builders before save.
 	FenceValidator func(int64) error
+	// DefaultSourceReadFinished holds the default value on creation for the "source_read_finished" field.
+	DefaultSourceReadFinished bool
 	// DefaultVerifiedSize holds the default value on creation for the "verified_size" field.
 	DefaultVerifiedSize int64
 	// VerifiedSizeValidator is a validator for the "verified_size" field. It is called by the builders before save.
@@ -190,6 +195,11 @@ func ByTargetKey(opts ...sql.OrderTermOption) OrderOption {
 // ByIoState orders the results by the io_state field.
 func ByIoState(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldIoState, opts...).ToFunc()
+}
+
+// BySourceReadFinished orders the results by the source_read_finished field.
+func BySourceReadFinished(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldSourceReadFinished, opts...).ToFunc()
 }
 
 // ByVerifiedSize orders the results by the verified_size field.

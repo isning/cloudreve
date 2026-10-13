@@ -30,6 +30,8 @@ type RelocationAttempt struct {
 	TargetKey string `json:"target_key,omitempty"`
 	// IoState holds the value of the "io_state" field.
 	IoState relocationattempt.IoState `json:"io_state,omitempty"`
+	// SourceReadFinished holds the value of the "source_read_finished" field.
+	SourceReadFinished bool `json:"source_read_finished,omitempty"`
 	// VerifiedSize holds the value of the "verified_size" field.
 	VerifiedSize int64 `json:"verified_size,omitempty"`
 	// VerifiedDigest holds the value of the "verified_digest" field.
@@ -73,7 +75,7 @@ func (*RelocationAttempt) scanValues(columns []string) ([]any, error) {
 	values := make([]any, len(columns))
 	for i := range columns {
 		switch columns[i] {
-		case relocationattempt.FieldVerified:
+		case relocationattempt.FieldSourceReadFinished, relocationattempt.FieldVerified:
 			values[i] = new(sql.NullBool)
 		case relocationattempt.FieldID, relocationattempt.FieldItemID, relocationattempt.FieldFence, relocationattempt.FieldVerifiedSize:
 			values[i] = new(sql.NullInt64)
@@ -137,6 +139,12 @@ func (ra *RelocationAttempt) assignValues(columns []string, values []any) error 
 				return fmt.Errorf("unexpected type %T for field io_state", values[i])
 			} else if value.Valid {
 				ra.IoState = relocationattempt.IoState(value.String)
+			}
+		case relocationattempt.FieldSourceReadFinished:
+			if value, ok := values[i].(*sql.NullBool); !ok {
+				return fmt.Errorf("unexpected type %T for field source_read_finished", values[i])
+			} else if value.Valid {
+				ra.SourceReadFinished = value.Bool
 			}
 		case relocationattempt.FieldVerifiedSize:
 			if value, ok := values[i].(*sql.NullInt64); !ok {
@@ -226,6 +234,9 @@ func (ra *RelocationAttempt) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("io_state=")
 	builder.WriteString(fmt.Sprintf("%v", ra.IoState))
+	builder.WriteString(", ")
+	builder.WriteString("source_read_finished=")
+	builder.WriteString(fmt.Sprintf("%v", ra.SourceReadFinished))
 	builder.WriteString(", ")
 	builder.WriteString("verified_size=")
 	builder.WriteString(fmt.Sprintf("%v", ra.VerifiedSize))

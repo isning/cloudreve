@@ -383,22 +383,26 @@ func init() {
 	relocationattemptDescFence := relocationattemptFields[3].Descriptor()
 	// relocationattempt.FenceValidator is a validator for the "fence" field. It is called by the builders before save.
 	relocationattempt.FenceValidator = relocationattemptDescFence.Validators[0].(func(int64) error)
+	// relocationattemptDescSourceReadFinished is the schema descriptor for source_read_finished field.
+	relocationattemptDescSourceReadFinished := relocationattemptFields[6].Descriptor()
+	// relocationattempt.DefaultSourceReadFinished holds the default value on creation for the source_read_finished field.
+	relocationattempt.DefaultSourceReadFinished = relocationattemptDescSourceReadFinished.Default.(bool)
 	// relocationattemptDescVerifiedSize is the schema descriptor for verified_size field.
-	relocationattemptDescVerifiedSize := relocationattemptFields[6].Descriptor()
+	relocationattemptDescVerifiedSize := relocationattemptFields[7].Descriptor()
 	// relocationattempt.DefaultVerifiedSize holds the default value on creation for the verified_size field.
 	relocationattempt.DefaultVerifiedSize = relocationattemptDescVerifiedSize.Default.(int64)
 	// relocationattempt.VerifiedSizeValidator is a validator for the "verified_size" field. It is called by the builders before save.
 	relocationattempt.VerifiedSizeValidator = relocationattemptDescVerifiedSize.Validators[0].(func(int64) error)
 	// relocationattemptDescVerifiedDigest is the schema descriptor for verified_digest field.
-	relocationattemptDescVerifiedDigest := relocationattemptFields[7].Descriptor()
+	relocationattemptDescVerifiedDigest := relocationattemptFields[8].Descriptor()
 	// relocationattempt.DefaultVerifiedDigest holds the default value on creation for the verified_digest field.
 	relocationattempt.DefaultVerifiedDigest = relocationattemptDescVerifiedDigest.Default.(string)
 	// relocationattemptDescVerified is the schema descriptor for verified field.
-	relocationattemptDescVerified := relocationattemptFields[8].Descriptor()
+	relocationattemptDescVerified := relocationattemptFields[9].Descriptor()
 	// relocationattempt.DefaultVerified holds the default value on creation for the verified field.
 	relocationattempt.DefaultVerified = relocationattemptDescVerified.Default.(bool)
 	// relocationattemptDescError is the schema descriptor for error field.
-	relocationattemptDescError := relocationattemptFields[10].Descriptor()
+	relocationattemptDescError := relocationattemptFields[11].Descriptor()
 	// relocationattempt.DefaultError holds the default value on creation for the error field.
 	relocationattempt.DefaultError = relocationattemptDescError.Default.(string)
 	relocationitemFields := schema.RelocationItem{}.Fields()

@@ -80,6 +80,11 @@ func TargetKey(v string) predicate.RelocationAttempt {
 	return predicate.RelocationAttempt(sql.FieldEQ(FieldTargetKey, v))
 }
 
+// SourceReadFinished applies equality check predicate on the "source_read_finished" field. It's identical to SourceReadFinishedEQ.
+func SourceReadFinished(v bool) predicate.RelocationAttempt {
+	return predicate.RelocationAttempt(sql.FieldEQ(FieldSourceReadFinished, v))
+}
+
 // VerifiedSize applies equality check predicate on the "verified_size" field. It's identical to VerifiedSizeEQ.
 func VerifiedSize(v int64) predicate.RelocationAttempt {
 	return predicate.RelocationAttempt(sql.FieldEQ(FieldVerifiedSize, v))
@@ -323,6 +328,16 @@ func IoStateIn(vs ...IoState) predicate.RelocationAttempt {
 // IoStateNotIn applies the NotIn predicate on the "io_state" field.
 func IoStateNotIn(vs ...IoState) predicate.RelocationAttempt {
 	return predicate.RelocationAttempt(sql.FieldNotIn(FieldIoState, vs...))
+}
+
+// SourceReadFinishedEQ applies the EQ predicate on the "source_read_finished" field.
+func SourceReadFinishedEQ(v bool) predicate.RelocationAttempt {
+	return predicate.RelocationAttempt(sql.FieldEQ(FieldSourceReadFinished, v))
+}
+
+// SourceReadFinishedNEQ applies the NEQ predicate on the "source_read_finished" field.
+func SourceReadFinishedNEQ(v bool) predicate.RelocationAttempt {
+	return predicate.RelocationAttempt(sql.FieldNEQ(FieldSourceReadFinished, v))
 }
 
 // VerifiedSizeEQ applies the EQ predicate on the "verified_size" field.

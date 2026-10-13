@@ -518,6 +518,7 @@ var (
 		{Name: "fence", Type: field.TypeInt64},
 		{Name: "target_key", Type: field.TypeString, Size: 2147483647},
 		{Name: "io_state", Type: field.TypeEnum, Enums: []string{"not_started", "in_flight", "unknown", "ended"}, Default: "not_started"},
+		{Name: "source_read_finished", Type: field.TypeBool, Default: false},
 		{Name: "verified_size", Type: field.TypeInt64, Default: 0},
 		{Name: "verified_digest", Type: field.TypeString, Default: ""},
 		{Name: "verified", Type: field.TypeBool, Default: false},
@@ -533,7 +534,7 @@ var (
 		ForeignKeys: []*schema.ForeignKey{
 			{
 				Symbol:     "relocation_attempts_relocation_items_attempts",
-				Columns:    []*schema.Column{RelocationAttemptsColumns[11]},
+				Columns:    []*schema.Column{RelocationAttemptsColumns[12]},
 				RefColumns: []*schema.Column{RelocationItemsColumns[0]},
 				OnDelete:   schema.NoAction,
 			},
@@ -542,12 +543,12 @@ var (
 			{
 				Name:    "relocationattempt_item_id_fence",
 				Unique:  true,
-				Columns: []*schema.Column{RelocationAttemptsColumns[11], RelocationAttemptsColumns[3]},
+				Columns: []*schema.Column{RelocationAttemptsColumns[12], RelocationAttemptsColumns[3]},
 			},
 			{
 				Name:    "relocationattempt_cleanup_io_state",
 				Unique:  false,
-				Columns: []*schema.Column{RelocationAttemptsColumns[9], RelocationAttemptsColumns[5]},
+				Columns: []*schema.Column{RelocationAttemptsColumns[10], RelocationAttemptsColumns[5]},
 			},
 		},
 	}

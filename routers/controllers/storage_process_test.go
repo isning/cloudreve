@@ -292,3 +292,37 @@ func TestStoragePartialRelocationJournalUpgradeRecoversFromV2(t *testing.T) {
 	_, err = f.db.Setting.Query().Where(setting.Name("storage_extension_schema_v2"), setting.Value("complete")).Only(ctx)
 	require.NoError(t, err)
 }
+
+func TestStorageV3JournalUpgradePreservesUnknownAttempts(t *testing.T) {
+	f := prepareStorageFixture(t, true)
+	ctx := context.Background()
+	prior := *entmigrate.RelocationAttemptsTable
+	prior.Columns = nil
+	for _, column := range entmigrate.RelocationAttemptsTable.Columns {
+		if column.Name != "source_read_finished" {
+			prior.Columns = append(prior.Columns, column)
+		}
+	}
+	require.NoError(t, entmigrate.Create(ctx, f.db.Schema, []*schema.Table{entmigrate.GroupPoliciesTable, entmigrate.RelocationItemsTable, &prior}, schema.WithAtlas(false)))
+	_, err := f.db.Setting.Create().SetName("storage_extension_schema_v3").SetValue("complete").Save(ctx)
+	require.NoError(t, err)
+	item, err := f.db.RelocationItem.Create().SetTaskID(999).SetOwnerID(2).SetSourceEntityID(1).
+		SetSourcePolicyID(f.policies[0].ID).SetSourceKey("legacy-object").SetSourceLocation("prior-owned-location").
+		SetDestinationPolicyID(f.policies[1].ID).SetDestinationLocation("prior-owned-location").
+		SetSnapshot(&types.RelocationSnapshot{Type: int(types.EntityTypeVersion)}).SetReferences([]types.RelocationReference{}).Save(ctx)
+	require.NoError(t, err)
+	_, err = f.db.ExecContext(ctx, "INSERT INTO relocation_attempts (created_at, updated_at, item_id, fence, target_key, io_state, verified_size, verified_digest, verified, cleanup, error) VALUES (?, ?, ?, 1, 'prior-owned-target', 'unknown', 0, '', 0, 'pending', '')", time.Now(), time.Now(), item.ID)
+	require.NoError(t, err)
+	w := launchStorageWorker(t, f)
+	f.remote = w.ready(t)
+	f.login(t)
+	f.oidcLogin(t)
+	require.Equal(t, []byte("persisted object before storage extension"), f.readFile(t, "cloudreve://my/existing.txt"))
+	attempt, err := f.db.RelocationAttempt.Query().Only(ctx)
+	require.NoError(t, err)
+	require.Equal(t, "prior-owned-target", attempt.TargetKey)
+	require.Equal(t, "unknown", string(attempt.IoState))
+	require.False(t, attempt.SourceReadFinished, "prior unknown readers must remain conservatively unresolved")
+	_, err = f.db.Setting.Query().Where(setting.Name("storage_extension_schema_v3"), setting.Value("complete")).Only(ctx)
+	require.NoError(t, err)
+}

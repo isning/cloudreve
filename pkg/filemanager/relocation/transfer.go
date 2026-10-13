@@ -95,6 +95,16 @@ func AdvanceSingle(ctx context.Context, dep dependency.Dep, taskID, ownerID int,
 	stop := maintainLease(workCtx, cancel, db, item, fm, ls.LastToken())
 	defer stop()
 	if item.State == relocationitem.StateVerified {
+		ready, err := recoverVerification(workCtx, dep, fm, item)
+		if err != nil {
+			return false, failItem(ctx, db, item, err)
+		}
+		if !ready {
+			if err := copySingle(workCtx, dep, fm, item, uri); err != nil {
+				return false, failItem(ctx, db, item, err)
+			}
+			return false, nil
+		}
 		err = commitSingle(workCtx, dep, fm, item)
 		if err != nil {
 			return false, failItem(ctx, db, item, err)
@@ -106,6 +116,58 @@ func AdvanceSingle(ctx context.Context, dep dependency.Dep, taskID, ownerID int,
 		return false, failItem(ctx, db, item, err)
 	}
 	return false, nil
+}
+
+// A durable verification can be reused only after current target readback.
+// Missing proof is rebuilt from both raw streams; a different target gets a
+// fresh owned attempt, retaining compensation for the previous object.
+func recoverVerification(ctx context.Context, dep dependency.Dep, fm manager.FileManager, item *ent.RelocationItem) (bool, error) {
+	db := dep.DBClient()
+	source, a, b, err := currentSource(ctx, db, item)
+	if err != nil {
+		return false, err
+	}
+	attempt, err := db.RelocationAttempt.Get(ctx, item.ActiveAttemptID)
+	if err != nil || attempt.ItemID != item.ID {
+		return false, errors.New("migration verification attempt is unavailable")
+	}
+	if attempt.IoState != relocationattempt.IoStateEnded {
+		return false, nil
+	}
+	if attempt.Verified && attempt.VerifiedSize == source.Size && verifyTarget(ctx, fm, source, b, attempt) == nil {
+		return true, nil
+	}
+	r, err := rawSource(ctx, fm, source, a)
+	if err != nil {
+		return false, errors.New("failed to reopen migration verification source")
+	}
+	h := sha256.New()
+	n, err := io.Copy(h, io.LimitReader(r, source.Size+1))
+	r.Close()
+	if err != nil || n != source.Size {
+		return false, errors.New("migration verification source length mismatch")
+	}
+	attempt.VerifiedDigest = hex.EncodeToString(h.Sum(nil))
+	attempt.VerifiedSize = n
+	if err := verifyTarget(ctx, fm, source, b, attempt); err != nil {
+		return false, nil
+	}
+	tx, err := db.Tx(ctx)
+	if err != nil {
+		return false, errors.New("failed to restore migration verification")
+	}
+	defer tx.Rollback()
+	count, err := tx.RelocationItem.Update().Where(relocationitem.ID(item.ID), relocationitem.Fence(item.Fence), relocationitem.LeaseOwner(item.LeaseOwner), relocationitem.LeaseUntilGT(time.Now()), relocationitem.ActiveAttemptID(attempt.ID), relocationitem.StateEQ(relocationitem.StateVerified)).AddFence(0).Save(ctx)
+	if err != nil || count != 1 {
+		return false, ErrLeaseLost
+	}
+	if err := tx.RelocationAttempt.UpdateOneID(attempt.ID).SetVerified(true).SetVerifiedSize(n).SetVerifiedDigest(attempt.VerifiedDigest).SetSourceReadFinished(true).Exec(ctx); err != nil {
+		return false, errors.New("failed to restore migration verification")
+	}
+	if err := tx.Commit(); err != nil {
+		return false, errors.New("failed to commit restored migration verification")
+	}
+	return true, nil
 }
 
 func authorizedOwner(ctx context.Context, db *ent.Client, ownerID, destinationID int) (*ent.User, error) {
@@ -190,8 +252,13 @@ func recordSinglePlan(ctx context.Context, dep dependency.Dep, taskID int, plan 
 }
 
 func claim(ctx context.Context, db *ent.Client, item *ent.RelocationItem) (*ent.RelocationItem, error) {
+	tx, err := db.Tx(ctx)
+	if err != nil {
+		return nil, errors.New("failed to begin migration claim")
+	}
+	defer tx.Rollback()
 	now := time.Now()
-	n, err := db.RelocationItem.Update().Where(relocationitem.ID(item.ID), relocationitem.Fence(item.Fence),
+	n, err := tx.RelocationItem.Update().Where(relocationitem.ID(item.ID), relocationitem.Fence(item.Fence),
 		relocationitem.StateIn(relocationitem.StatePlanned, relocationitem.StateCopying, relocationitem.StateVerified),
 		relocationitem.Or(relocationitem.LeaseUntilIsNil(), relocationitem.LeaseUntilLTE(now))).
 		AddFence(1).SetLeaseOwner(uuid.Must(uuid.NewV4()).String()).SetLeaseUntil(now.Add(leaseDuration)).Save(ctx)
@@ -201,9 +268,17 @@ func claim(ctx context.Context, db *ent.Client, item *ent.RelocationItem) (*ent.
 	if n != 1 {
 		return nil, ErrLeaseBusy
 	}
-	claimed, err := db.RelocationItem.Get(ctx, item.ID)
+	claimed, err := tx.RelocationItem.Get(ctx, item.ID)
 	if err != nil {
 		return nil, errors.New("failed to load claimed migration item")
+	}
+	if claimed.ActiveAttemptID > 0 {
+		if _, err := tx.RelocationAttempt.Update().Where(relocationattempt.ID(claimed.ActiveAttemptID), relocationattempt.IoStateEQ(relocationattempt.IoStateInFlight)).SetIoState(relocationattempt.IoStateUnknown).Save(ctx); err != nil {
+			return nil, errors.New("failed to retain interrupted migration attempt")
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, errors.New("failed to commit migration claim")
 	}
 	return claimed, nil
 }
@@ -315,12 +390,17 @@ func copySingle(ctx context.Context, dep dependency.Dep, fm manager.FileManager,
 	if err != nil {
 		return errors.New("failed to open migration source")
 	}
-	defer r.Close()
+	defer func() {
+		r.Close()
+		recordCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		_ = db.RelocationAttempt.UpdateOneID(attempt.ID).SetSourceReadFinished(true).Exec(recordCtx)
+	}()
 	d, err := fm.GetStorageDriver(ctx, b)
 	if err != nil {
 		return errors.New("failed to open migration destination")
 	}
-	if err := db.RelocationAttempt.UpdateOneID(attempt.ID).SetIoState(relocationattempt.IoStateInFlight).Exec(ctx); err != nil {
+	if err := beginIO(ctx, db, item, attempt); err != nil {
 		return errors.New("failed to record migration I/O")
 	}
 	digest := &digestReader{Reader: r, hash: sha256.New()}
@@ -366,6 +446,22 @@ func copySingle(ctx context.Context, dep dependency.Dep, fm manager.FileManager,
 		return errors.New("failed to commit migration verification")
 	}
 	return nil
+}
+
+func beginIO(ctx context.Context, db *ent.Client, item *ent.RelocationItem, attempt *ent.RelocationAttempt) error {
+	tx, err := db.Tx(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	n, err := tx.RelocationItem.Update().Where(relocationitem.ID(item.ID), relocationitem.Fence(item.Fence), relocationitem.LeaseOwner(item.LeaseOwner), relocationitem.LeaseUntilGT(time.Now()), relocationitem.ActiveAttemptID(attempt.ID)).AddFence(0).Save(ctx)
+	if err != nil || n != 1 {
+		return ErrLeaseLost
+	}
+	if err := tx.RelocationAttempt.UpdateOneID(attempt.ID).SetIoState(relocationattempt.IoStateInFlight).Exec(ctx); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func verifyTarget(ctx context.Context, fm manager.FileManager, source *ent.Entity, policy *ent.StoragePolicy, attempt *ent.RelocationAttempt) error {

@@ -83,6 +83,20 @@ func (rac *RelocationAttemptCreate) SetNillableIoState(rs *relocationattempt.IoS
 	return rac
 }
 
+// SetSourceReadFinished sets the "source_read_finished" field.
+func (rac *RelocationAttemptCreate) SetSourceReadFinished(b bool) *RelocationAttemptCreate {
+	rac.mutation.SetSourceReadFinished(b)
+	return rac
+}
+
+// SetNillableSourceReadFinished sets the "source_read_finished" field if the given value is not nil.
+func (rac *RelocationAttemptCreate) SetNillableSourceReadFinished(b *bool) *RelocationAttemptCreate {
+	if b != nil {
+		rac.SetSourceReadFinished(*b)
+	}
+	return rac
+}
+
 // SetVerifiedSize sets the "verified_size" field.
 func (rac *RelocationAttemptCreate) SetVerifiedSize(i int64) *RelocationAttemptCreate {
 	rac.mutation.SetVerifiedSize(i)
@@ -205,6 +219,10 @@ func (rac *RelocationAttemptCreate) defaults() {
 		v := relocationattempt.DefaultIoState
 		rac.mutation.SetIoState(v)
 	}
+	if _, ok := rac.mutation.SourceReadFinished(); !ok {
+		v := relocationattempt.DefaultSourceReadFinished
+		rac.mutation.SetSourceReadFinished(v)
+	}
 	if _, ok := rac.mutation.VerifiedSize(); !ok {
 		v := relocationattempt.DefaultVerifiedSize
 		rac.mutation.SetVerifiedSize(v)
@@ -261,6 +279,9 @@ func (rac *RelocationAttemptCreate) check() error {
 		if err := relocationattempt.IoStateValidator(v); err != nil {
 			return &ValidationError{Name: "io_state", err: fmt.Errorf(`ent: validator failed for field "RelocationAttempt.io_state": %w`, err)}
 		}
+	}
+	if _, ok := rac.mutation.SourceReadFinished(); !ok {
+		return &ValidationError{Name: "source_read_finished", err: errors.New(`ent: missing required field "RelocationAttempt.source_read_finished"`)}
 	}
 	if _, ok := rac.mutation.VerifiedSize(); !ok {
 		return &ValidationError{Name: "verified_size", err: errors.New(`ent: missing required field "RelocationAttempt.verified_size"`)}
@@ -343,6 +364,10 @@ func (rac *RelocationAttemptCreate) createSpec() (*RelocationAttempt, *sqlgraph.
 	if value, ok := rac.mutation.IoState(); ok {
 		_spec.SetField(relocationattempt.FieldIoState, field.TypeEnum, value)
 		_node.IoState = value
+	}
+	if value, ok := rac.mutation.SourceReadFinished(); ok {
+		_spec.SetField(relocationattempt.FieldSourceReadFinished, field.TypeBool, value)
+		_node.SourceReadFinished = value
 	}
 	if value, ok := rac.mutation.VerifiedSize(); ok {
 		_spec.SetField(relocationattempt.FieldVerifiedSize, field.TypeInt64, value)
@@ -454,6 +479,18 @@ func (u *RelocationAttemptUpsert) SetIoState(v relocationattempt.IoState) *Reloc
 // UpdateIoState sets the "io_state" field to the value that was provided on create.
 func (u *RelocationAttemptUpsert) UpdateIoState() *RelocationAttemptUpsert {
 	u.SetExcluded(relocationattempt.FieldIoState)
+	return u
+}
+
+// SetSourceReadFinished sets the "source_read_finished" field.
+func (u *RelocationAttemptUpsert) SetSourceReadFinished(v bool) *RelocationAttemptUpsert {
+	u.Set(relocationattempt.FieldSourceReadFinished, v)
+	return u
+}
+
+// UpdateSourceReadFinished sets the "source_read_finished" field to the value that was provided on create.
+func (u *RelocationAttemptUpsert) UpdateSourceReadFinished() *RelocationAttemptUpsert {
+	u.SetExcluded(relocationattempt.FieldSourceReadFinished)
 	return u
 }
 
@@ -602,6 +639,20 @@ func (u *RelocationAttemptUpsertOne) SetIoState(v relocationattempt.IoState) *Re
 func (u *RelocationAttemptUpsertOne) UpdateIoState() *RelocationAttemptUpsertOne {
 	return u.Update(func(s *RelocationAttemptUpsert) {
 		s.UpdateIoState()
+	})
+}
+
+// SetSourceReadFinished sets the "source_read_finished" field.
+func (u *RelocationAttemptUpsertOne) SetSourceReadFinished(v bool) *RelocationAttemptUpsertOne {
+	return u.Update(func(s *RelocationAttemptUpsert) {
+		s.SetSourceReadFinished(v)
+	})
+}
+
+// UpdateSourceReadFinished sets the "source_read_finished" field to the value that was provided on create.
+func (u *RelocationAttemptUpsertOne) UpdateSourceReadFinished() *RelocationAttemptUpsertOne {
+	return u.Update(func(s *RelocationAttemptUpsert) {
+		s.UpdateSourceReadFinished()
 	})
 }
 
@@ -932,6 +983,20 @@ func (u *RelocationAttemptUpsertBulk) SetIoState(v relocationattempt.IoState) *R
 func (u *RelocationAttemptUpsertBulk) UpdateIoState() *RelocationAttemptUpsertBulk {
 	return u.Update(func(s *RelocationAttemptUpsert) {
 		s.UpdateIoState()
+	})
+}
+
+// SetSourceReadFinished sets the "source_read_finished" field.
+func (u *RelocationAttemptUpsertBulk) SetSourceReadFinished(v bool) *RelocationAttemptUpsertBulk {
+	return u.Update(func(s *RelocationAttemptUpsert) {
+		s.SetSourceReadFinished(v)
+	})
+}
+
+// UpdateSourceReadFinished sets the "source_read_finished" field to the value that was provided on create.
+func (u *RelocationAttemptUpsertBulk) UpdateSourceReadFinished() *RelocationAttemptUpsertBulk {
+	return u.Update(func(s *RelocationAttemptUpsert) {
+		s.UpdateSourceReadFinished()
 	})
 }
 
