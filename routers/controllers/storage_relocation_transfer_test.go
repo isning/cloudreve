@@ -164,7 +164,6 @@ func TestStorageRelocationInitialScopeRejectsUnsupportedSources(t *testing.T) {
 	f.upload(t, "cloudreve://my/shared.txt", []byte("shared source"), nil)
 	f.request(t, http.MethodPost, "/api/v4/file/create", map[string]any{"uri": "cloudreve://my/copies", "type": "folder"}, nil)
 	f.request(t, http.MethodPost, "/api/v4/file/move", map[string]any{"uris": []string{"cloudreve://my/shared.txt"}, "dst": "cloudreve://my/copies", "copy": true}, nil)
-	reject("cloudreve://my/shared.txt")
 	reject("cloudreve://my/copies")
 	uri := "cloudreve://my/versions.txt"
 	f.upload(t, uri, []byte("version one"), nil)

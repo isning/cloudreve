@@ -18,6 +18,7 @@ import (
 	"github.com/cloudreve/Cloudreve/v4/application/dependency"
 	"github.com/cloudreve/Cloudreve/v4/ent"
 	"github.com/cloudreve/Cloudreve/v4/ent/entity"
+	entfile "github.com/cloudreve/Cloudreve/v4/ent/file"
 	"github.com/cloudreve/Cloudreve/v4/ent/group"
 	"github.com/cloudreve/Cloudreve/v4/ent/relocationattempt"
 	"github.com/cloudreve/Cloudreve/v4/ent/relocationitem"
@@ -254,12 +255,17 @@ func recordPlans(ctx context.Context, dep dependency.Dep, taskID int, plans []*P
 			return errors.New("failed to lock migration source")
 		}
 		current, err := c.Entity.Query().Where(entity.ID(e.ID)).WithFile().Only(ctx)
-		if err != nil || current.UploadSessionID != nil || current.ReferenceCount != 1 || current.Source != e.Source || current.StoragePolicyEntities != e.StoragePolicyEntities || !current.UpdatedAt.Equal(e.UpdatedAt) || len(current.Edges.File) != 1 || len(plan.References) != 1 {
+		if err != nil || current.UploadSessionID != nil || current.ReferenceCount < 1 || current.ReferenceCount != len(current.Edges.File) || current.Source != e.Source || current.StoragePolicyEntities != e.StoragePolicyEntities || !current.UpdatedAt.Equal(e.UpdatedAt) || len(plan.References) != 1 {
 			return ErrConflict
 		}
-		file := current.Edges.File[0]
+		var file *ent.File
+		for _, candidate := range current.Edges.File {
+			if candidate.ID == plan.References[0].FileID {
+				file = candidate
+			}
+		}
 		ref := plan.References[0]
-		if file.ID != ref.FileID || file.OwnerID != plan.Owner.ID || file.PrimaryEntity != ref.PrimaryEntityID || !file.UpdatedAt.Equal(ref.UpdatedAt) {
+		if file == nil || file.OwnerID != plan.Owner.ID || file.PrimaryEntity != ref.PrimaryEntityID || !file.UpdatedAt.Equal(ref.UpdatedAt) {
 			return ErrConflict
 		}
 		if e.StoragePolicyEntities == plan.Destination.ID {
@@ -346,14 +352,29 @@ func currentSource(ctx context.Context, db *ent.Client, item *ent.RelocationItem
 		return nil, nil, nil, err
 	}
 	source, err := db.Entity.Query().Where(entity.ID(item.SourceEntityID)).WithFile().Only(ctx)
-	if err != nil || item.Snapshot == nil || source.UploadSessionID != nil || source.ReferenceCount != 1 || len(source.Edges.File) != 1 || len(item.References) != 1 {
+	if err != nil || item.Snapshot == nil || source.UploadSessionID != nil || source.ReferenceCount < 1 || source.ReferenceCount != len(source.Edges.File) || len(item.References) != 1 {
 		return nil, nil, nil, ErrConflict
 	}
-	f := source.Edges.File[0]
 	ref := item.References[0]
+	var f *ent.File
+	for _, candidate := range source.Edges.File {
+		if candidate.ID == ref.FileID {
+			f = candidate
+		}
+	}
+	if f == nil || f.OwnerID != item.OwnerID || !f.UpdatedAt.Equal(ref.UpdatedAt) {
+		return nil, nil, nil, ErrConflict
+	}
+	expectedPrimary := ref.PrimaryEntityID
+	if f.PrimaryEntity != expectedPrimary {
+		prior, err := db.RelocationItem.Query().Where(relocationitem.TaskID(item.TaskID), relocationitem.SourceEntityID(expectedPrimary), relocationitem.StateEQ(relocationitem.StateCommitted)).Only(ctx)
+		if err != nil || prior.TargetEntityID != f.PrimaryEntity {
+			return nil, nil, nil, ErrConflict
+		}
+	}
 	props, _ := json.Marshal(source.Props)
 	snapshotProps, _ := json.Marshal(item.Snapshot.Props)
-	if source.Type != item.Snapshot.Type || source.Size != item.Snapshot.Size || source.CreatedBy != item.Snapshot.CreatedBy || !source.CreatedAt.Equal(item.Snapshot.CreatedAt) || source.Source != item.SourceKey || source.StoragePolicyEntities != item.SourcePolicyID || !source.UpdatedAt.Equal(item.Snapshot.UpdatedAt) || string(props) != string(snapshotProps) || f.ID != ref.FileID || f.OwnerID != item.OwnerID || f.PrimaryEntity != ref.PrimaryEntityID || !f.UpdatedAt.Equal(ref.UpdatedAt) {
+	if source.Type != item.Snapshot.Type || source.Size != item.Snapshot.Size || source.CreatedBy != item.Snapshot.CreatedBy || !source.CreatedAt.Equal(item.Snapshot.CreatedAt) || source.Source != item.SourceKey || source.StoragePolicyEntities != item.SourcePolicyID || !source.UpdatedAt.Equal(item.Snapshot.UpdatedAt) || string(props) != string(snapshotProps) {
 		return nil, nil, nil, ErrConflict
 	}
 	load := func(id int) (*ent.StoragePolicy, error) {
@@ -541,15 +562,44 @@ func commitSingle(ctx context.Context, dep dependency.Dep, fm manager.FileManage
 	if err := lockSourceEntity(ctx, c, item.SourceEntityID); err != nil {
 		return ErrConflict
 	}
-	if _, _, _, err := currentSource(ctx, c, item); err != nil {
+	current, _, _, err := currentSource(ctx, c, item)
+	if err != nil {
 		return err
 	}
-	n, err := c.RelocationItem.Update().Where(relocationitem.ID(item.ID), relocationitem.Fence(item.Fence), relocationitem.LeaseOwner(item.LeaseOwner), relocationitem.LeaseUntilGT(time.Now()), relocationitem.StateEQ(relocationitem.StateVerified), relocationitem.ActiveAttemptID(attempt.ID)).SetState(relocationitem.StateCommitted).SetTargetEntityID(source.ID).SetSourceReadFinished(true).SetLeaseOwner("").ClearLeaseUntil().Save(ctx)
+	selected := []int{item.References[0].FileID}
+	targetID := source.ID
+	if len(current.Edges.File) > len(selected) {
+		builder := c.Entity.Create().SetType(source.Type).SetSource(attempt.TargetKey).SetSize(source.Size).
+			SetStoragePolicyEntities(item.DestinationPolicyID).SetReferenceCount(len(selected)).SetCreatedAt(source.CreatedAt).SetUpdatedAt(source.UpdatedAt).AddFileIDs(selected...)
+		if source.CreatedBy > 0 {
+			builder.SetCreatedBy(source.CreatedBy)
+		}
+		if source.Props != nil {
+			builder.SetProps(source.Props)
+		}
+		target, err := builder.Save(ctx)
+		if err != nil {
+			return errors.New("failed to split migration entity")
+		}
+		targetID = target.ID
+		if err := c.Entity.UpdateOneID(source.ID).RemoveFileIDs(selected...).AddReferenceCount(-len(selected)).SetUpdatedAt(source.UpdatedAt).Exec(ctx); err != nil {
+			return errors.New("failed to switch selected migration references")
+		}
+		for _, ref := range item.References {
+			if ref.PrimaryEntityID == source.ID {
+				if err := c.File.Update().Where(entfile.ID(ref.FileID), entfile.PrimaryEntity(source.ID)).SetPrimaryEntity(targetID).SetUpdatedAt(ref.UpdatedAt).Exec(ctx); err != nil {
+					return errors.New("failed to switch migration primary entity")
+				}
+			}
+		}
+	} else {
+		if err := c.Entity.UpdateOneID(source.ID).SetSource(attempt.TargetKey).SetStoragePolicyEntities(item.DestinationPolicyID).SetUpdatedAt(item.Snapshot.UpdatedAt).Exec(ctx); err != nil {
+			return errors.New("failed to switch migration entity")
+		}
+	}
+	n, err := c.RelocationItem.Update().Where(relocationitem.ID(item.ID), relocationitem.Fence(item.Fence), relocationitem.LeaseOwner(item.LeaseOwner), relocationitem.LeaseUntilGT(time.Now()), relocationitem.StateEQ(relocationitem.StateVerified), relocationitem.ActiveAttemptID(attempt.ID)).SetState(relocationitem.StateCommitted).SetTargetEntityID(targetID).SetSourceReadFinished(true).SetLeaseOwner("").ClearLeaseUntil().Save(ctx)
 	if err != nil || n != 1 {
 		return ErrLeaseLost
-	}
-	if err := c.Entity.UpdateOneID(source.ID).SetSource(attempt.TargetKey).SetStoragePolicyEntities(item.DestinationPolicyID).SetUpdatedAt(item.Snapshot.UpdatedAt).Exec(ctx); err != nil {
-		return errors.New("failed to switch migration entity")
 	}
 	if err := c.RelocationAttempt.UpdateOneID(attempt.ID).SetCleanup(relocationattempt.CleanupRetained).Exec(ctx); err != nil {
 		return errors.New("failed to retain committed migration target")

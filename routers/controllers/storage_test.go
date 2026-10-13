@@ -47,6 +47,7 @@ import (
 	adminsvc "github.com/cloudreve/Cloudreve/v4/service/admin"
 	"github.com/cloudreve/Cloudreve/v4/service/explorer"
 	settingsvc "github.com/cloudreve/Cloudreve/v4/service/setting"
+	sharesvc "github.com/cloudreve/Cloudreve/v4/service/share"
 	usersvc "github.com/cloudreve/Cloudreve/v4/service/user"
 	"github.com/gin-gonic/gin"
 	"github.com/gofrs/uuid"
@@ -312,6 +313,7 @@ func storageRouter(d dependency.Dep, l logging.Logger) *gin.Engine {
 	authenticated.PATCH("/file/policy", ctl.FromJSON[explorer.BindPolicyService](explorer.BindPolicyParamCtx{}), ctl.BindStoragePolicy)
 	authenticated.POST("/file/create", ctl.FromJSON[explorer.CreateFileService](explorer.CreateFileParameterCtx{}), ctl.CreateFile)
 	authenticated.POST("/file/move", ctl.FromJSON[explorer.MoveFileService](explorer.MoveFileParameterCtx{}), ctl.MoveFile)
+	authenticated.POST("/share", ctl.FromJSON[sharesvc.ShareCreateService](sharesvc.ShareCreateParamCtx{}), ctl.CreateShare)
 	authenticated.PUT("/file/content", ctl.FromQuery[explorer.FileUpdateService](explorer.FileUpdateParameterCtx{}), ctl.PutContent)
 	authenticated.PUT("/devices/dav", ctl.FromJSON[settingsvc.CreateDavAccountService](settingsvc.CreateDavAccountParamCtx{}), ctl.CreateDAVAccounts)
 	authenticated.DELETE("/file", ctl.FromJSON[explorer.DeleteFileService](explorer.DeleteFileParameterCtx{}), ctl.Delete)
