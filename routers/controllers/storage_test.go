@@ -441,8 +441,7 @@ func (f *storageFixture) upload(t *testing.T, uri string, data []byte, policy an
 
 func (f *storageFixture) finishUpload(t *testing.T, session explorer.UploadSessionResponse, data []byte) {
 	t.Helper()
-	require.Len(t, session.UploadURLs, 1)
-	part, _ := storageHTTP(t, http.MethodPut, session.UploadURLs[0], data)
+	require.NotEmpty(t, session.UploadURLs)
 	complete := struct {
 		XMLName xml.Name `xml:"CompleteMultipartUpload"`
 		Parts   []struct {
@@ -450,10 +449,15 @@ func (f *storageFixture) finishUpload(t *testing.T, session explorer.UploadSessi
 			Number int    `xml:"PartNumber"`
 		} `xml:"Part"`
 	}{}
-	complete.Parts = append(complete.Parts, struct {
-		ETag   string `xml:"ETag"`
-		Number int    `xml:"PartNumber"`
-	}{part.Header.Get("ETag"), 1})
+	for i, target := range session.UploadURLs {
+		start := int64(i) * session.ChunkSize
+		end := min(start+session.ChunkSize, int64(len(data)))
+		part, _ := storageHTTP(t, http.MethodPut, target, data[start:end])
+		complete.Parts = append(complete.Parts, struct {
+			ETag   string `xml:"ETag"`
+			Number int    `xml:"PartNumber"`
+		}{part.Header.Get("ETag"), i + 1})
+	}
 	xmlBody, err := xml.Marshal(complete)
 	require.NoError(t, err)
 	_, receipt := storageHTTP(t, http.MethodPost, session.CompleteURL, xmlBody)
