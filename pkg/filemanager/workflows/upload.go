@@ -24,10 +24,11 @@ import (
 
 type (
 	SlaveUploadEntity struct {
-		Uri   *fs.URI `json:"uri"`
-		Src   string  `json:"src"`
-		Size  int64   `json:"size"`
-		Index int     `json:"index"`
+		Uri                    *fs.URI `json:"uri"`
+		Src                    string  `json:"src"`
+		Size                   int64   `json:"size"`
+		Index                  int     `json:"index"`
+		PreferredStoragePolicy int     `json:"preferred_storage_policy,omitempty"`
 	}
 	SlaveUploadTaskState struct {
 		MaxParallel          int                 `json:"max_parallel"`
@@ -150,8 +151,9 @@ func (t *SlaveUploadTask) Do(ctx context.Context) (task.Status, error) {
 
 		fileData := &fs.UploadRequest{
 			Props: &fs.UploadProps{
-				Uri:  file.Uri,
-				Size: stat.Size(),
+				Uri:                    file.Uri,
+				Size:                   stat.Size(),
+				PreferredStoragePolicy: file.PreferredStoragePolicy,
 			},
 			ProgressFunc: func(current, diff int64, total int64) {
 				atomic.AddInt64(&fileProgress.Current, diff)

@@ -315,6 +315,8 @@ func storageRouter(d dependency.Dep, l logging.Logger) *gin.Engine {
 	authenticated.DELETE("/file", ctl.FromJSON[explorer.DeleteFileService](explorer.DeleteFileParameterCtx{}), ctl.Delete)
 	authenticated.POST("/workflow/import", middleware.IsAdmin(), ctl.FromJSON[explorer.ImportWorkflowService](explorer.CreateImportParamCtx{}), ctl.ImportFiles)
 	authenticated.POST("/workflow/reloacte", ctl.FromJSON[explorer.RelocateService](explorer.RelocateParamCtx{}), ctl.RelocateStorage)
+	authenticated.POST("/workflow/archive", ctl.FromJSON[explorer.ArchiveWorkflowService](explorer.CreateArchiveParamCtx{}), ctl.CreateArchive)
+	authenticated.POST("/workflow/extract", ctl.FromJSON[explorer.ArchiveWorkflowService](explorer.CreateArchiveParamCtx{}), ctl.ExtractArchive)
 	authenticated.GET("/workflow", ctl.FromQuery[explorer.ListTaskService](explorer.ListTaskParamCtx{}), ctl.ListTasks)
 	authenticated.GET("/workflow/progress/:id", middleware.HashID(hashid.TaskID), ctl.GetTaskPhaseProgress)
 	authenticated.PUT("/file/upload", ctl.FromJSON[explorer.CreateUploadSessionService](explorer.CreateUploadSessionParameterCtx{}), ctl.CreateUploadSession)

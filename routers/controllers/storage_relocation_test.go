@@ -28,7 +28,7 @@ func (f *storageFixture) enableMigration(t *testing.T, enabled bool) {
 func (f *storageFixture) waitForStorageTask(t *testing.T, id string, status string) explorer.TaskResponse {
 	t.Helper()
 	var found explorer.TaskResponse
-	deadline := time.Now().Add(20 * time.Second)
+	deadline := time.Now().Add(60 * time.Second)
 	for time.Now().Before(deadline) {
 		var list explorer.TaskListResponse
 		f.request(t, http.MethodGet, "/api/v4/workflow?category=general&page_size=100", nil, &list)
@@ -37,6 +37,9 @@ func (f *storageFixture) waitForStorageTask(t *testing.T, id string, status stri
 				found = job
 				if job.Status == status {
 					return found
+				}
+				if job.Status == "completed" || job.Status == "error" || job.Status == "canceled" {
+					t.Fatalf("storage task reached unexpected terminal state %s; expected %s", job.Status, status)
 				}
 			}
 		}

@@ -17,6 +17,7 @@ import (
 	"github.com/cloudreve/Cloudreve/v4/pkg/filemanager/workflows"
 	"github.com/cloudreve/Cloudreve/v4/pkg/queue"
 	"github.com/cloudreve/Cloudreve/v4/pkg/serializer"
+	"github.com/cloudreve/Cloudreve/v4/pkg/storagepolicy"
 	"github.com/gin-gonic/gin"
 	"github.com/gofrs/uuid"
 	"github.com/samber/lo"
@@ -200,12 +201,17 @@ func (service *ArchiveWorkflowService) CreateExtractTask(c *gin.Context) (*TaskR
 	}
 
 	// Validate destination
-	if _, err := m.Get(c, dst, dbfs.WithRequiredCapabilities(dbfs.NavigatorCapabilityCreateFile)); err != nil {
+	destination, err := m.Get(c, dst, dbfs.WithRequiredCapabilities(dbfs.NavigatorCapabilityCreateFile))
+	if err != nil {
 		return nil, serializer.NewError(serializer.CodeParamErr, "Invalid destination", err)
+	}
+	policy, err := storagepolicy.New(dep.UserClient(), dep.StoragePolicyClient()).SelectForFile(c, destination.OwnerID(), 0, dep.FileClient(), destination.ID())
+	if err != nil {
+		return nil, serializer.NewError(serializer.CodeGroupNotAllowed, "Storage destination is unavailable", err)
 	}
 
 	// Create task
-	t, err := workflows.NewExtractArchiveTask(c, service.Src[0], service.Dst, service.Encoding, service.Password, service.FileMask)
+	t, err := workflows.NewExtractArchiveTask(c, service.Src[0], service.Dst, service.Encoding, service.Password, service.FileMask, policy.ID)
 	if err != nil {
 		return nil, serializer.NewError(serializer.CodeCreateTaskError, "Failed to create task", err)
 	}
@@ -249,7 +255,7 @@ func (service *ArchiveWorkflowService) CreateCompressTask(c *gin.Context) (*Task
 	m.OnUploadFailed(c, session)
 
 	// Create task
-	t, err := workflows.NewCreateArchiveTask(c, service.Src, service.Dst)
+	t, err := workflows.NewCreateArchiveTask(c, service.Src, service.Dst, session.Policy.ID)
 	if err != nil {
 		return nil, serializer.NewError(serializer.CodeCreateTaskError, "Failed to create task", err)
 	}
