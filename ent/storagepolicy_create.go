@@ -16,6 +16,7 @@ import (
 	"github.com/cloudreve/Cloudreve/v4/ent/group"
 	"github.com/cloudreve/Cloudreve/v4/ent/grouppolicy"
 	"github.com/cloudreve/Cloudreve/v4/ent/node"
+	"github.com/cloudreve/Cloudreve/v4/ent/policyloadbalance"
 	"github.com/cloudreve/Cloudreve/v4/ent/storagepolicy"
 	"github.com/cloudreve/Cloudreve/v4/inventory/types"
 )
@@ -212,6 +213,36 @@ func (spc *StoragePolicyCreate) SetNillableNodeID(i *int) *StoragePolicyCreate {
 		spc.SetNodeID(*i)
 	}
 	return spc
+}
+
+// AddPolicyLoadBalanceIDs adds the "policy_load_balance" edge to the PolicyLoadBalance entity by IDs.
+func (spc *StoragePolicyCreate) AddPolicyLoadBalanceIDs(ids ...int) *StoragePolicyCreate {
+	spc.mutation.AddPolicyLoadBalanceIDs(ids...)
+	return spc
+}
+
+// AddPolicyLoadBalance adds the "policy_load_balance" edges to the PolicyLoadBalance entity.
+func (spc *StoragePolicyCreate) AddPolicyLoadBalance(p ...*PolicyLoadBalance) *StoragePolicyCreate {
+	ids := make([]int, len(p))
+	for i := range p {
+		ids[i] = p[i].ID
+	}
+	return spc.AddPolicyLoadBalanceIDs(ids...)
+}
+
+// AddLoadBalanceMembershipIDs adds the "load_balance_memberships" edge to the PolicyLoadBalance entity by IDs.
+func (spc *StoragePolicyCreate) AddLoadBalanceMembershipIDs(ids ...int) *StoragePolicyCreate {
+	spc.mutation.AddLoadBalanceMembershipIDs(ids...)
+	return spc
+}
+
+// AddLoadBalanceMemberships adds the "load_balance_memberships" edges to the PolicyLoadBalance entity.
+func (spc *StoragePolicyCreate) AddLoadBalanceMemberships(p ...*PolicyLoadBalance) *StoragePolicyCreate {
+	ids := make([]int, len(p))
+	for i := range p {
+		ids[i] = p[i].ID
+	}
+	return spc.AddLoadBalanceMembershipIDs(ids...)
 }
 
 // AddGroupAssignmentIDs adds the "group_assignments" edge to the GroupPolicy entity by IDs.
@@ -440,6 +471,38 @@ func (spc *StoragePolicyCreate) createSpec() (*StoragePolicy, *sqlgraph.CreateSp
 	if value, ok := spc.mutation.Settings(); ok {
 		_spec.SetField(storagepolicy.FieldSettings, field.TypeJSON, value)
 		_node.Settings = value
+	}
+	if nodes := spc.mutation.PolicyLoadBalanceIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   storagepolicy.PolicyLoadBalanceTable,
+			Columns: []string{storagepolicy.PolicyLoadBalanceColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(policyloadbalance.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := spc.mutation.LoadBalanceMembershipsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   storagepolicy.LoadBalanceMembershipsTable,
+			Columns: []string{storagepolicy.LoadBalanceMembershipsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(policyloadbalance.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges = append(_spec.Edges, edge)
 	}
 	if nodes := spc.mutation.GroupAssignmentsIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{

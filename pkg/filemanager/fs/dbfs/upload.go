@@ -47,7 +47,7 @@ func (f *DBFS) PreValidateUpload(ctx context.Context, dst *fs.URI, files ...fs.P
 
 	// Resolve each request against current grants, including fixed queued destinations.
 	for _, file := range files {
-		policy, err := storagepolicy.New(f.userClient, f.storagePolicyClient).SelectForFile(ctx, dstFile.OwnerID(), file.PreferredStoragePolicy, f.fileClient, dstFile.ID())
+		policy, err := storagepolicy.New(f.userClient, f.storagePolicyClient).ResolveForFile(ctx, dstFile.OwnerID(), file.PreferredStoragePolicy, f.fileClient, dstFile.ID())
 		if err != nil {
 			return err
 		}
@@ -112,13 +112,19 @@ func (f *DBFS) PrepareUpload(ctx context.Context, req *fs.UploadRequest, opts ..
 	}
 
 	// Resolve once before locks, placeholders, quota reservation or provider I/O.
-	var policy *ent.StoragePolicy
+	var policy, logicalPolicy *ent.StoragePolicy
 	if req.ImportFrom == nil {
-		policy, err = storagepolicy.New(f.userClient, f.storagePolicyClient).SelectForFile(ctx, ancestor.OwnerID(), req.Props.PreferredStoragePolicy, f.fileClient, ancestor.ID())
+		logicalPolicy, err = storagepolicy.New(f.userClient, f.storagePolicyClient).SelectForFile(ctx, ancestor.OwnerID(), req.Props.PreferredStoragePolicy, f.fileClient, ancestor.ID())
+		if err == nil {
+			policy, err = storagepolicy.Choose(logicalPolicy)
+		}
 	} else {
 		policy, err = f.storagePolicyClient.GetPolicyByID(ctx, req.Props.PreferredStoragePolicy)
 	}
 	if err != nil {
+		if errors.Is(err, storagepolicy.ErrNoAvailableChildren) {
+			return nil, serializer.NewError(serializer.CodeParamErr, err.Error(), nil)
+		}
 		if errors.Is(err, storagepolicy.ErrPolicyNotGranted) || errors.Is(err, storagepolicy.ErrNoAvailablePolicies) {
 			return nil, serializer.NewError(serializer.CodeGroupNotAllowed, "Storage policy is unavailable", err)
 		}
@@ -210,6 +216,12 @@ func (f *DBFS) PrepareUpload(ctx context.Context, req *fs.UploadRequest, opts ..
 		return nil, serializer.NewError(serializer.CodeLockConflict, "Storage destination changed; retry upload", nil)
 	}
 	if req.ImportFrom == nil {
+		if logicalPolicy.Type == types.PolicyTypeLoadBalance {
+			if _, err = storagepolicy.New(f.userClient, f.storagePolicyClient).Select(ctx, owner.ID, logicalPolicy.ID, 0); err != nil {
+				_ = inventory.Rollback(dbTx)
+				return nil, serializer.NewError(serializer.CodeGroupNotAllowed, "Load balance policy is unavailable", nil)
+			}
+		}
 		if _, err = storagepolicy.New(f.userClient, f.storagePolicyClient).Select(ctx, owner.ID, current.ID, 0); err != nil {
 			_ = inventory.Rollback(dbTx)
 			return nil, serializer.NewError(serializer.CodeGroupNotAllowed, "Storage policy is unavailable", err)
@@ -260,6 +272,15 @@ func (f *DBFS) PrepareUpload(ctx context.Context, req *fs.UploadRequest, opts ..
 		fileId = ancestor.ID()
 		entityId = entity.ID()
 		targetFile = ancestor.Model
+		// An empty file may still carry its inherited pool preference. Its
+		// first actual entity fixes the concrete policy for future versions.
+		if logicalPolicy != nil && logicalPolicy.Type == types.PolicyTypeLoadBalance && ancestor.Model.StoragePolicyFiles == logicalPolicy.ID {
+			targetFile, err = fc.SetStoragePreference(ctx, ancestor.Model, policy.ID)
+			if err != nil {
+				_ = inventory.Rollback(dbTx)
+				return nil, err
+			}
+		}
 	} else {
 		uploadPlaceholder, err := f.Create(ctx, req.Props.Uri, types.FileTypeFile,
 			fs.WithUploadRequest(req),

@@ -94,6 +94,9 @@ func (service *SingleStoragePolicyService) Delete(c *gin.Context) error {
 
 	err = storagePolicyClient.Delete(ctx, policy)
 	if err != nil {
+		if errors.Is(err, inventory.ErrStoragePolicyInPool) {
+			return serializer.NewError(serializer.CodePolicyUsedByFiles, "Remove this storage policy from its load balance pools before deleting it", nil)
+		}
 		if errors.Is(err, inventory.ErrStoragePolicyGranted) {
 			return serializer.NewError(serializer.CodePolicyUsedByGroups, "Storage policy is granted to an active group", nil)
 		}
@@ -274,6 +277,9 @@ func (service *CreateStoragePolicyService) Create(c *gin.Context) (*GetStoragePo
 	service.Policy.ID = 0
 	policy, err := storagePolicyClient.Upsert(c, service.Policy)
 	if err != nil {
+		if errors.Is(err, inventory.ErrInvalidLoadBalancePolicy) || errors.Is(err, inventory.ErrStoragePolicyInPool) {
+			return nil, serializer.NewError(serializer.CodeParamErr, err.Error(), nil)
+		}
 		return nil, serializer.NewError(serializer.CodeDBError, "Failed to create policy", err)
 	}
 
@@ -310,6 +316,9 @@ func (service *UpdateStoragePolicyService) Update(c *gin.Context) (*GetStoragePo
 	_, err = sc.Upsert(ctx, service.Policy)
 	if err != nil {
 		_ = inventory.Rollback(tx)
+		if errors.Is(err, inventory.ErrInvalidLoadBalancePolicy) || errors.Is(err, inventory.ErrStoragePolicyInPool) {
+			return nil, serializer.NewError(serializer.CodeParamErr, err.Error(), nil)
+		}
 		if errors.Is(err, inventory.ErrStoragePolicyInUse) {
 			return nil, serializer.NewError(serializer.CodePolicyUsedByFiles, "Storage policy has active uploads or migration dependencies", nil)
 		}

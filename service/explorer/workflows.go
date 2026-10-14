@@ -112,7 +112,7 @@ func (service *DownloadWorkflowService) CreateDownloadTask(c *gin.Context) ([]*T
 		return nil, serializer.NewError(serializer.CodeParamErr, "Invalid destination", err)
 	}
 
-	policy, err := storagepolicy.New(dep.UserClient(), dep.StoragePolicyClient()).SelectForFile(c, destination.OwnerID(), 0, dep.FileClient(), destination.ID())
+	policy, err := storagepolicy.New(dep.UserClient(), dep.StoragePolicyClient()).ResolveForFile(c, destination.OwnerID(), 0, dep.FileClient(), destination.ID())
 	if err != nil {
 		return nil, serializer.NewError(serializer.CodeGroupNotAllowed, "Storage destination is unavailable", err)
 	}
@@ -211,7 +211,7 @@ func (service *ArchiveWorkflowService) CreateExtractTask(c *gin.Context) (*TaskR
 	if err != nil {
 		return nil, serializer.NewError(serializer.CodeParamErr, "Invalid destination", err)
 	}
-	policy, err := storagepolicy.New(dep.UserClient(), dep.StoragePolicyClient()).SelectForFile(c, destination.OwnerID(), 0, dep.FileClient(), destination.ID())
+	policy, err := storagepolicy.New(dep.UserClient(), dep.StoragePolicyClient()).ResolveForFile(c, destination.OwnerID(), 0, dep.FileClient(), destination.ID())
 	if err != nil {
 		return nil, serializer.NewError(serializer.CodeGroupNotAllowed, "Storage destination is unavailable", err)
 	}
@@ -294,6 +294,13 @@ func (service *ImportWorkflowService) CreateImportTask(c *gin.Context) (*TaskRes
 
 	if !user.Edges.Group.Permissions.Enabled(int(types.GroupPermissionIsAdmin)) {
 		return nil, serializer.NewError(serializer.CodeGroupNotAllowed, "Only admin can import files", nil)
+	}
+	policy, err := dep.StoragePolicyClient().GetPolicyByID(c, service.PolicyID)
+	if err != nil {
+		return nil, serializer.NewError(serializer.CodeParamErr, "Invalid source storage policy", nil)
+	}
+	if policy.Type == types.PolicyTypeLoadBalance {
+		return nil, serializer.NewError(serializer.CodeParamErr, "Import requires a concrete source storage policy", nil)
 	}
 
 	userId, err := hasher.Decode(service.UserID, hashid.UserID)

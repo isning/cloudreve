@@ -229,7 +229,7 @@ func prepareStorageFixture(t *testing.T, legacy bool) *storageFixture {
 		require.NoError(t, err)
 		var tables []*schema.Table
 		for _, table := range entmigrate.Tables {
-			if table.Name != "group_policies" && table.Name != "relocation_items" && table.Name != "relocation_attempts" && table.Name != "relocation_plans" && table.Name != "storage_objects" && table.Name != "storage_object_readers" {
+			if table.Name != "group_policies" && table.Name != "policy_load_balances" && table.Name != "relocation_items" && table.Name != "relocation_attempts" && table.Name != "relocation_plans" && table.Name != "storage_objects" && table.Name != "storage_object_readers" {
 				tables = append(tables, table)
 			}
 		}
@@ -366,6 +366,7 @@ func storageRouter(d dependency.Dep, l logging.Logger) *gin.Engine {
 	authenticated.GET("/workflow", ctl.FromQuery[explorer.ListTaskService](explorer.ListTaskParamCtx{}), ctl.ListTasks)
 	authenticated.GET("/workflow/progress/:id", middleware.HashID(hashid.TaskID), ctl.GetTaskPhaseProgress)
 	authenticated.PUT("/file/upload", ctl.FromJSON[explorer.CreateUploadSessionService](explorer.CreateUploadSessionParameterCtx{}), ctl.CreateUploadSession)
+	authenticated.POST("/file/upload/:sessionId/:index", ctl.FromUri[explorer.UploadService](explorer.UploadParameterCtx{}), ctl.FileUpload)
 	r.GET("/f/:id/:name", middleware.HashID(hashid.SourceLinkID), ctl.AnonymousPermLink(false))
 	authenticated.PUT("/file/source", ctl.FromJSON[explorer.GetDirectLinkService](explorer.GetDirectLinkParamCtx{}), ctl.GetSource)
 	authenticated.POST("/file/url", ctl.FromJSON[explorer.FileURLService](explorer.FileURLParameterCtx{}), ctl.FileURL)
@@ -380,6 +381,7 @@ func storageRouter(d dependency.Dep, l logging.Logger) *gin.Engine {
 	admin.PUT("/group", ctl.FromJSON[adminsvc.UpsertGroupService](adminsvc.UpsertGroupParamCtx{}), ctl.AdminCreateGroup)
 	admin.DELETE("/group/:id", ctl.FromUri[adminsvc.SingleGroupService](adminsvc.SingleGroupParamCtx{}), ctl.AdminDeleteGroup)
 	admin.POST("/policy", ctl.FromJSON[adminsvc.AdminListService](adminsvc.AdminListServiceParamsCtx{}), ctl.AdminListPolicies)
+	admin.PUT("/policy", ctl.FromJSON[adminsvc.CreateStoragePolicyService](adminsvc.CreateStoragePolicyParamCtx{}), ctl.AdminCreatePolicy)
 	admin.GET("/policy/:id", ctl.FromUri[adminsvc.SingleStoragePolicyService](adminsvc.GetStoragePolicyParamCtx{}), ctl.AdminGetPolicy)
 	admin.PUT("/policy/:id", ctl.FromJSON[adminsvc.UpdateStoragePolicyService](adminsvc.UpdateStoragePolicyParamCtx{}), ctl.AdminUpdatePolicy)
 	admin.POST("/user/batch/delete", ctl.FromJSON[adminsvc.BatchUserService](adminsvc.BatchUserParamCtx{}), ctl.AdminDeleteUser)

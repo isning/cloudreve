@@ -44,6 +44,8 @@ type Tx struct {
 	OpenIDTransaction *OpenIDTransactionClient
 	// Passkey is the client for interacting with the Passkey builders.
 	Passkey *PasskeyClient
+	// PolicyLoadBalance is the client for interacting with the PolicyLoadBalance builders.
+	PolicyLoadBalance *PolicyLoadBalanceClient
 	// RelocationAttempt is the client for interacting with the RelocationAttempt builders.
 	RelocationAttempt *RelocationAttemptClient
 	// RelocationItem is the client for interacting with the RelocationItem builders.
@@ -210,6 +212,7 @@ func (tx *Tx) init() {
 	tx.OpenIDSession = NewOpenIDSessionClient(tx.config)
 	tx.OpenIDTransaction = NewOpenIDTransactionClient(tx.config)
 	tx.Passkey = NewPasskeyClient(tx.config)
+	tx.PolicyLoadBalance = NewPolicyLoadBalanceClient(tx.config)
 	tx.RelocationAttempt = NewRelocationAttemptClient(tx.config)
 	tx.RelocationItem = NewRelocationItemClient(tx.config)
 	tx.RelocationPlan = NewRelocationPlanClient(tx.config)

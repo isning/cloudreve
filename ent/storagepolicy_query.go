@@ -16,6 +16,7 @@ import (
 	"github.com/cloudreve/Cloudreve/v4/ent/group"
 	"github.com/cloudreve/Cloudreve/v4/ent/grouppolicy"
 	"github.com/cloudreve/Cloudreve/v4/ent/node"
+	"github.com/cloudreve/Cloudreve/v4/ent/policyloadbalance"
 	"github.com/cloudreve/Cloudreve/v4/ent/predicate"
 	"github.com/cloudreve/Cloudreve/v4/ent/storagepolicy"
 )
@@ -23,15 +24,17 @@ import (
 // StoragePolicyQuery is the builder for querying StoragePolicy entities.
 type StoragePolicyQuery struct {
 	config
-	ctx                  *QueryContext
-	order                []storagepolicy.OrderOption
-	inters               []Interceptor
-	predicates           []predicate.StoragePolicy
-	withGroupAssignments *GroupPolicyQuery
-	withGroups           *GroupQuery
-	withFiles            *FileQuery
-	withEntities         *EntityQuery
-	withNode             *NodeQuery
+	ctx                        *QueryContext
+	order                      []storagepolicy.OrderOption
+	inters                     []Interceptor
+	predicates                 []predicate.StoragePolicy
+	withPolicyLoadBalance      *PolicyLoadBalanceQuery
+	withLoadBalanceMemberships *PolicyLoadBalanceQuery
+	withGroupAssignments       *GroupPolicyQuery
+	withGroups                 *GroupQuery
+	withFiles                  *FileQuery
+	withEntities               *EntityQuery
+	withNode                   *NodeQuery
 	// intermediate query (i.e. traversal path).
 	sql  *sql.Selector
 	path func(context.Context) (*sql.Selector, error)
@@ -66,6 +69,50 @@ func (spq *StoragePolicyQuery) Unique(unique bool) *StoragePolicyQuery {
 func (spq *StoragePolicyQuery) Order(o ...storagepolicy.OrderOption) *StoragePolicyQuery {
 	spq.order = append(spq.order, o...)
 	return spq
+}
+
+// QueryPolicyLoadBalance chains the current query on the "policy_load_balance" edge.
+func (spq *StoragePolicyQuery) QueryPolicyLoadBalance() *PolicyLoadBalanceQuery {
+	query := (&PolicyLoadBalanceClient{config: spq.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := spq.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := spq.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(storagepolicy.Table, storagepolicy.FieldID, selector),
+			sqlgraph.To(policyloadbalance.Table, policyloadbalance.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, storagepolicy.PolicyLoadBalanceTable, storagepolicy.PolicyLoadBalanceColumn),
+		)
+		fromU = sqlgraph.SetNeighbors(spq.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
+}
+
+// QueryLoadBalanceMemberships chains the current query on the "load_balance_memberships" edge.
+func (spq *StoragePolicyQuery) QueryLoadBalanceMemberships() *PolicyLoadBalanceQuery {
+	query := (&PolicyLoadBalanceClient{config: spq.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := spq.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := spq.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(storagepolicy.Table, storagepolicy.FieldID, selector),
+			sqlgraph.To(policyloadbalance.Table, policyloadbalance.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, storagepolicy.LoadBalanceMembershipsTable, storagepolicy.LoadBalanceMembershipsColumn),
+		)
+		fromU = sqlgraph.SetNeighbors(spq.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
 }
 
 // QueryGroupAssignments chains the current query on the "group_assignments" edge.
@@ -365,20 +412,44 @@ func (spq *StoragePolicyQuery) Clone() *StoragePolicyQuery {
 		return nil
 	}
 	return &StoragePolicyQuery{
-		config:               spq.config,
-		ctx:                  spq.ctx.Clone(),
-		order:                append([]storagepolicy.OrderOption{}, spq.order...),
-		inters:               append([]Interceptor{}, spq.inters...),
-		predicates:           append([]predicate.StoragePolicy{}, spq.predicates...),
-		withGroupAssignments: spq.withGroupAssignments.Clone(),
-		withGroups:           spq.withGroups.Clone(),
-		withFiles:            spq.withFiles.Clone(),
-		withEntities:         spq.withEntities.Clone(),
-		withNode:             spq.withNode.Clone(),
+		config:                     spq.config,
+		ctx:                        spq.ctx.Clone(),
+		order:                      append([]storagepolicy.OrderOption{}, spq.order...),
+		inters:                     append([]Interceptor{}, spq.inters...),
+		predicates:                 append([]predicate.StoragePolicy{}, spq.predicates...),
+		withPolicyLoadBalance:      spq.withPolicyLoadBalance.Clone(),
+		withLoadBalanceMemberships: spq.withLoadBalanceMemberships.Clone(),
+		withGroupAssignments:       spq.withGroupAssignments.Clone(),
+		withGroups:                 spq.withGroups.Clone(),
+		withFiles:                  spq.withFiles.Clone(),
+		withEntities:               spq.withEntities.Clone(),
+		withNode:                   spq.withNode.Clone(),
 		// clone intermediate query.
 		sql:  spq.sql.Clone(),
 		path: spq.path,
 	}
+}
+
+// WithPolicyLoadBalance tells the query-builder to eager-load the nodes that are connected to
+// the "policy_load_balance" edge. The optional arguments are used to configure the query builder of the edge.
+func (spq *StoragePolicyQuery) WithPolicyLoadBalance(opts ...func(*PolicyLoadBalanceQuery)) *StoragePolicyQuery {
+	query := (&PolicyLoadBalanceClient{config: spq.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	spq.withPolicyLoadBalance = query
+	return spq
+}
+
+// WithLoadBalanceMemberships tells the query-builder to eager-load the nodes that are connected to
+// the "load_balance_memberships" edge. The optional arguments are used to configure the query builder of the edge.
+func (spq *StoragePolicyQuery) WithLoadBalanceMemberships(opts ...func(*PolicyLoadBalanceQuery)) *StoragePolicyQuery {
+	query := (&PolicyLoadBalanceClient{config: spq.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	spq.withLoadBalanceMemberships = query
+	return spq
 }
 
 // WithGroupAssignments tells the query-builder to eager-load the nodes that are connected to
@@ -514,7 +585,9 @@ func (spq *StoragePolicyQuery) sqlAll(ctx context.Context, hooks ...queryHook) (
 	var (
 		nodes       = []*StoragePolicy{}
 		_spec       = spq.querySpec()
-		loadedTypes = [5]bool{
+		loadedTypes = [7]bool{
+			spq.withPolicyLoadBalance != nil,
+			spq.withLoadBalanceMemberships != nil,
 			spq.withGroupAssignments != nil,
 			spq.withGroups != nil,
 			spq.withFiles != nil,
@@ -539,6 +612,24 @@ func (spq *StoragePolicyQuery) sqlAll(ctx context.Context, hooks ...queryHook) (
 	}
 	if len(nodes) == 0 {
 		return nodes, nil
+	}
+	if query := spq.withPolicyLoadBalance; query != nil {
+		if err := spq.loadPolicyLoadBalance(ctx, query, nodes,
+			func(n *StoragePolicy) { n.Edges.PolicyLoadBalance = []*PolicyLoadBalance{} },
+			func(n *StoragePolicy, e *PolicyLoadBalance) {
+				n.Edges.PolicyLoadBalance = append(n.Edges.PolicyLoadBalance, e)
+			}); err != nil {
+			return nil, err
+		}
+	}
+	if query := spq.withLoadBalanceMemberships; query != nil {
+		if err := spq.loadLoadBalanceMemberships(ctx, query, nodes,
+			func(n *StoragePolicy) { n.Edges.LoadBalanceMemberships = []*PolicyLoadBalance{} },
+			func(n *StoragePolicy, e *PolicyLoadBalance) {
+				n.Edges.LoadBalanceMemberships = append(n.Edges.LoadBalanceMemberships, e)
+			}); err != nil {
+			return nil, err
+		}
 	}
 	if query := spq.withGroupAssignments; query != nil {
 		if err := spq.loadGroupAssignments(ctx, query, nodes,
@@ -577,6 +668,66 @@ func (spq *StoragePolicyQuery) sqlAll(ctx context.Context, hooks ...queryHook) (
 	return nodes, nil
 }
 
+func (spq *StoragePolicyQuery) loadPolicyLoadBalance(ctx context.Context, query *PolicyLoadBalanceQuery, nodes []*StoragePolicy, init func(*StoragePolicy), assign func(*StoragePolicy, *PolicyLoadBalance)) error {
+	fks := make([]driver.Value, 0, len(nodes))
+	nodeids := make(map[int]*StoragePolicy)
+	for i := range nodes {
+		fks = append(fks, nodes[i].ID)
+		nodeids[nodes[i].ID] = nodes[i]
+		if init != nil {
+			init(nodes[i])
+		}
+	}
+	if len(query.ctx.Fields) > 0 {
+		query.ctx.AppendFieldOnce(policyloadbalance.FieldLoadBalanceID)
+	}
+	query.Where(predicate.PolicyLoadBalance(func(s *sql.Selector) {
+		s.Where(sql.InValues(s.C(storagepolicy.PolicyLoadBalanceColumn), fks...))
+	}))
+	neighbors, err := query.All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		fk := n.LoadBalanceID
+		node, ok := nodeids[fk]
+		if !ok {
+			return fmt.Errorf(`unexpected referenced foreign-key "load_balance_id" returned %v for node %v`, fk, n.ID)
+		}
+		assign(node, n)
+	}
+	return nil
+}
+func (spq *StoragePolicyQuery) loadLoadBalanceMemberships(ctx context.Context, query *PolicyLoadBalanceQuery, nodes []*StoragePolicy, init func(*StoragePolicy), assign func(*StoragePolicy, *PolicyLoadBalance)) error {
+	fks := make([]driver.Value, 0, len(nodes))
+	nodeids := make(map[int]*StoragePolicy)
+	for i := range nodes {
+		fks = append(fks, nodes[i].ID)
+		nodeids[nodes[i].ID] = nodes[i]
+		if init != nil {
+			init(nodes[i])
+		}
+	}
+	if len(query.ctx.Fields) > 0 {
+		query.ctx.AppendFieldOnce(policyloadbalance.FieldStoragePolicyID)
+	}
+	query.Where(predicate.PolicyLoadBalance(func(s *sql.Selector) {
+		s.Where(sql.InValues(s.C(storagepolicy.LoadBalanceMembershipsColumn), fks...))
+	}))
+	neighbors, err := query.All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		fk := n.StoragePolicyID
+		node, ok := nodeids[fk]
+		if !ok {
+			return fmt.Errorf(`unexpected referenced foreign-key "storage_policy_id" returned %v for node %v`, fk, n.ID)
+		}
+		assign(node, n)
+	}
+	return nil
+}
 func (spq *StoragePolicyQuery) loadGroupAssignments(ctx context.Context, query *GroupPolicyQuery, nodes []*StoragePolicy, init func(*StoragePolicy), assign func(*StoragePolicy, *GroupPolicy)) error {
 	fks := make([]driver.Value, 0, len(nodes))
 	nodeids := make(map[int]*StoragePolicy)

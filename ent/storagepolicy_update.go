@@ -16,6 +16,7 @@ import (
 	"github.com/cloudreve/Cloudreve/v4/ent/group"
 	"github.com/cloudreve/Cloudreve/v4/ent/grouppolicy"
 	"github.com/cloudreve/Cloudreve/v4/ent/node"
+	"github.com/cloudreve/Cloudreve/v4/ent/policyloadbalance"
 	"github.com/cloudreve/Cloudreve/v4/ent/predicate"
 	"github.com/cloudreve/Cloudreve/v4/ent/storagepolicy"
 	"github.com/cloudreve/Cloudreve/v4/inventory/types"
@@ -287,6 +288,36 @@ func (spu *StoragePolicyUpdate) ClearNodeID() *StoragePolicyUpdate {
 	return spu
 }
 
+// AddPolicyLoadBalanceIDs adds the "policy_load_balance" edge to the PolicyLoadBalance entity by IDs.
+func (spu *StoragePolicyUpdate) AddPolicyLoadBalanceIDs(ids ...int) *StoragePolicyUpdate {
+	spu.mutation.AddPolicyLoadBalanceIDs(ids...)
+	return spu
+}
+
+// AddPolicyLoadBalance adds the "policy_load_balance" edges to the PolicyLoadBalance entity.
+func (spu *StoragePolicyUpdate) AddPolicyLoadBalance(p ...*PolicyLoadBalance) *StoragePolicyUpdate {
+	ids := make([]int, len(p))
+	for i := range p {
+		ids[i] = p[i].ID
+	}
+	return spu.AddPolicyLoadBalanceIDs(ids...)
+}
+
+// AddLoadBalanceMembershipIDs adds the "load_balance_memberships" edge to the PolicyLoadBalance entity by IDs.
+func (spu *StoragePolicyUpdate) AddLoadBalanceMembershipIDs(ids ...int) *StoragePolicyUpdate {
+	spu.mutation.AddLoadBalanceMembershipIDs(ids...)
+	return spu
+}
+
+// AddLoadBalanceMemberships adds the "load_balance_memberships" edges to the PolicyLoadBalance entity.
+func (spu *StoragePolicyUpdate) AddLoadBalanceMemberships(p ...*PolicyLoadBalance) *StoragePolicyUpdate {
+	ids := make([]int, len(p))
+	for i := range p {
+		ids[i] = p[i].ID
+	}
+	return spu.AddLoadBalanceMembershipIDs(ids...)
+}
+
 // AddGroupAssignmentIDs adds the "group_assignments" edge to the GroupPolicy entity by IDs.
 func (spu *StoragePolicyUpdate) AddGroupAssignmentIDs(ids ...int) *StoragePolicyUpdate {
 	spu.mutation.AddGroupAssignmentIDs(ids...)
@@ -355,6 +386,48 @@ func (spu *StoragePolicyUpdate) SetNode(n *Node) *StoragePolicyUpdate {
 // Mutation returns the StoragePolicyMutation object of the builder.
 func (spu *StoragePolicyUpdate) Mutation() *StoragePolicyMutation {
 	return spu.mutation
+}
+
+// ClearPolicyLoadBalance clears all "policy_load_balance" edges to the PolicyLoadBalance entity.
+func (spu *StoragePolicyUpdate) ClearPolicyLoadBalance() *StoragePolicyUpdate {
+	spu.mutation.ClearPolicyLoadBalance()
+	return spu
+}
+
+// RemovePolicyLoadBalanceIDs removes the "policy_load_balance" edge to PolicyLoadBalance entities by IDs.
+func (spu *StoragePolicyUpdate) RemovePolicyLoadBalanceIDs(ids ...int) *StoragePolicyUpdate {
+	spu.mutation.RemovePolicyLoadBalanceIDs(ids...)
+	return spu
+}
+
+// RemovePolicyLoadBalance removes "policy_load_balance" edges to PolicyLoadBalance entities.
+func (spu *StoragePolicyUpdate) RemovePolicyLoadBalance(p ...*PolicyLoadBalance) *StoragePolicyUpdate {
+	ids := make([]int, len(p))
+	for i := range p {
+		ids[i] = p[i].ID
+	}
+	return spu.RemovePolicyLoadBalanceIDs(ids...)
+}
+
+// ClearLoadBalanceMemberships clears all "load_balance_memberships" edges to the PolicyLoadBalance entity.
+func (spu *StoragePolicyUpdate) ClearLoadBalanceMemberships() *StoragePolicyUpdate {
+	spu.mutation.ClearLoadBalanceMemberships()
+	return spu
+}
+
+// RemoveLoadBalanceMembershipIDs removes the "load_balance_memberships" edge to PolicyLoadBalance entities by IDs.
+func (spu *StoragePolicyUpdate) RemoveLoadBalanceMembershipIDs(ids ...int) *StoragePolicyUpdate {
+	spu.mutation.RemoveLoadBalanceMembershipIDs(ids...)
+	return spu
+}
+
+// RemoveLoadBalanceMemberships removes "load_balance_memberships" edges to PolicyLoadBalance entities.
+func (spu *StoragePolicyUpdate) RemoveLoadBalanceMemberships(p ...*PolicyLoadBalance) *StoragePolicyUpdate {
+	ids := make([]int, len(p))
+	for i := range p {
+		ids[i] = p[i].ID
+	}
+	return spu.RemoveLoadBalanceMembershipIDs(ids...)
 }
 
 // ClearGroupAssignments clears all "group_assignments" edges to the GroupPolicy entity.
@@ -569,6 +642,96 @@ func (spu *StoragePolicyUpdate) sqlSave(ctx context.Context) (n int, err error) 
 	}
 	if spu.mutation.SettingsCleared() {
 		_spec.ClearField(storagepolicy.FieldSettings, field.TypeJSON)
+	}
+	if spu.mutation.PolicyLoadBalanceCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   storagepolicy.PolicyLoadBalanceTable,
+			Columns: []string{storagepolicy.PolicyLoadBalanceColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(policyloadbalance.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := spu.mutation.RemovedPolicyLoadBalanceIDs(); len(nodes) > 0 && !spu.mutation.PolicyLoadBalanceCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   storagepolicy.PolicyLoadBalanceTable,
+			Columns: []string{storagepolicy.PolicyLoadBalanceColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(policyloadbalance.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := spu.mutation.PolicyLoadBalanceIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   storagepolicy.PolicyLoadBalanceTable,
+			Columns: []string{storagepolicy.PolicyLoadBalanceColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(policyloadbalance.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if spu.mutation.LoadBalanceMembershipsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   storagepolicy.LoadBalanceMembershipsTable,
+			Columns: []string{storagepolicy.LoadBalanceMembershipsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(policyloadbalance.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := spu.mutation.RemovedLoadBalanceMembershipsIDs(); len(nodes) > 0 && !spu.mutation.LoadBalanceMembershipsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   storagepolicy.LoadBalanceMembershipsTable,
+			Columns: []string{storagepolicy.LoadBalanceMembershipsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(policyloadbalance.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := spu.mutation.LoadBalanceMembershipsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   storagepolicy.LoadBalanceMembershipsTable,
+			Columns: []string{storagepolicy.LoadBalanceMembershipsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(policyloadbalance.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
 	}
 	if spu.mutation.GroupAssignmentsCleared() {
 		edge := &sqlgraph.EdgeSpec{
@@ -1052,6 +1215,36 @@ func (spuo *StoragePolicyUpdateOne) ClearNodeID() *StoragePolicyUpdateOne {
 	return spuo
 }
 
+// AddPolicyLoadBalanceIDs adds the "policy_load_balance" edge to the PolicyLoadBalance entity by IDs.
+func (spuo *StoragePolicyUpdateOne) AddPolicyLoadBalanceIDs(ids ...int) *StoragePolicyUpdateOne {
+	spuo.mutation.AddPolicyLoadBalanceIDs(ids...)
+	return spuo
+}
+
+// AddPolicyLoadBalance adds the "policy_load_balance" edges to the PolicyLoadBalance entity.
+func (spuo *StoragePolicyUpdateOne) AddPolicyLoadBalance(p ...*PolicyLoadBalance) *StoragePolicyUpdateOne {
+	ids := make([]int, len(p))
+	for i := range p {
+		ids[i] = p[i].ID
+	}
+	return spuo.AddPolicyLoadBalanceIDs(ids...)
+}
+
+// AddLoadBalanceMembershipIDs adds the "load_balance_memberships" edge to the PolicyLoadBalance entity by IDs.
+func (spuo *StoragePolicyUpdateOne) AddLoadBalanceMembershipIDs(ids ...int) *StoragePolicyUpdateOne {
+	spuo.mutation.AddLoadBalanceMembershipIDs(ids...)
+	return spuo
+}
+
+// AddLoadBalanceMemberships adds the "load_balance_memberships" edges to the PolicyLoadBalance entity.
+func (spuo *StoragePolicyUpdateOne) AddLoadBalanceMemberships(p ...*PolicyLoadBalance) *StoragePolicyUpdateOne {
+	ids := make([]int, len(p))
+	for i := range p {
+		ids[i] = p[i].ID
+	}
+	return spuo.AddLoadBalanceMembershipIDs(ids...)
+}
+
 // AddGroupAssignmentIDs adds the "group_assignments" edge to the GroupPolicy entity by IDs.
 func (spuo *StoragePolicyUpdateOne) AddGroupAssignmentIDs(ids ...int) *StoragePolicyUpdateOne {
 	spuo.mutation.AddGroupAssignmentIDs(ids...)
@@ -1120,6 +1313,48 @@ func (spuo *StoragePolicyUpdateOne) SetNode(n *Node) *StoragePolicyUpdateOne {
 // Mutation returns the StoragePolicyMutation object of the builder.
 func (spuo *StoragePolicyUpdateOne) Mutation() *StoragePolicyMutation {
 	return spuo.mutation
+}
+
+// ClearPolicyLoadBalance clears all "policy_load_balance" edges to the PolicyLoadBalance entity.
+func (spuo *StoragePolicyUpdateOne) ClearPolicyLoadBalance() *StoragePolicyUpdateOne {
+	spuo.mutation.ClearPolicyLoadBalance()
+	return spuo
+}
+
+// RemovePolicyLoadBalanceIDs removes the "policy_load_balance" edge to PolicyLoadBalance entities by IDs.
+func (spuo *StoragePolicyUpdateOne) RemovePolicyLoadBalanceIDs(ids ...int) *StoragePolicyUpdateOne {
+	spuo.mutation.RemovePolicyLoadBalanceIDs(ids...)
+	return spuo
+}
+
+// RemovePolicyLoadBalance removes "policy_load_balance" edges to PolicyLoadBalance entities.
+func (spuo *StoragePolicyUpdateOne) RemovePolicyLoadBalance(p ...*PolicyLoadBalance) *StoragePolicyUpdateOne {
+	ids := make([]int, len(p))
+	for i := range p {
+		ids[i] = p[i].ID
+	}
+	return spuo.RemovePolicyLoadBalanceIDs(ids...)
+}
+
+// ClearLoadBalanceMemberships clears all "load_balance_memberships" edges to the PolicyLoadBalance entity.
+func (spuo *StoragePolicyUpdateOne) ClearLoadBalanceMemberships() *StoragePolicyUpdateOne {
+	spuo.mutation.ClearLoadBalanceMemberships()
+	return spuo
+}
+
+// RemoveLoadBalanceMembershipIDs removes the "load_balance_memberships" edge to PolicyLoadBalance entities by IDs.
+func (spuo *StoragePolicyUpdateOne) RemoveLoadBalanceMembershipIDs(ids ...int) *StoragePolicyUpdateOne {
+	spuo.mutation.RemoveLoadBalanceMembershipIDs(ids...)
+	return spuo
+}
+
+// RemoveLoadBalanceMemberships removes "load_balance_memberships" edges to PolicyLoadBalance entities.
+func (spuo *StoragePolicyUpdateOne) RemoveLoadBalanceMemberships(p ...*PolicyLoadBalance) *StoragePolicyUpdateOne {
+	ids := make([]int, len(p))
+	for i := range p {
+		ids[i] = p[i].ID
+	}
+	return spuo.RemoveLoadBalanceMembershipIDs(ids...)
 }
 
 // ClearGroupAssignments clears all "group_assignments" edges to the GroupPolicy entity.
@@ -1364,6 +1599,96 @@ func (spuo *StoragePolicyUpdateOne) sqlSave(ctx context.Context) (_node *Storage
 	}
 	if spuo.mutation.SettingsCleared() {
 		_spec.ClearField(storagepolicy.FieldSettings, field.TypeJSON)
+	}
+	if spuo.mutation.PolicyLoadBalanceCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   storagepolicy.PolicyLoadBalanceTable,
+			Columns: []string{storagepolicy.PolicyLoadBalanceColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(policyloadbalance.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := spuo.mutation.RemovedPolicyLoadBalanceIDs(); len(nodes) > 0 && !spuo.mutation.PolicyLoadBalanceCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   storagepolicy.PolicyLoadBalanceTable,
+			Columns: []string{storagepolicy.PolicyLoadBalanceColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(policyloadbalance.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := spuo.mutation.PolicyLoadBalanceIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   storagepolicy.PolicyLoadBalanceTable,
+			Columns: []string{storagepolicy.PolicyLoadBalanceColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(policyloadbalance.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if spuo.mutation.LoadBalanceMembershipsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   storagepolicy.LoadBalanceMembershipsTable,
+			Columns: []string{storagepolicy.LoadBalanceMembershipsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(policyloadbalance.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := spuo.mutation.RemovedLoadBalanceMembershipsIDs(); len(nodes) > 0 && !spuo.mutation.LoadBalanceMembershipsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   storagepolicy.LoadBalanceMembershipsTable,
+			Columns: []string{storagepolicy.LoadBalanceMembershipsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(policyloadbalance.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := spuo.mutation.LoadBalanceMembershipsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   storagepolicy.LoadBalanceMembershipsTable,
+			Columns: []string{storagepolicy.LoadBalanceMembershipsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(policyloadbalance.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
 	}
 	if spuo.mutation.GroupAssignmentsCleared() {
 		edge := &sqlgraph.EdgeSpec{

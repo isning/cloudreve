@@ -23,6 +23,7 @@ import (
 	"github.com/cloudreve/Cloudreve/v4/ent/openidsession"
 	"github.com/cloudreve/Cloudreve/v4/ent/openidtransaction"
 	"github.com/cloudreve/Cloudreve/v4/ent/passkey"
+	"github.com/cloudreve/Cloudreve/v4/ent/policyloadbalance"
 	"github.com/cloudreve/Cloudreve/v4/ent/predicate"
 	"github.com/cloudreve/Cloudreve/v4/ent/relocationattempt"
 	"github.com/cloudreve/Cloudreve/v4/ent/relocationitem"
@@ -497,6 +498,33 @@ func (f TraversePasskey) Traverse(ctx context.Context, q ent.Query) error {
 	return fmt.Errorf("unexpected query type %T. expect *ent.PasskeyQuery", q)
 }
 
+// The PolicyLoadBalanceFunc type is an adapter to allow the use of ordinary function as a Querier.
+type PolicyLoadBalanceFunc func(context.Context, *ent.PolicyLoadBalanceQuery) (ent.Value, error)
+
+// Query calls f(ctx, q).
+func (f PolicyLoadBalanceFunc) Query(ctx context.Context, q ent.Query) (ent.Value, error) {
+	if q, ok := q.(*ent.PolicyLoadBalanceQuery); ok {
+		return f(ctx, q)
+	}
+	return nil, fmt.Errorf("unexpected query type %T. expect *ent.PolicyLoadBalanceQuery", q)
+}
+
+// The TraversePolicyLoadBalance type is an adapter to allow the use of ordinary function as Traverser.
+type TraversePolicyLoadBalance func(context.Context, *ent.PolicyLoadBalanceQuery) error
+
+// Intercept is a dummy implementation of Intercept that returns the next Querier in the pipeline.
+func (f TraversePolicyLoadBalance) Intercept(next ent.Querier) ent.Querier {
+	return next
+}
+
+// Traverse calls f(ctx, q).
+func (f TraversePolicyLoadBalance) Traverse(ctx context.Context, q ent.Query) error {
+	if q, ok := q.(*ent.PolicyLoadBalanceQuery); ok {
+		return f(ctx, q)
+	}
+	return fmt.Errorf("unexpected query type %T. expect *ent.PolicyLoadBalanceQuery", q)
+}
+
 // The RelocationAttemptFunc type is an adapter to allow the use of ordinary function as a Querier.
 type RelocationAttemptFunc func(context.Context, *ent.RelocationAttemptQuery) (ent.Value, error)
 
@@ -800,6 +828,8 @@ func NewQuery(q ent.Query) (Query, error) {
 		return &query[*ent.OpenIDTransactionQuery, predicate.OpenIDTransaction, openidtransaction.OrderOption]{typ: ent.TypeOpenIDTransaction, tq: q}, nil
 	case *ent.PasskeyQuery:
 		return &query[*ent.PasskeyQuery, predicate.Passkey, passkey.OrderOption]{typ: ent.TypePasskey, tq: q}, nil
+	case *ent.PolicyLoadBalanceQuery:
+		return &query[*ent.PolicyLoadBalanceQuery, predicate.PolicyLoadBalance, policyloadbalance.OrderOption]{typ: ent.TypePolicyLoadBalance, tq: q}, nil
 	case *ent.RelocationAttemptQuery:
 		return &query[*ent.RelocationAttemptQuery, predicate.RelocationAttempt, relocationattempt.OrderOption]{typ: ent.TypeRelocationAttempt, tq: q}, nil
 	case *ent.RelocationItemQuery:

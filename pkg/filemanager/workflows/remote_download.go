@@ -143,7 +143,7 @@ func (m *RemoteDownloadTask) Do(ctx context.Context) (task.Status, error) {
 		if err != nil {
 			return task.StatusError, fmt.Errorf("download destination unavailable: %w", queue.CriticalErr)
 		}
-		policy, err := storagepolicy.New(dep.UserClient(), dep.StoragePolicyClient()).SelectForFile(ctx, destination.OwnerID(), 0, dep.FileClient(), destination.ID())
+		policy, err := storagepolicy.New(dep.UserClient(), dep.StoragePolicyClient()).ResolveForFile(ctx, destination.OwnerID(), 0, dep.FileClient(), destination.ID())
 		if err != nil {
 			return task.StatusError, fmt.Errorf("download policy unavailable: %w", queue.CriticalErr)
 		}

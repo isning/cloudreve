@@ -945,6 +945,52 @@ func NodeIDNotNil() predicate.StoragePolicy {
 	return predicate.StoragePolicy(sql.FieldNotNull(FieldNodeID))
 }
 
+// HasPolicyLoadBalance applies the HasEdge predicate on the "policy_load_balance" edge.
+func HasPolicyLoadBalance() predicate.StoragePolicy {
+	return predicate.StoragePolicy(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, PolicyLoadBalanceTable, PolicyLoadBalanceColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasPolicyLoadBalanceWith applies the HasEdge predicate on the "policy_load_balance" edge with a given conditions (other predicates).
+func HasPolicyLoadBalanceWith(preds ...predicate.PolicyLoadBalance) predicate.StoragePolicy {
+	return predicate.StoragePolicy(func(s *sql.Selector) {
+		step := newPolicyLoadBalanceStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
+// HasLoadBalanceMemberships applies the HasEdge predicate on the "load_balance_memberships" edge.
+func HasLoadBalanceMemberships() predicate.StoragePolicy {
+	return predicate.StoragePolicy(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, LoadBalanceMembershipsTable, LoadBalanceMembershipsColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasLoadBalanceMembershipsWith applies the HasEdge predicate on the "load_balance_memberships" edge with a given conditions (other predicates).
+func HasLoadBalanceMembershipsWith(preds ...predicate.PolicyLoadBalance) predicate.StoragePolicy {
+	return predicate.StoragePolicy(func(s *sql.Selector) {
+		step := newLoadBalanceMembershipsStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
 // HasGroupAssignments applies the HasEdge predicate on the "group_assignments" edge.
 func HasGroupAssignments() predicate.StoragePolicy {
 	return predicate.StoragePolicy(func(s *sql.Selector) {

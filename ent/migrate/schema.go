@@ -510,6 +510,40 @@ var (
 			},
 		},
 	}
+	// PolicyLoadBalancesColumns holds the columns for the "policy_load_balances" table.
+	PolicyLoadBalancesColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt, Increment: true},
+		{Name: "weight", Type: field.TypeInt, Default: 1},
+		{Name: "load_balance_id", Type: field.TypeInt},
+		{Name: "storage_policy_id", Type: field.TypeInt},
+	}
+	// PolicyLoadBalancesTable holds the schema information for the "policy_load_balances" table.
+	PolicyLoadBalancesTable = &schema.Table{
+		Name:       "policy_load_balances",
+		Columns:    PolicyLoadBalancesColumns,
+		PrimaryKey: []*schema.Column{PolicyLoadBalancesColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "policy_load_balances_storage_policies_policy_load_balance",
+				Columns:    []*schema.Column{PolicyLoadBalancesColumns[2]},
+				RefColumns: []*schema.Column{StoragePoliciesColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+			{
+				Symbol:     "policy_load_balances_storage_policies_load_balance_memberships",
+				Columns:    []*schema.Column{PolicyLoadBalancesColumns[3]},
+				RefColumns: []*schema.Column{StoragePoliciesColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+		},
+		Indexes: []*schema.Index{
+			{
+				Name:    "policyloadbalance_load_balance_id_storage_policy_id",
+				Unique:  true,
+				Columns: []*schema.Column{PolicyLoadBalancesColumns[2], PolicyLoadBalancesColumns[3]},
+			},
+		},
+	}
 	// RelocationAttemptsColumns holds the columns for the "relocation_attempts" table.
 	RelocationAttemptsColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt, Increment: true},
@@ -838,6 +872,7 @@ var (
 		OpenIDSessionsTable,
 		OpenIDTransactionsTable,
 		PasskeysTable,
+		PolicyLoadBalancesTable,
 		RelocationAttemptsTable,
 		RelocationItemsTable,
 		RelocationPlansTable,
@@ -871,6 +906,8 @@ func init() {
 	OpenIDSessionsTable.ForeignKeys[0].RefTable = UsersTable
 	OpenIDTransactionsTable.ForeignKeys[0].RefTable = UsersTable
 	PasskeysTable.ForeignKeys[0].RefTable = UsersTable
+	PolicyLoadBalancesTable.ForeignKeys[0].RefTable = StoragePoliciesTable
+	PolicyLoadBalancesTable.ForeignKeys[1].RefTable = StoragePoliciesTable
 	RelocationAttemptsTable.ForeignKeys[0].RefTable = RelocationItemsTable
 	SharesTable.ForeignKeys[0].RefTable = FilesTable
 	SharesTable.ForeignKeys[1].RefTable = UsersTable

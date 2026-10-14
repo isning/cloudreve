@@ -74,14 +74,18 @@ func AdvanceSingle(ctx context.Context, dep dependency.Dep, taskID, ownerID int,
 		}
 		allNoop := true
 		for _, plan := range selection.Items {
-			allNoop = allNoop && plan.Entity.StoragePolicyEntities == destinationID
+			allNoop = allNoop && plan.Entity.StoragePolicyEntities == plan.Destination.ID
 		}
 		return allNoop, nil
+	}
+	header, err := db.RelocationPlan.Query().Where(relocationplan.TaskID(taskID)).Only(ctx)
+	if err != nil || header.OwnerID != ownerID || header.DestinationPolicyID != destinationID {
+		return false, errors.New("invalid migration plan")
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].SourceEntityID < items[j].SourceEntityID })
 	var item *ent.RelocationItem
 	for _, candidate := range items {
-		if candidate.OwnerID != ownerID || candidate.DestinationPolicyID != destinationID {
+		if candidate.OwnerID != ownerID {
 			return false, errors.New("invalid migration journal")
 		}
 		if candidate.State == relocationitem.StateFailed {
@@ -93,6 +97,9 @@ func AdvanceSingle(ctx context.Context, dep dependency.Dep, taskID, ownerID int,
 	}
 	if item == nil {
 		return true, nil
+	}
+	if _, err := authorizedOwner(ctx, db, ownerID, destinationID); err != nil {
+		return false, err
 	}
 	item, err = claim(ctx, db, item)
 	if err != nil {
@@ -287,13 +294,30 @@ func recordPlans(ctx context.Context, dep dependency.Dep, taskID int, selection 
 	}
 	ids := []int{selection.Destination.ID}
 	for _, p := range plans {
-		ids = append(ids, p.Entity.StoragePolicyEntities)
+		ids = append(ids, p.Entity.StoragePolicyEntities, p.Destination.ID)
 	}
 	policies, err := lockPolicies(ctx, c, ids...)
 	if err != nil {
 		return err
 	}
+	var children map[int]bool
+	if selection.Destination.Type == types.PolicyTypeLoadBalance {
+		members, err := policies[selection.Destination.ID].QueryPolicyLoadBalance().All(ctx)
+		if err != nil {
+			return err
+		}
+		children = make(map[int]bool, len(members))
+		for _, member := range members {
+			children[member.StoragePolicyID] = true
+		}
+	}
 	for _, plan := range plans {
+		if children != nil && !children[plan.Destination.ID] {
+			return errors.New("migration pool membership changed before planning")
+		}
+		if !inventory.SameStorageLocation(policies[plan.Destination.ID], plan.Destination) {
+			return ErrConflict
+		}
 		e := plan.Entity
 		if err := lockSourceEntity(ctx, c, e.ID); err != nil {
 			return errors.New("failed to lock migration source")
@@ -675,6 +699,13 @@ func commitSingle(ctx context.Context, dep dependency.Dep, fm manager.FileManage
 	defer tx.Rollback()
 	c := tx.Client()
 	if err := lockOwner(ctx, c, item.OwnerID, item.DestinationPolicyID); err != nil {
+		return err
+	}
+	header, err := c.RelocationPlan.Query().Where(relocationplan.TaskID(item.TaskID)).Only(ctx)
+	if err != nil || header.OwnerID != item.OwnerID {
+		return errors.New("invalid migration plan")
+	}
+	if _, err := authorizedOwner(ctx, c, item.OwnerID, header.DestinationPolicyID); err != nil {
 		return err
 	}
 	if _, err := lockPolicies(ctx, c, item.SourcePolicyID, item.DestinationPolicyID); err != nil {

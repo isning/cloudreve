@@ -26,6 +26,7 @@ import (
 	"github.com/cloudreve/Cloudreve/v4/ent/openidsession"
 	"github.com/cloudreve/Cloudreve/v4/ent/openidtransaction"
 	"github.com/cloudreve/Cloudreve/v4/ent/passkey"
+	"github.com/cloudreve/Cloudreve/v4/ent/policyloadbalance"
 	"github.com/cloudreve/Cloudreve/v4/ent/predicate"
 	"github.com/cloudreve/Cloudreve/v4/ent/relocationattempt"
 	"github.com/cloudreve/Cloudreve/v4/ent/relocationitem"
@@ -67,6 +68,7 @@ const (
 	TypeOpenIDSession       = "OpenIDSession"
 	TypeOpenIDTransaction   = "OpenIDTransaction"
 	TypePasskey             = "Passkey"
+	TypePolicyLoadBalance   = "PolicyLoadBalance"
 	TypeRelocationAttempt   = "RelocationAttempt"
 	TypeRelocationItem      = "RelocationItem"
 	TypeRelocationPlan      = "RelocationPlan"
@@ -14084,6 +14086,576 @@ func (m *PasskeyMutation) ResetEdge(name string) error {
 	return fmt.Errorf("unknown Passkey edge %s", name)
 }
 
+// PolicyLoadBalanceMutation represents an operation that mutates the PolicyLoadBalance nodes in the graph.
+type PolicyLoadBalanceMutation struct {
+	config
+	op                    Op
+	typ                   string
+	id                    *int
+	weight                *int
+	addweight             *int
+	clearedFields         map[string]struct{}
+	load_balance          *int
+	clearedload_balance   bool
+	storage_policy        *int
+	clearedstorage_policy bool
+	done                  bool
+	oldValue              func(context.Context) (*PolicyLoadBalance, error)
+	predicates            []predicate.PolicyLoadBalance
+}
+
+var _ ent.Mutation = (*PolicyLoadBalanceMutation)(nil)
+
+// policyloadbalanceOption allows management of the mutation configuration using functional options.
+type policyloadbalanceOption func(*PolicyLoadBalanceMutation)
+
+// newPolicyLoadBalanceMutation creates new mutation for the PolicyLoadBalance entity.
+func newPolicyLoadBalanceMutation(c config, op Op, opts ...policyloadbalanceOption) *PolicyLoadBalanceMutation {
+	m := &PolicyLoadBalanceMutation{
+		config:        c,
+		op:            op,
+		typ:           TypePolicyLoadBalance,
+		clearedFields: make(map[string]struct{}),
+	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
+}
+
+// withPolicyLoadBalanceID sets the ID field of the mutation.
+func withPolicyLoadBalanceID(id int) policyloadbalanceOption {
+	return func(m *PolicyLoadBalanceMutation) {
+		var (
+			err   error
+			once  sync.Once
+			value *PolicyLoadBalance
+		)
+		m.oldValue = func(ctx context.Context) (*PolicyLoadBalance, error) {
+			once.Do(func() {
+				if m.done {
+					err = errors.New("querying old values post mutation is not allowed")
+				} else {
+					value, err = m.Client().PolicyLoadBalance.Get(ctx, id)
+				}
+			})
+			return value, err
+		}
+		m.id = &id
+	}
+}
+
+// withPolicyLoadBalance sets the old PolicyLoadBalance of the mutation.
+func withPolicyLoadBalance(node *PolicyLoadBalance) policyloadbalanceOption {
+	return func(m *PolicyLoadBalanceMutation) {
+		m.oldValue = func(context.Context) (*PolicyLoadBalance, error) {
+			return node, nil
+		}
+		m.id = &node.ID
+	}
+}
+
+// Client returns a new `ent.Client` from the mutation. If the mutation was
+// executed in a transaction (ent.Tx), a transactional client is returned.
+func (m PolicyLoadBalanceMutation) Client() *Client {
+	client := &Client{config: m.config}
+	client.init()
+	return client
+}
+
+// Tx returns an `ent.Tx` for mutations that were executed in transactions;
+// it returns an error otherwise.
+func (m PolicyLoadBalanceMutation) Tx() (*Tx, error) {
+	if _, ok := m.driver.(*txDriver); !ok {
+		return nil, errors.New("ent: mutation is not running in a transaction")
+	}
+	tx := &Tx{config: m.config}
+	tx.init()
+	return tx, nil
+}
+
+// ID returns the ID value in the mutation. Note that the ID is only available
+// if it was provided to the builder or after it was returned from the database.
+func (m *PolicyLoadBalanceMutation) ID() (id int, exists bool) {
+	if m.id == nil {
+		return
+	}
+	return *m.id, true
+}
+
+// IDs queries the database and returns the entity ids that match the mutation's predicate.
+// That means, if the mutation is applied within a transaction with an isolation level such
+// as sql.LevelSerializable, the returned ids match the ids of the rows that will be updated
+// or updated by the mutation.
+func (m *PolicyLoadBalanceMutation) IDs(ctx context.Context) ([]int, error) {
+	switch {
+	case m.op.Is(OpUpdateOne | OpDeleteOne):
+		id, exists := m.ID()
+		if exists {
+			return []int{id}, nil
+		}
+		fallthrough
+	case m.op.Is(OpUpdate | OpDelete):
+		return m.Client().PolicyLoadBalance.Query().Where(m.predicates...).IDs(ctx)
+	default:
+		return nil, fmt.Errorf("IDs is not allowed on %s operations", m.op)
+	}
+}
+
+// SetLoadBalanceID sets the "load_balance_id" field.
+func (m *PolicyLoadBalanceMutation) SetLoadBalanceID(i int) {
+	m.load_balance = &i
+}
+
+// LoadBalanceID returns the value of the "load_balance_id" field in the mutation.
+func (m *PolicyLoadBalanceMutation) LoadBalanceID() (r int, exists bool) {
+	v := m.load_balance
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldLoadBalanceID returns the old "load_balance_id" field's value of the PolicyLoadBalance entity.
+// If the PolicyLoadBalance object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *PolicyLoadBalanceMutation) OldLoadBalanceID(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldLoadBalanceID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldLoadBalanceID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldLoadBalanceID: %w", err)
+	}
+	return oldValue.LoadBalanceID, nil
+}
+
+// ResetLoadBalanceID resets all changes to the "load_balance_id" field.
+func (m *PolicyLoadBalanceMutation) ResetLoadBalanceID() {
+	m.load_balance = nil
+}
+
+// SetStoragePolicyID sets the "storage_policy_id" field.
+func (m *PolicyLoadBalanceMutation) SetStoragePolicyID(i int) {
+	m.storage_policy = &i
+}
+
+// StoragePolicyID returns the value of the "storage_policy_id" field in the mutation.
+func (m *PolicyLoadBalanceMutation) StoragePolicyID() (r int, exists bool) {
+	v := m.storage_policy
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldStoragePolicyID returns the old "storage_policy_id" field's value of the PolicyLoadBalance entity.
+// If the PolicyLoadBalance object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *PolicyLoadBalanceMutation) OldStoragePolicyID(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldStoragePolicyID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldStoragePolicyID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldStoragePolicyID: %w", err)
+	}
+	return oldValue.StoragePolicyID, nil
+}
+
+// ResetStoragePolicyID resets all changes to the "storage_policy_id" field.
+func (m *PolicyLoadBalanceMutation) ResetStoragePolicyID() {
+	m.storage_policy = nil
+}
+
+// SetWeight sets the "weight" field.
+func (m *PolicyLoadBalanceMutation) SetWeight(i int) {
+	m.weight = &i
+	m.addweight = nil
+}
+
+// Weight returns the value of the "weight" field in the mutation.
+func (m *PolicyLoadBalanceMutation) Weight() (r int, exists bool) {
+	v := m.weight
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldWeight returns the old "weight" field's value of the PolicyLoadBalance entity.
+// If the PolicyLoadBalance object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *PolicyLoadBalanceMutation) OldWeight(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldWeight is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldWeight requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldWeight: %w", err)
+	}
+	return oldValue.Weight, nil
+}
+
+// AddWeight adds i to the "weight" field.
+func (m *PolicyLoadBalanceMutation) AddWeight(i int) {
+	if m.addweight != nil {
+		*m.addweight += i
+	} else {
+		m.addweight = &i
+	}
+}
+
+// AddedWeight returns the value that was added to the "weight" field in this mutation.
+func (m *PolicyLoadBalanceMutation) AddedWeight() (r int, exists bool) {
+	v := m.addweight
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetWeight resets all changes to the "weight" field.
+func (m *PolicyLoadBalanceMutation) ResetWeight() {
+	m.weight = nil
+	m.addweight = nil
+}
+
+// ClearLoadBalance clears the "load_balance" edge to the StoragePolicy entity.
+func (m *PolicyLoadBalanceMutation) ClearLoadBalance() {
+	m.clearedload_balance = true
+	m.clearedFields[policyloadbalance.FieldLoadBalanceID] = struct{}{}
+}
+
+// LoadBalanceCleared reports if the "load_balance" edge to the StoragePolicy entity was cleared.
+func (m *PolicyLoadBalanceMutation) LoadBalanceCleared() bool {
+	return m.clearedload_balance
+}
+
+// LoadBalanceIDs returns the "load_balance" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// LoadBalanceID instead. It exists only for internal usage by the builders.
+func (m *PolicyLoadBalanceMutation) LoadBalanceIDs() (ids []int) {
+	if id := m.load_balance; id != nil {
+		ids = append(ids, *id)
+	}
+	return
+}
+
+// ResetLoadBalance resets all changes to the "load_balance" edge.
+func (m *PolicyLoadBalanceMutation) ResetLoadBalance() {
+	m.load_balance = nil
+	m.clearedload_balance = false
+}
+
+// ClearStoragePolicy clears the "storage_policy" edge to the StoragePolicy entity.
+func (m *PolicyLoadBalanceMutation) ClearStoragePolicy() {
+	m.clearedstorage_policy = true
+	m.clearedFields[policyloadbalance.FieldStoragePolicyID] = struct{}{}
+}
+
+// StoragePolicyCleared reports if the "storage_policy" edge to the StoragePolicy entity was cleared.
+func (m *PolicyLoadBalanceMutation) StoragePolicyCleared() bool {
+	return m.clearedstorage_policy
+}
+
+// StoragePolicyIDs returns the "storage_policy" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// StoragePolicyID instead. It exists only for internal usage by the builders.
+func (m *PolicyLoadBalanceMutation) StoragePolicyIDs() (ids []int) {
+	if id := m.storage_policy; id != nil {
+		ids = append(ids, *id)
+	}
+	return
+}
+
+// ResetStoragePolicy resets all changes to the "storage_policy" edge.
+func (m *PolicyLoadBalanceMutation) ResetStoragePolicy() {
+	m.storage_policy = nil
+	m.clearedstorage_policy = false
+}
+
+// Where appends a list predicates to the PolicyLoadBalanceMutation builder.
+func (m *PolicyLoadBalanceMutation) Where(ps ...predicate.PolicyLoadBalance) {
+	m.predicates = append(m.predicates, ps...)
+}
+
+// WhereP appends storage-level predicates to the PolicyLoadBalanceMutation builder. Using this method,
+// users can use type-assertion to append predicates that do not depend on any generated package.
+func (m *PolicyLoadBalanceMutation) WhereP(ps ...func(*sql.Selector)) {
+	p := make([]predicate.PolicyLoadBalance, len(ps))
+	for i := range ps {
+		p[i] = ps[i]
+	}
+	m.Where(p...)
+}
+
+// Op returns the operation name.
+func (m *PolicyLoadBalanceMutation) Op() Op {
+	return m.op
+}
+
+// SetOp allows setting the mutation operation.
+func (m *PolicyLoadBalanceMutation) SetOp(op Op) {
+	m.op = op
+}
+
+// Type returns the node type of this mutation (PolicyLoadBalance).
+func (m *PolicyLoadBalanceMutation) Type() string {
+	return m.typ
+}
+
+// Fields returns all fields that were changed during this mutation. Note that in
+// order to get all numeric fields that were incremented/decremented, call
+// AddedFields().
+func (m *PolicyLoadBalanceMutation) Fields() []string {
+	fields := make([]string, 0, 3)
+	if m.load_balance != nil {
+		fields = append(fields, policyloadbalance.FieldLoadBalanceID)
+	}
+	if m.storage_policy != nil {
+		fields = append(fields, policyloadbalance.FieldStoragePolicyID)
+	}
+	if m.weight != nil {
+		fields = append(fields, policyloadbalance.FieldWeight)
+	}
+	return fields
+}
+
+// Field returns the value of a field with the given name. The second boolean
+// return value indicates that this field was not set, or was not defined in the
+// schema.
+func (m *PolicyLoadBalanceMutation) Field(name string) (ent.Value, bool) {
+	switch name {
+	case policyloadbalance.FieldLoadBalanceID:
+		return m.LoadBalanceID()
+	case policyloadbalance.FieldStoragePolicyID:
+		return m.StoragePolicyID()
+	case policyloadbalance.FieldWeight:
+		return m.Weight()
+	}
+	return nil, false
+}
+
+// OldField returns the old value of the field from the database. An error is
+// returned if the mutation operation is not UpdateOne, or the query to the
+// database failed.
+func (m *PolicyLoadBalanceMutation) OldField(ctx context.Context, name string) (ent.Value, error) {
+	switch name {
+	case policyloadbalance.FieldLoadBalanceID:
+		return m.OldLoadBalanceID(ctx)
+	case policyloadbalance.FieldStoragePolicyID:
+		return m.OldStoragePolicyID(ctx)
+	case policyloadbalance.FieldWeight:
+		return m.OldWeight(ctx)
+	}
+	return nil, fmt.Errorf("unknown PolicyLoadBalance field %s", name)
+}
+
+// SetField sets the value of a field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *PolicyLoadBalanceMutation) SetField(name string, value ent.Value) error {
+	switch name {
+	case policyloadbalance.FieldLoadBalanceID:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetLoadBalanceID(v)
+		return nil
+	case policyloadbalance.FieldStoragePolicyID:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetStoragePolicyID(v)
+		return nil
+	case policyloadbalance.FieldWeight:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetWeight(v)
+		return nil
+	}
+	return fmt.Errorf("unknown PolicyLoadBalance field %s", name)
+}
+
+// AddedFields returns all numeric fields that were incremented/decremented during
+// this mutation.
+func (m *PolicyLoadBalanceMutation) AddedFields() []string {
+	var fields []string
+	if m.addweight != nil {
+		fields = append(fields, policyloadbalance.FieldWeight)
+	}
+	return fields
+}
+
+// AddedField returns the numeric value that was incremented/decremented on a field
+// with the given name. The second boolean return value indicates that this field
+// was not set, or was not defined in the schema.
+func (m *PolicyLoadBalanceMutation) AddedField(name string) (ent.Value, bool) {
+	switch name {
+	case policyloadbalance.FieldWeight:
+		return m.AddedWeight()
+	}
+	return nil, false
+}
+
+// AddField adds the value to the field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *PolicyLoadBalanceMutation) AddField(name string, value ent.Value) error {
+	switch name {
+	case policyloadbalance.FieldWeight:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddWeight(v)
+		return nil
+	}
+	return fmt.Errorf("unknown PolicyLoadBalance numeric field %s", name)
+}
+
+// ClearedFields returns all nullable fields that were cleared during this
+// mutation.
+func (m *PolicyLoadBalanceMutation) ClearedFields() []string {
+	return nil
+}
+
+// FieldCleared returns a boolean indicating if a field with the given name was
+// cleared in this mutation.
+func (m *PolicyLoadBalanceMutation) FieldCleared(name string) bool {
+	_, ok := m.clearedFields[name]
+	return ok
+}
+
+// ClearField clears the value of the field with the given name. It returns an
+// error if the field is not defined in the schema.
+func (m *PolicyLoadBalanceMutation) ClearField(name string) error {
+	return fmt.Errorf("unknown PolicyLoadBalance nullable field %s", name)
+}
+
+// ResetField resets all changes in the mutation for the field with the given name.
+// It returns an error if the field is not defined in the schema.
+func (m *PolicyLoadBalanceMutation) ResetField(name string) error {
+	switch name {
+	case policyloadbalance.FieldLoadBalanceID:
+		m.ResetLoadBalanceID()
+		return nil
+	case policyloadbalance.FieldStoragePolicyID:
+		m.ResetStoragePolicyID()
+		return nil
+	case policyloadbalance.FieldWeight:
+		m.ResetWeight()
+		return nil
+	}
+	return fmt.Errorf("unknown PolicyLoadBalance field %s", name)
+}
+
+// AddedEdges returns all edge names that were set/added in this mutation.
+func (m *PolicyLoadBalanceMutation) AddedEdges() []string {
+	edges := make([]string, 0, 2)
+	if m.load_balance != nil {
+		edges = append(edges, policyloadbalance.EdgeLoadBalance)
+	}
+	if m.storage_policy != nil {
+		edges = append(edges, policyloadbalance.EdgeStoragePolicy)
+	}
+	return edges
+}
+
+// AddedIDs returns all IDs (to other nodes) that were added for the given edge
+// name in this mutation.
+func (m *PolicyLoadBalanceMutation) AddedIDs(name string) []ent.Value {
+	switch name {
+	case policyloadbalance.EdgeLoadBalance:
+		if id := m.load_balance; id != nil {
+			return []ent.Value{*id}
+		}
+	case policyloadbalance.EdgeStoragePolicy:
+		if id := m.storage_policy; id != nil {
+			return []ent.Value{*id}
+		}
+	}
+	return nil
+}
+
+// RemovedEdges returns all edge names that were removed in this mutation.
+func (m *PolicyLoadBalanceMutation) RemovedEdges() []string {
+	edges := make([]string, 0, 2)
+	return edges
+}
+
+// RemovedIDs returns all IDs (to other nodes) that were removed for the edge with
+// the given name in this mutation.
+func (m *PolicyLoadBalanceMutation) RemovedIDs(name string) []ent.Value {
+	return nil
+}
+
+// ClearedEdges returns all edge names that were cleared in this mutation.
+func (m *PolicyLoadBalanceMutation) ClearedEdges() []string {
+	edges := make([]string, 0, 2)
+	if m.clearedload_balance {
+		edges = append(edges, policyloadbalance.EdgeLoadBalance)
+	}
+	if m.clearedstorage_policy {
+		edges = append(edges, policyloadbalance.EdgeStoragePolicy)
+	}
+	return edges
+}
+
+// EdgeCleared returns a boolean which indicates if the edge with the given name
+// was cleared in this mutation.
+func (m *PolicyLoadBalanceMutation) EdgeCleared(name string) bool {
+	switch name {
+	case policyloadbalance.EdgeLoadBalance:
+		return m.clearedload_balance
+	case policyloadbalance.EdgeStoragePolicy:
+		return m.clearedstorage_policy
+	}
+	return false
+}
+
+// ClearEdge clears the value of the edge with the given name. It returns an error
+// if that edge is not defined in the schema.
+func (m *PolicyLoadBalanceMutation) ClearEdge(name string) error {
+	switch name {
+	case policyloadbalance.EdgeLoadBalance:
+		m.ClearLoadBalance()
+		return nil
+	case policyloadbalance.EdgeStoragePolicy:
+		m.ClearStoragePolicy()
+		return nil
+	}
+	return fmt.Errorf("unknown PolicyLoadBalance unique edge %s", name)
+}
+
+// ResetEdge resets all changes to the edge with the given name in this mutation.
+// It returns an error if the edge is not defined in the schema.
+func (m *PolicyLoadBalanceMutation) ResetEdge(name string) error {
+	switch name {
+	case policyloadbalance.EdgeLoadBalance:
+		m.ResetLoadBalance()
+		return nil
+	case policyloadbalance.EdgeStoragePolicy:
+		m.ResetStoragePolicy()
+		return nil
+	}
+	return fmt.Errorf("unknown PolicyLoadBalance edge %s", name)
+}
+
 // RelocationAttemptMutation represents an operation that mutates the RelocationAttempt nodes in the graph.
 type RelocationAttemptMutation struct {
 	config
@@ -20380,42 +20952,48 @@ func (m *StorageObjectReaderMutation) ResetEdge(name string) error {
 // StoragePolicyMutation represents an operation that mutates the StoragePolicy nodes in the graph.
 type StoragePolicyMutation struct {
 	config
-	op                       Op
-	typ                      string
-	id                       *int
-	created_at               *time.Time
-	updated_at               *time.Time
-	deleted_at               *time.Time
-	name                     *string
-	_type                    *string
-	server                   *string
-	bucket_name              *string
-	is_private               *bool
-	access_key               *string
-	secret_key               *string
-	max_size                 *int64
-	addmax_size              *int64
-	dir_name_rule            *string
-	file_name_rule           *string
-	settings                 **types.PolicySetting
-	clearedFields            map[string]struct{}
-	group_assignments        map[int]struct{}
-	removedgroup_assignments map[int]struct{}
-	clearedgroup_assignments bool
-	groups                   map[int]struct{}
-	removedgroups            map[int]struct{}
-	clearedgroups            bool
-	files                    map[int]struct{}
-	removedfiles             map[int]struct{}
-	clearedfiles             bool
-	entities                 map[int]struct{}
-	removedentities          map[int]struct{}
-	clearedentities          bool
-	node                     *int
-	clearednode              bool
-	done                     bool
-	oldValue                 func(context.Context) (*StoragePolicy, error)
-	predicates               []predicate.StoragePolicy
+	op                              Op
+	typ                             string
+	id                              *int
+	created_at                      *time.Time
+	updated_at                      *time.Time
+	deleted_at                      *time.Time
+	name                            *string
+	_type                           *string
+	server                          *string
+	bucket_name                     *string
+	is_private                      *bool
+	access_key                      *string
+	secret_key                      *string
+	max_size                        *int64
+	addmax_size                     *int64
+	dir_name_rule                   *string
+	file_name_rule                  *string
+	settings                        **types.PolicySetting
+	clearedFields                   map[string]struct{}
+	policy_load_balance             map[int]struct{}
+	removedpolicy_load_balance      map[int]struct{}
+	clearedpolicy_load_balance      bool
+	load_balance_memberships        map[int]struct{}
+	removedload_balance_memberships map[int]struct{}
+	clearedload_balance_memberships bool
+	group_assignments               map[int]struct{}
+	removedgroup_assignments        map[int]struct{}
+	clearedgroup_assignments        bool
+	groups                          map[int]struct{}
+	removedgroups                   map[int]struct{}
+	clearedgroups                   bool
+	files                           map[int]struct{}
+	removedfiles                    map[int]struct{}
+	clearedfiles                    bool
+	entities                        map[int]struct{}
+	removedentities                 map[int]struct{}
+	clearedentities                 bool
+	node                            *int
+	clearednode                     bool
+	done                            bool
+	oldValue                        func(context.Context) (*StoragePolicy, error)
+	predicates                      []predicate.StoragePolicy
 }
 
 var _ ent.Mutation = (*StoragePolicyMutation)(nil)
@@ -21220,6 +21798,114 @@ func (m *StoragePolicyMutation) ResetNodeID() {
 	delete(m.clearedFields, storagepolicy.FieldNodeID)
 }
 
+// AddPolicyLoadBalanceIDs adds the "policy_load_balance" edge to the PolicyLoadBalance entity by ids.
+func (m *StoragePolicyMutation) AddPolicyLoadBalanceIDs(ids ...int) {
+	if m.policy_load_balance == nil {
+		m.policy_load_balance = make(map[int]struct{})
+	}
+	for i := range ids {
+		m.policy_load_balance[ids[i]] = struct{}{}
+	}
+}
+
+// ClearPolicyLoadBalance clears the "policy_load_balance" edge to the PolicyLoadBalance entity.
+func (m *StoragePolicyMutation) ClearPolicyLoadBalance() {
+	m.clearedpolicy_load_balance = true
+}
+
+// PolicyLoadBalanceCleared reports if the "policy_load_balance" edge to the PolicyLoadBalance entity was cleared.
+func (m *StoragePolicyMutation) PolicyLoadBalanceCleared() bool {
+	return m.clearedpolicy_load_balance
+}
+
+// RemovePolicyLoadBalanceIDs removes the "policy_load_balance" edge to the PolicyLoadBalance entity by IDs.
+func (m *StoragePolicyMutation) RemovePolicyLoadBalanceIDs(ids ...int) {
+	if m.removedpolicy_load_balance == nil {
+		m.removedpolicy_load_balance = make(map[int]struct{})
+	}
+	for i := range ids {
+		delete(m.policy_load_balance, ids[i])
+		m.removedpolicy_load_balance[ids[i]] = struct{}{}
+	}
+}
+
+// RemovedPolicyLoadBalance returns the removed IDs of the "policy_load_balance" edge to the PolicyLoadBalance entity.
+func (m *StoragePolicyMutation) RemovedPolicyLoadBalanceIDs() (ids []int) {
+	for id := range m.removedpolicy_load_balance {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// PolicyLoadBalanceIDs returns the "policy_load_balance" edge IDs in the mutation.
+func (m *StoragePolicyMutation) PolicyLoadBalanceIDs() (ids []int) {
+	for id := range m.policy_load_balance {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// ResetPolicyLoadBalance resets all changes to the "policy_load_balance" edge.
+func (m *StoragePolicyMutation) ResetPolicyLoadBalance() {
+	m.policy_load_balance = nil
+	m.clearedpolicy_load_balance = false
+	m.removedpolicy_load_balance = nil
+}
+
+// AddLoadBalanceMembershipIDs adds the "load_balance_memberships" edge to the PolicyLoadBalance entity by ids.
+func (m *StoragePolicyMutation) AddLoadBalanceMembershipIDs(ids ...int) {
+	if m.load_balance_memberships == nil {
+		m.load_balance_memberships = make(map[int]struct{})
+	}
+	for i := range ids {
+		m.load_balance_memberships[ids[i]] = struct{}{}
+	}
+}
+
+// ClearLoadBalanceMemberships clears the "load_balance_memberships" edge to the PolicyLoadBalance entity.
+func (m *StoragePolicyMutation) ClearLoadBalanceMemberships() {
+	m.clearedload_balance_memberships = true
+}
+
+// LoadBalanceMembershipsCleared reports if the "load_balance_memberships" edge to the PolicyLoadBalance entity was cleared.
+func (m *StoragePolicyMutation) LoadBalanceMembershipsCleared() bool {
+	return m.clearedload_balance_memberships
+}
+
+// RemoveLoadBalanceMembershipIDs removes the "load_balance_memberships" edge to the PolicyLoadBalance entity by IDs.
+func (m *StoragePolicyMutation) RemoveLoadBalanceMembershipIDs(ids ...int) {
+	if m.removedload_balance_memberships == nil {
+		m.removedload_balance_memberships = make(map[int]struct{})
+	}
+	for i := range ids {
+		delete(m.load_balance_memberships, ids[i])
+		m.removedload_balance_memberships[ids[i]] = struct{}{}
+	}
+}
+
+// RemovedLoadBalanceMemberships returns the removed IDs of the "load_balance_memberships" edge to the PolicyLoadBalance entity.
+func (m *StoragePolicyMutation) RemovedLoadBalanceMembershipsIDs() (ids []int) {
+	for id := range m.removedload_balance_memberships {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// LoadBalanceMembershipsIDs returns the "load_balance_memberships" edge IDs in the mutation.
+func (m *StoragePolicyMutation) LoadBalanceMembershipsIDs() (ids []int) {
+	for id := range m.load_balance_memberships {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// ResetLoadBalanceMemberships resets all changes to the "load_balance_memberships" edge.
+func (m *StoragePolicyMutation) ResetLoadBalanceMemberships() {
+	m.load_balance_memberships = nil
+	m.clearedload_balance_memberships = false
+	m.removedload_balance_memberships = nil
+}
+
 // AddGroupAssignmentIDs adds the "group_assignments" edge to the GroupPolicy entity by ids.
 func (m *StoragePolicyMutation) AddGroupAssignmentIDs(ids ...int) {
 	if m.group_assignments == nil {
@@ -21918,7 +22604,13 @@ func (m *StoragePolicyMutation) ResetField(name string) error {
 
 // AddedEdges returns all edge names that were set/added in this mutation.
 func (m *StoragePolicyMutation) AddedEdges() []string {
-	edges := make([]string, 0, 5)
+	edges := make([]string, 0, 7)
+	if m.policy_load_balance != nil {
+		edges = append(edges, storagepolicy.EdgePolicyLoadBalance)
+	}
+	if m.load_balance_memberships != nil {
+		edges = append(edges, storagepolicy.EdgeLoadBalanceMemberships)
+	}
 	if m.group_assignments != nil {
 		edges = append(edges, storagepolicy.EdgeGroupAssignments)
 	}
@@ -21941,6 +22633,18 @@ func (m *StoragePolicyMutation) AddedEdges() []string {
 // name in this mutation.
 func (m *StoragePolicyMutation) AddedIDs(name string) []ent.Value {
 	switch name {
+	case storagepolicy.EdgePolicyLoadBalance:
+		ids := make([]ent.Value, 0, len(m.policy_load_balance))
+		for id := range m.policy_load_balance {
+			ids = append(ids, id)
+		}
+		return ids
+	case storagepolicy.EdgeLoadBalanceMemberships:
+		ids := make([]ent.Value, 0, len(m.load_balance_memberships))
+		for id := range m.load_balance_memberships {
+			ids = append(ids, id)
+		}
+		return ids
 	case storagepolicy.EdgeGroupAssignments:
 		ids := make([]ent.Value, 0, len(m.group_assignments))
 		for id := range m.group_assignments {
@@ -21975,7 +22679,13 @@ func (m *StoragePolicyMutation) AddedIDs(name string) []ent.Value {
 
 // RemovedEdges returns all edge names that were removed in this mutation.
 func (m *StoragePolicyMutation) RemovedEdges() []string {
-	edges := make([]string, 0, 5)
+	edges := make([]string, 0, 7)
+	if m.removedpolicy_load_balance != nil {
+		edges = append(edges, storagepolicy.EdgePolicyLoadBalance)
+	}
+	if m.removedload_balance_memberships != nil {
+		edges = append(edges, storagepolicy.EdgeLoadBalanceMemberships)
+	}
 	if m.removedgroup_assignments != nil {
 		edges = append(edges, storagepolicy.EdgeGroupAssignments)
 	}
@@ -21995,6 +22705,18 @@ func (m *StoragePolicyMutation) RemovedEdges() []string {
 // the given name in this mutation.
 func (m *StoragePolicyMutation) RemovedIDs(name string) []ent.Value {
 	switch name {
+	case storagepolicy.EdgePolicyLoadBalance:
+		ids := make([]ent.Value, 0, len(m.removedpolicy_load_balance))
+		for id := range m.removedpolicy_load_balance {
+			ids = append(ids, id)
+		}
+		return ids
+	case storagepolicy.EdgeLoadBalanceMemberships:
+		ids := make([]ent.Value, 0, len(m.removedload_balance_memberships))
+		for id := range m.removedload_balance_memberships {
+			ids = append(ids, id)
+		}
+		return ids
 	case storagepolicy.EdgeGroupAssignments:
 		ids := make([]ent.Value, 0, len(m.removedgroup_assignments))
 		for id := range m.removedgroup_assignments {
@@ -22025,7 +22747,13 @@ func (m *StoragePolicyMutation) RemovedIDs(name string) []ent.Value {
 
 // ClearedEdges returns all edge names that were cleared in this mutation.
 func (m *StoragePolicyMutation) ClearedEdges() []string {
-	edges := make([]string, 0, 5)
+	edges := make([]string, 0, 7)
+	if m.clearedpolicy_load_balance {
+		edges = append(edges, storagepolicy.EdgePolicyLoadBalance)
+	}
+	if m.clearedload_balance_memberships {
+		edges = append(edges, storagepolicy.EdgeLoadBalanceMemberships)
+	}
 	if m.clearedgroup_assignments {
 		edges = append(edges, storagepolicy.EdgeGroupAssignments)
 	}
@@ -22048,6 +22776,10 @@ func (m *StoragePolicyMutation) ClearedEdges() []string {
 // was cleared in this mutation.
 func (m *StoragePolicyMutation) EdgeCleared(name string) bool {
 	switch name {
+	case storagepolicy.EdgePolicyLoadBalance:
+		return m.clearedpolicy_load_balance
+	case storagepolicy.EdgeLoadBalanceMemberships:
+		return m.clearedload_balance_memberships
 	case storagepolicy.EdgeGroupAssignments:
 		return m.clearedgroup_assignments
 	case storagepolicy.EdgeGroups:
@@ -22077,6 +22809,12 @@ func (m *StoragePolicyMutation) ClearEdge(name string) error {
 // It returns an error if the edge is not defined in the schema.
 func (m *StoragePolicyMutation) ResetEdge(name string) error {
 	switch name {
+	case storagepolicy.EdgePolicyLoadBalance:
+		m.ResetPolicyLoadBalance()
+		return nil
+	case storagepolicy.EdgeLoadBalanceMemberships:
+		m.ResetLoadBalanceMemberships()
+		return nil
 	case storagepolicy.EdgeGroupAssignments:
 		m.ResetGroupAssignments()
 		return nil

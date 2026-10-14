@@ -94,6 +94,12 @@ func (m *PasskeyMutation) SetRawID(t int) {
 
 // SetUpdatedAt sets the "updated_at" field.
 
+func (m *PolicyLoadBalanceMutation) SetRawID(t int) {
+	m.id = &t
+}
+
+// SetUpdatedAt sets the "updated_at" field.
+
 func (m *RelocationAttemptMutation) SetRawID(t int) {
 	m.id = &t
 }

@@ -51,6 +51,9 @@ type OpenIDTransaction func(*sql.Selector)
 // Passkey is the predicate function for passkey builders.
 type Passkey func(*sql.Selector)
 
+// PolicyLoadBalance is the predicate function for policyloadbalance builders.
+type PolicyLoadBalance func(*sql.Selector)
+
 // RelocationAttempt is the predicate function for relocationattempt builders.
 type RelocationAttempt func(*sql.Selector)
 

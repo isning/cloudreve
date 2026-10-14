@@ -305,6 +305,8 @@ type StoragePolicy struct {
 	Relay             bool             `json:"relay,omitempty"`
 	ChunkConcurrency  int              `json:"chunk_concurrency,omitempty"`
 	Encryption        bool             `json:"encryption,omitempty"`
+	Weight            int              `json:"weight,omitempty"`
+	Children          []*StoragePolicy `json:"children,omitempty"`
 }
 
 type Entity struct {
@@ -509,28 +511,42 @@ func BuildStoragePolicy(sp *ent.StoragePolicy, hasher hashid.Encoder) *StoragePo
 	if sp == nil {
 		return nil
 	}
+	settings := sp.Settings
+	if settings == nil {
+		settings = &types.PolicySetting{}
+	}
 
 	res := &StoragePolicy{
 		ID:               hashid.EncodePolicyID(hasher, sp.ID),
 		Name:             sp.Name,
 		Type:             types.PolicyType(sp.Type),
 		MaxSize:          sp.MaxSize,
-		Relay:            sp.Settings.Relay,
-		ChunkConcurrency: sp.Settings.ChunkConcurrency,
-		Encryption:       sp.Settings.Encryption,
+		Relay:            settings.Relay,
+		ChunkConcurrency: settings.ChunkConcurrency,
+		Encryption:       settings.Encryption,
+	}
+	if sp.Type == types.PolicyTypeLoadBalance {
+		for _, member := range sp.Edges.PolicyLoadBalance {
+			if member == nil || member.Edges.StoragePolicy == nil || member.Edges.StoragePolicy.Type == types.PolicyTypeLoadBalance {
+				continue
+			}
+			child := BuildStoragePolicy(member.Edges.StoragePolicy, hasher)
+			child.Weight = member.Weight
+			res.Children = append(res.Children, child)
+		}
 	}
 
-	if sp.Settings.IsFileTypeDenyList {
-		res.DeniedSuffix = sp.Settings.FileType
+	if settings.IsFileTypeDenyList {
+		res.DeniedSuffix = settings.FileType
 	} else {
-		res.AllowedSuffix = sp.Settings.FileType
+		res.AllowedSuffix = settings.FileType
 	}
 
-	if sp.Settings.NameRegexp != "" {
-		if sp.Settings.IsNameRegexpDenyList {
-			res.DeniedNameRegexp = sp.Settings.NameRegexp
+	if settings.NameRegexp != "" {
+		if settings.IsNameRegexpDenyList {
+			res.DeniedNameRegexp = settings.NameRegexp
 		} else {
-			res.AllowedNameRegexp = sp.Settings.NameRegexp
+			res.AllowedNameRegexp = settings.NameRegexp
 		}
 	}
 

@@ -57,6 +57,9 @@ func ValidateSources(ctx context.Context, dep dependency.Dep, ownerID int, src [
 		}
 		return nil, serializer.NewError(serializer.CodeDBError, "Failed to load storage destination", err)
 	}
+	if _, err := storagepolicy.Choose(destination); err != nil {
+		return nil, serializer.NewError(serializer.CodeParamErr, err.Error(), nil)
+	}
 	ctx = context.WithValue(ctx, inventory.UserCtx{}, owner)
 	fm := manager.NewFileManager(dep, owner)
 	defer fm.Recycle()
@@ -148,7 +151,11 @@ func PlanSelection(ctx context.Context, dep dependency.Dep, ownerID int, src []s
 			for _, e := range file.Edges.Entities {
 				item := items[e.ID]
 				if item == nil {
-					item = &Plan{Owner: selection.Owner, Destination: selection.Destination, Entity: e}
+					concrete, err := storagepolicy.Choose(selection.Destination)
+					if err != nil {
+						return nil, err
+					}
+					item = &Plan{Owner: selection.Owner, Destination: concrete, Entity: e}
 					items[e.ID] = item
 				}
 				item.References = append(item.References, types.RelocationReference{FileID: file.ID, URI: next.uri.String(), PrimaryEntityID: file.PrimaryEntity, UpdatedAt: file.UpdatedAt})

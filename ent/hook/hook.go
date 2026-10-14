@@ -189,6 +189,18 @@ func (f PasskeyFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, err
 	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.PasskeyMutation", m)
 }
 
+// The PolicyLoadBalanceFunc type is an adapter to allow the use of ordinary
+// function as PolicyLoadBalance mutator.
+type PolicyLoadBalanceFunc func(context.Context, *ent.PolicyLoadBalanceMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f PolicyLoadBalanceFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.PolicyLoadBalanceMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.PolicyLoadBalanceMutation", m)
+}
+
 // The RelocationAttemptFunc type is an adapter to allow the use of ordinary
 // function as RelocationAttempt mutator.
 type RelocationAttemptFunc func(context.Context, *ent.RelocationAttemptMutation) (ent.Value, error)

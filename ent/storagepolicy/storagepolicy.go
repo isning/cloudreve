@@ -46,6 +46,10 @@ const (
 	FieldSettings = "settings"
 	// FieldNodeID holds the string denoting the node_id field in the database.
 	FieldNodeID = "node_id"
+	// EdgePolicyLoadBalance holds the string denoting the policy_load_balance edge name in mutations.
+	EdgePolicyLoadBalance = "policy_load_balance"
+	// EdgeLoadBalanceMemberships holds the string denoting the load_balance_memberships edge name in mutations.
+	EdgeLoadBalanceMemberships = "load_balance_memberships"
 	// EdgeGroupAssignments holds the string denoting the group_assignments edge name in mutations.
 	EdgeGroupAssignments = "group_assignments"
 	// EdgeGroups holds the string denoting the groups edge name in mutations.
@@ -58,6 +62,20 @@ const (
 	EdgeNode = "node"
 	// Table holds the table name of the storagepolicy in the database.
 	Table = "storage_policies"
+	// PolicyLoadBalanceTable is the table that holds the policy_load_balance relation/edge.
+	PolicyLoadBalanceTable = "policy_load_balances"
+	// PolicyLoadBalanceInverseTable is the table name for the PolicyLoadBalance entity.
+	// It exists in this package in order to avoid circular dependency with the "policyloadbalance" package.
+	PolicyLoadBalanceInverseTable = "policy_load_balances"
+	// PolicyLoadBalanceColumn is the table column denoting the policy_load_balance relation/edge.
+	PolicyLoadBalanceColumn = "load_balance_id"
+	// LoadBalanceMembershipsTable is the table that holds the load_balance_memberships relation/edge.
+	LoadBalanceMembershipsTable = "policy_load_balances"
+	// LoadBalanceMembershipsInverseTable is the table name for the PolicyLoadBalance entity.
+	// It exists in this package in order to avoid circular dependency with the "policyloadbalance" package.
+	LoadBalanceMembershipsInverseTable = "policy_load_balances"
+	// LoadBalanceMembershipsColumn is the table column denoting the load_balance_memberships relation/edge.
+	LoadBalanceMembershipsColumn = "storage_policy_id"
 	// GroupAssignmentsTable is the table that holds the group_assignments relation/edge.
 	GroupAssignmentsTable = "group_policies"
 	// GroupAssignmentsInverseTable is the table name for the GroupPolicy entity.
@@ -221,6 +239,34 @@ func ByNodeID(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldNodeID, opts...).ToFunc()
 }
 
+// ByPolicyLoadBalanceCount orders the results by policy_load_balance count.
+func ByPolicyLoadBalanceCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newPolicyLoadBalanceStep(), opts...)
+	}
+}
+
+// ByPolicyLoadBalance orders the results by policy_load_balance terms.
+func ByPolicyLoadBalance(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newPolicyLoadBalanceStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
+
+// ByLoadBalanceMembershipsCount orders the results by load_balance_memberships count.
+func ByLoadBalanceMembershipsCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newLoadBalanceMembershipsStep(), opts...)
+	}
+}
+
+// ByLoadBalanceMemberships orders the results by load_balance_memberships terms.
+func ByLoadBalanceMemberships(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newLoadBalanceMembershipsStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
+
 // ByGroupAssignmentsCount orders the results by group_assignments count.
 func ByGroupAssignmentsCount(opts ...sql.OrderTermOption) OrderOption {
 	return func(s *sql.Selector) {
@@ -282,6 +328,20 @@ func ByNodeField(field string, opts ...sql.OrderTermOption) OrderOption {
 	return func(s *sql.Selector) {
 		sqlgraph.OrderByNeighborTerms(s, newNodeStep(), sql.OrderByField(field, opts...))
 	}
+}
+func newPolicyLoadBalanceStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(PolicyLoadBalanceInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2M, false, PolicyLoadBalanceTable, PolicyLoadBalanceColumn),
+	)
+}
+func newLoadBalanceMembershipsStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(LoadBalanceMembershipsInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2M, false, LoadBalanceMembershipsTable, LoadBalanceMembershipsColumn),
+	)
 }
 func newGroupAssignmentsStep() *sqlgraph.Step {
 	return sqlgraph.NewStep(

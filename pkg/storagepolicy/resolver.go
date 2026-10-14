@@ -9,6 +9,7 @@ import (
 
 	"github.com/cloudreve/Cloudreve/v4/ent"
 	"github.com/cloudreve/Cloudreve/v4/inventory"
+	"github.com/cloudreve/Cloudreve/v4/inventory/types"
 )
 
 var ErrNoAvailablePolicies = errors.New("no available storage policies")
@@ -92,6 +93,15 @@ func (r *Resolver) Select(ctx context.Context, ownerID, explicitID, preferenceID
 			if policy.ID == explicitID {
 				return policy, nil
 			}
+			// Pro clients may explicitly upload to any child of a granted pool,
+			// including children whose automatic selection weight is zero.
+			if policy.Type == types.PolicyTypeLoadBalance {
+				for _, member := range policy.Edges.PolicyLoadBalance {
+					if member.Edges.StoragePolicy != nil && member.StoragePolicyID == explicitID {
+						return member.Edges.StoragePolicy, nil
+					}
+				}
+			}
 		}
 		return nil, ErrPolicyNotGranted
 	}
@@ -102,6 +112,24 @@ func (r *Resolver) Select(ctx context.Context, ownerID, explicitID, preferenceID
 		if policy.ID == preferenceID {
 			return policy, nil
 		}
+		if policy.Type == types.PolicyTypeLoadBalance {
+			for _, member := range policy.Edges.PolicyLoadBalance {
+				if member.Edges.StoragePolicy != nil && member.StoragePolicyID == preferenceID {
+					return member.Edges.StoragePolicy, nil
+				}
+			}
+		}
 	}
 	return policies[0], nil
+}
+
+// ResolveForFile authorizes the logical preference and selects one concrete
+// destination. Callers persist that destination in the upload session or task;
+// subsequent chunks and retries must never draw again.
+func (r *Resolver) ResolveForFile(ctx context.Context, ownerID, explicitID int, files inventory.FileClient, fileID int) (*ent.StoragePolicy, error) {
+	policy, err := r.SelectForFile(ctx, ownerID, explicitID, files, fileID)
+	if err != nil {
+		return nil, err
+	}
+	return Choose(policy)
 }

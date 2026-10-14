@@ -20,6 +20,7 @@ import (
 	"github.com/cloudreve/Cloudreve/v4/ent/openidsession"
 	"github.com/cloudreve/Cloudreve/v4/ent/openidtransaction"
 	"github.com/cloudreve/Cloudreve/v4/ent/passkey"
+	"github.com/cloudreve/Cloudreve/v4/ent/policyloadbalance"
 	"github.com/cloudreve/Cloudreve/v4/ent/relocationattempt"
 	"github.com/cloudreve/Cloudreve/v4/ent/relocationitem"
 	"github.com/cloudreve/Cloudreve/v4/ent/relocationplan"
@@ -366,6 +367,28 @@ func init() {
 	passkey.DefaultUpdatedAt = passkeyDescUpdatedAt.Default.(func() time.Time)
 	// passkey.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
 	passkey.UpdateDefaultUpdatedAt = passkeyDescUpdatedAt.UpdateDefault.(func() time.Time)
+	policyloadbalanceFields := schema.PolicyLoadBalance{}.Fields()
+	_ = policyloadbalanceFields
+	// policyloadbalanceDescWeight is the schema descriptor for weight field.
+	policyloadbalanceDescWeight := policyloadbalanceFields[2].Descriptor()
+	// policyloadbalance.DefaultWeight holds the default value on creation for the weight field.
+	policyloadbalance.DefaultWeight = policyloadbalanceDescWeight.Default.(int)
+	// policyloadbalance.WeightValidator is a validator for the "weight" field. It is called by the builders before save.
+	policyloadbalance.WeightValidator = func() func(int) error {
+		validators := policyloadbalanceDescWeight.Validators
+		fns := [...]func(int) error{
+			validators[0].(func(int) error),
+			validators[1].(func(int) error),
+		}
+		return func(weight int) error {
+			for _, fn := range fns {
+				if err := fn(weight); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
 	relocationattemptFields := schema.RelocationAttempt{}.Fields()
 	_ = relocationattemptFields
 	// relocationattemptDescCreatedAt is the schema descriptor for created_at field.

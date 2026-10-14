@@ -30,6 +30,7 @@ import (
 	"github.com/cloudreve/Cloudreve/v4/ent/openidsession"
 	"github.com/cloudreve/Cloudreve/v4/ent/openidtransaction"
 	"github.com/cloudreve/Cloudreve/v4/ent/passkey"
+	"github.com/cloudreve/Cloudreve/v4/ent/policyloadbalance"
 	"github.com/cloudreve/Cloudreve/v4/ent/relocationattempt"
 	"github.com/cloudreve/Cloudreve/v4/ent/relocationitem"
 	"github.com/cloudreve/Cloudreve/v4/ent/relocationplan"
@@ -79,6 +80,8 @@ type Client struct {
 	OpenIDTransaction *OpenIDTransactionClient
 	// Passkey is the client for interacting with the Passkey builders.
 	Passkey *PasskeyClient
+	// PolicyLoadBalance is the client for interacting with the PolicyLoadBalance builders.
+	PolicyLoadBalance *PolicyLoadBalanceClient
 	// RelocationAttempt is the client for interacting with the RelocationAttempt builders.
 	RelocationAttempt *RelocationAttemptClient
 	// RelocationItem is the client for interacting with the RelocationItem builders.
@@ -125,6 +128,7 @@ func (c *Client) init() {
 	c.OpenIDSession = NewOpenIDSessionClient(c.config)
 	c.OpenIDTransaction = NewOpenIDTransactionClient(c.config)
 	c.Passkey = NewPasskeyClient(c.config)
+	c.PolicyLoadBalance = NewPolicyLoadBalanceClient(c.config)
 	c.RelocationAttempt = NewRelocationAttemptClient(c.config)
 	c.RelocationItem = NewRelocationItemClient(c.config)
 	c.RelocationPlan = NewRelocationPlanClient(c.config)
@@ -242,6 +246,7 @@ func (c *Client) Tx(ctx context.Context) (*Tx, error) {
 		OpenIDSession:       NewOpenIDSessionClient(cfg),
 		OpenIDTransaction:   NewOpenIDTransactionClient(cfg),
 		Passkey:             NewPasskeyClient(cfg),
+		PolicyLoadBalance:   NewPolicyLoadBalanceClient(cfg),
 		RelocationAttempt:   NewRelocationAttemptClient(cfg),
 		RelocationItem:      NewRelocationItemClient(cfg),
 		RelocationPlan:      NewRelocationPlanClient(cfg),
@@ -286,6 +291,7 @@ func (c *Client) BeginTx(ctx context.Context, opts *sql.TxOptions) (*Tx, error) 
 		OpenIDSession:       NewOpenIDSessionClient(cfg),
 		OpenIDTransaction:   NewOpenIDTransactionClient(cfg),
 		Passkey:             NewPasskeyClient(cfg),
+		PolicyLoadBalance:   NewPolicyLoadBalanceClient(cfg),
 		RelocationAttempt:   NewRelocationAttemptClient(cfg),
 		RelocationItem:      NewRelocationItemClient(cfg),
 		RelocationPlan:      NewRelocationPlanClient(cfg),
@@ -327,9 +333,9 @@ func (c *Client) Use(hooks ...Hook) {
 	for _, n := range []interface{ Use(...Hook) }{
 		c.DavAccount, c.DirectLink, c.Entity, c.ExternalIdentity, c.File, c.FsEvent,
 		c.Group, c.GroupPolicy, c.Metadata, c.Node, c.OAuthClient, c.OAuthGrant,
-		c.OpenIDSession, c.OpenIDTransaction, c.Passkey, c.RelocationAttempt,
-		c.RelocationItem, c.RelocationPlan, c.Setting, c.Share, c.StorageObject,
-		c.StorageObjectReader, c.StoragePolicy, c.Task, c.User,
+		c.OpenIDSession, c.OpenIDTransaction, c.Passkey, c.PolicyLoadBalance,
+		c.RelocationAttempt, c.RelocationItem, c.RelocationPlan, c.Setting, c.Share,
+		c.StorageObject, c.StorageObjectReader, c.StoragePolicy, c.Task, c.User,
 	} {
 		n.Use(hooks...)
 	}
@@ -341,9 +347,9 @@ func (c *Client) Intercept(interceptors ...Interceptor) {
 	for _, n := range []interface{ Intercept(...Interceptor) }{
 		c.DavAccount, c.DirectLink, c.Entity, c.ExternalIdentity, c.File, c.FsEvent,
 		c.Group, c.GroupPolicy, c.Metadata, c.Node, c.OAuthClient, c.OAuthGrant,
-		c.OpenIDSession, c.OpenIDTransaction, c.Passkey, c.RelocationAttempt,
-		c.RelocationItem, c.RelocationPlan, c.Setting, c.Share, c.StorageObject,
-		c.StorageObjectReader, c.StoragePolicy, c.Task, c.User,
+		c.OpenIDSession, c.OpenIDTransaction, c.Passkey, c.PolicyLoadBalance,
+		c.RelocationAttempt, c.RelocationItem, c.RelocationPlan, c.Setting, c.Share,
+		c.StorageObject, c.StorageObjectReader, c.StoragePolicy, c.Task, c.User,
 	} {
 		n.Intercept(interceptors...)
 	}
@@ -382,6 +388,8 @@ func (c *Client) Mutate(ctx context.Context, m Mutation) (Value, error) {
 		return c.OpenIDTransaction.mutate(ctx, m)
 	case *PasskeyMutation:
 		return c.Passkey.mutate(ctx, m)
+	case *PolicyLoadBalanceMutation:
+		return c.PolicyLoadBalance.mutate(ctx, m)
 	case *RelocationAttemptMutation:
 		return c.RelocationAttempt.mutate(ctx, m)
 	case *RelocationItemMutation:
@@ -2871,6 +2879,171 @@ func (c *PasskeyClient) mutate(ctx context.Context, m *PasskeyMutation) (Value, 
 	}
 }
 
+// PolicyLoadBalanceClient is a client for the PolicyLoadBalance schema.
+type PolicyLoadBalanceClient struct {
+	config
+}
+
+// NewPolicyLoadBalanceClient returns a client for the PolicyLoadBalance from the given config.
+func NewPolicyLoadBalanceClient(c config) *PolicyLoadBalanceClient {
+	return &PolicyLoadBalanceClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `policyloadbalance.Hooks(f(g(h())))`.
+func (c *PolicyLoadBalanceClient) Use(hooks ...Hook) {
+	c.hooks.PolicyLoadBalance = append(c.hooks.PolicyLoadBalance, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `policyloadbalance.Intercept(f(g(h())))`.
+func (c *PolicyLoadBalanceClient) Intercept(interceptors ...Interceptor) {
+	c.inters.PolicyLoadBalance = append(c.inters.PolicyLoadBalance, interceptors...)
+}
+
+// Create returns a builder for creating a PolicyLoadBalance entity.
+func (c *PolicyLoadBalanceClient) Create() *PolicyLoadBalanceCreate {
+	mutation := newPolicyLoadBalanceMutation(c.config, OpCreate)
+	return &PolicyLoadBalanceCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of PolicyLoadBalance entities.
+func (c *PolicyLoadBalanceClient) CreateBulk(builders ...*PolicyLoadBalanceCreate) *PolicyLoadBalanceCreateBulk {
+	return &PolicyLoadBalanceCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *PolicyLoadBalanceClient) MapCreateBulk(slice any, setFunc func(*PolicyLoadBalanceCreate, int)) *PolicyLoadBalanceCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &PolicyLoadBalanceCreateBulk{err: fmt.Errorf("calling to PolicyLoadBalanceClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*PolicyLoadBalanceCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &PolicyLoadBalanceCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for PolicyLoadBalance.
+func (c *PolicyLoadBalanceClient) Update() *PolicyLoadBalanceUpdate {
+	mutation := newPolicyLoadBalanceMutation(c.config, OpUpdate)
+	return &PolicyLoadBalanceUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *PolicyLoadBalanceClient) UpdateOne(plb *PolicyLoadBalance) *PolicyLoadBalanceUpdateOne {
+	mutation := newPolicyLoadBalanceMutation(c.config, OpUpdateOne, withPolicyLoadBalance(plb))
+	return &PolicyLoadBalanceUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *PolicyLoadBalanceClient) UpdateOneID(id int) *PolicyLoadBalanceUpdateOne {
+	mutation := newPolicyLoadBalanceMutation(c.config, OpUpdateOne, withPolicyLoadBalanceID(id))
+	return &PolicyLoadBalanceUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for PolicyLoadBalance.
+func (c *PolicyLoadBalanceClient) Delete() *PolicyLoadBalanceDelete {
+	mutation := newPolicyLoadBalanceMutation(c.config, OpDelete)
+	return &PolicyLoadBalanceDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *PolicyLoadBalanceClient) DeleteOne(plb *PolicyLoadBalance) *PolicyLoadBalanceDeleteOne {
+	return c.DeleteOneID(plb.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *PolicyLoadBalanceClient) DeleteOneID(id int) *PolicyLoadBalanceDeleteOne {
+	builder := c.Delete().Where(policyloadbalance.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &PolicyLoadBalanceDeleteOne{builder}
+}
+
+// Query returns a query builder for PolicyLoadBalance.
+func (c *PolicyLoadBalanceClient) Query() *PolicyLoadBalanceQuery {
+	return &PolicyLoadBalanceQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypePolicyLoadBalance},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a PolicyLoadBalance entity by its id.
+func (c *PolicyLoadBalanceClient) Get(ctx context.Context, id int) (*PolicyLoadBalance, error) {
+	return c.Query().Where(policyloadbalance.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *PolicyLoadBalanceClient) GetX(ctx context.Context, id int) *PolicyLoadBalance {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// QueryLoadBalance queries the load_balance edge of a PolicyLoadBalance.
+func (c *PolicyLoadBalanceClient) QueryLoadBalance(plb *PolicyLoadBalance) *StoragePolicyQuery {
+	query := (&StoragePolicyClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := plb.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(policyloadbalance.Table, policyloadbalance.FieldID, id),
+			sqlgraph.To(storagepolicy.Table, storagepolicy.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, policyloadbalance.LoadBalanceTable, policyloadbalance.LoadBalanceColumn),
+		)
+		fromV = sqlgraph.Neighbors(plb.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryStoragePolicy queries the storage_policy edge of a PolicyLoadBalance.
+func (c *PolicyLoadBalanceClient) QueryStoragePolicy(plb *PolicyLoadBalance) *StoragePolicyQuery {
+	query := (&StoragePolicyClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := plb.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(policyloadbalance.Table, policyloadbalance.FieldID, id),
+			sqlgraph.To(storagepolicy.Table, storagepolicy.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, policyloadbalance.StoragePolicyTable, policyloadbalance.StoragePolicyColumn),
+		)
+		fromV = sqlgraph.Neighbors(plb.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// Hooks returns the client hooks.
+func (c *PolicyLoadBalanceClient) Hooks() []Hook {
+	return c.hooks.PolicyLoadBalance
+}
+
+// Interceptors returns the client interceptors.
+func (c *PolicyLoadBalanceClient) Interceptors() []Interceptor {
+	return c.inters.PolicyLoadBalance
+}
+
+func (c *PolicyLoadBalanceClient) mutate(ctx context.Context, m *PolicyLoadBalanceMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&PolicyLoadBalanceCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&PolicyLoadBalanceUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&PolicyLoadBalanceUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&PolicyLoadBalanceDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown PolicyLoadBalance mutation op: %q", m.Op())
+	}
+}
+
 // RelocationAttemptClient is a client for the RelocationAttempt schema.
 type RelocationAttemptClient struct {
 	config
@@ -3978,6 +4151,38 @@ func (c *StoragePolicyClient) GetX(ctx context.Context, id int) *StoragePolicy {
 	return obj
 }
 
+// QueryPolicyLoadBalance queries the policy_load_balance edge of a StoragePolicy.
+func (c *StoragePolicyClient) QueryPolicyLoadBalance(sp *StoragePolicy) *PolicyLoadBalanceQuery {
+	query := (&PolicyLoadBalanceClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := sp.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(storagepolicy.Table, storagepolicy.FieldID, id),
+			sqlgraph.To(policyloadbalance.Table, policyloadbalance.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, storagepolicy.PolicyLoadBalanceTable, storagepolicy.PolicyLoadBalanceColumn),
+		)
+		fromV = sqlgraph.Neighbors(sp.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryLoadBalanceMemberships queries the load_balance_memberships edge of a StoragePolicy.
+func (c *StoragePolicyClient) QueryLoadBalanceMemberships(sp *StoragePolicy) *PolicyLoadBalanceQuery {
+	query := (&PolicyLoadBalanceClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := sp.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(storagepolicy.Table, storagepolicy.FieldID, id),
+			sqlgraph.To(policyloadbalance.Table, policyloadbalance.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, storagepolicy.LoadBalanceMembershipsTable, storagepolicy.LoadBalanceMembershipsColumn),
+		)
+		fromV = sqlgraph.Neighbors(sp.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
 // QueryGroupAssignments queries the group_assignments edge of a StoragePolicy.
 func (c *StoragePolicyClient) QueryGroupAssignments(sp *StoragePolicy) *GroupPolicyQuery {
 	query := (&GroupPolicyClient{config: c.config}).Query()
@@ -4568,16 +4773,16 @@ type (
 	hooks struct {
 		DavAccount, DirectLink, Entity, ExternalIdentity, File, FsEvent, Group,
 		GroupPolicy, Metadata, Node, OAuthClient, OAuthGrant, OpenIDSession,
-		OpenIDTransaction, Passkey, RelocationAttempt, RelocationItem, RelocationPlan,
-		Setting, Share, StorageObject, StorageObjectReader, StoragePolicy, Task,
-		User []ent.Hook
+		OpenIDTransaction, Passkey, PolicyLoadBalance, RelocationAttempt,
+		RelocationItem, RelocationPlan, Setting, Share, StorageObject,
+		StorageObjectReader, StoragePolicy, Task, User []ent.Hook
 	}
 	inters struct {
 		DavAccount, DirectLink, Entity, ExternalIdentity, File, FsEvent, Group,
 		GroupPolicy, Metadata, Node, OAuthClient, OAuthGrant, OpenIDSession,
-		OpenIDTransaction, Passkey, RelocationAttempt, RelocationItem, RelocationPlan,
-		Setting, Share, StorageObject, StorageObjectReader, StoragePolicy, Task,
-		User []ent.Interceptor
+		OpenIDTransaction, Passkey, PolicyLoadBalance, RelocationAttempt,
+		RelocationItem, RelocationPlan, Setting, Share, StorageObject,
+		StorageObjectReader, StoragePolicy, Task, User []ent.Interceptor
 	}
 )
 
