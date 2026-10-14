@@ -11,13 +11,11 @@ go generate ./ent
 git diff --exit-code -- ent
 ```
 
-Native HTTP, Ent, storage and worker regression tests use `go test`. Provision an
-owned S3 test service using the pinned Nix tool definition:
+Native HTTP, Ent, storage and worker regression tests use `go test`. To run
+storage integration locally, provide an existing SeaweedFS test executable:
 
 ```sh
-mkdir -p .scratch/multi-storage
-nix build --impure -f scripts/storage-tools.nix -o .scratch/multi-storage/tools
-export CLOUDREVE_S3_TEST_SERVER="$PWD/.scratch/multi-storage/tools/bin/weed"
+export CLOUDREVE_S3_TEST_SERVER=/path/to/weed
 export CLOUDREVE_STORAGE_INTEGRATION=1
 export TMPDIR="$PWD/.scratch/tmp"
 mkdir -p "$TMPDIR"
@@ -29,11 +27,11 @@ processes. `CLOUDREVE_STORAGE_INTEGRATION=1` makes missing S3 tooling a failure.
 The database tests accept `OIDC_TEST_DRIVER=postgres` or `mysql` and
 `OIDC_TEST_DSN` for an owned disposable database; MariaDB uses the MySQL driver.
 
-The single GitHub Actions entrypoint is `.github/workflows/release.yml`. It uses
-native Go tests for authentication and the database matrix, and distributes the
-S3 storage cases across four jobs. Tag pushes publish through the official
-GoReleaser action after all required checks pass. Azure Pipelines continues to
-use the same `.goreleaser.yaml` and `.build/build-assets.sh` entrypoints.
+The existing GitHub Actions entrypoint is `.github/workflows/release.yml`.
+Its build, authentication and database checks remain unchanged. Run the S3
+integration cases locally with the command above. Tag pushes publish through
+the official GoReleaser action. Azure Pipelines continues to use the same
+`.goreleaser.yaml` and `.build/build-assets.sh` entrypoints.
 
 The native runtime image test can also inspect an already-built local image:
 
