@@ -22,7 +22,7 @@ type PolicyLoadBalance struct {
 	// StoragePolicyID holds the value of the "storage_policy_id" field.
 	StoragePolicyID int `json:"storage_policy_id,omitempty"`
 	// Weight holds the value of the "weight" field.
-	Weight int `json:"weight,omitempty"`
+	Weight int64 `json:"weight,omitempty"`
 	// Edges holds the relations/edges for other nodes in the graph.
 	// The values are being populated by the PolicyLoadBalanceQuery when eager-loading is set.
 	Edges        PolicyLoadBalanceEdges `json:"edges"`
@@ -110,7 +110,7 @@ func (plb *PolicyLoadBalance) assignValues(columns []string, values []any) error
 			if value, ok := values[i].(*sql.NullInt64); !ok {
 				return fmt.Errorf("unexpected type %T for field weight", values[i])
 			} else if value.Valid {
-				plb.Weight = int(value.Int64)
+				plb.Weight = value.Int64
 			}
 		default:
 			plb.selectValues.Set(columns[i], values[i])

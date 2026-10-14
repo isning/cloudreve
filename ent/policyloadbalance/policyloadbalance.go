@@ -60,9 +60,9 @@ func ValidColumn(column string) bool {
 
 var (
 	// DefaultWeight holds the default value on creation for the "weight" field.
-	DefaultWeight int
+	DefaultWeight int64
 	// WeightValidator is a validator for the "weight" field. It is called by the builders before save.
-	WeightValidator func(int) error
+	WeightValidator func(int64) error
 )
 
 // OrderOption defines the ordering options for the PolicyLoadBalance queries.

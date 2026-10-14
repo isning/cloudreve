@@ -15,7 +15,7 @@ func (PolicyLoadBalance) Fields() []ent.Field {
 	return []ent.Field{
 		field.Int("load_balance_id"),
 		field.Int("storage_policy_id"),
-		field.Int("weight").Default(1).NonNegative().Max(9007199254740991),
+		field.Int64("weight").Default(1).NonNegative().Max(9007199254740991),
 	}
 }
 

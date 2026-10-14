@@ -513,7 +513,7 @@ var (
 	// PolicyLoadBalancesColumns holds the columns for the "policy_load_balances" table.
 	PolicyLoadBalancesColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt, Increment: true},
-		{Name: "weight", Type: field.TypeInt, Default: 1},
+		{Name: "weight", Type: field.TypeInt64, Default: 1},
 		{Name: "load_balance_id", Type: field.TypeInt},
 		{Name: "storage_policy_id", Type: field.TypeInt},
 	}

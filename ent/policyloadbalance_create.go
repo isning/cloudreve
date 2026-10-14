@@ -35,13 +35,13 @@ func (plbc *PolicyLoadBalanceCreate) SetStoragePolicyID(i int) *PolicyLoadBalanc
 }
 
 // SetWeight sets the "weight" field.
-func (plbc *PolicyLoadBalanceCreate) SetWeight(i int) *PolicyLoadBalanceCreate {
+func (plbc *PolicyLoadBalanceCreate) SetWeight(i int64) *PolicyLoadBalanceCreate {
 	plbc.mutation.SetWeight(i)
 	return plbc
 }
 
 // SetNillableWeight sets the "weight" field if the given value is not nil.
-func (plbc *PolicyLoadBalanceCreate) SetNillableWeight(i *int) *PolicyLoadBalanceCreate {
+func (plbc *PolicyLoadBalanceCreate) SetNillableWeight(i *int64) *PolicyLoadBalanceCreate {
 	if i != nil {
 		plbc.SetWeight(*i)
 	}
@@ -156,7 +156,7 @@ func (plbc *PolicyLoadBalanceCreate) createSpec() (*PolicyLoadBalance, *sqlgraph
 
 	_spec.OnConflict = plbc.conflict
 	if value, ok := plbc.mutation.Weight(); ok {
-		_spec.SetField(policyloadbalance.FieldWeight, field.TypeInt, value)
+		_spec.SetField(policyloadbalance.FieldWeight, field.TypeInt64, value)
 		_node.Weight = value
 	}
 	if nodes := plbc.mutation.LoadBalanceIDs(); len(nodes) > 0 {
@@ -270,7 +270,7 @@ func (u *PolicyLoadBalanceUpsert) UpdateStoragePolicyID() *PolicyLoadBalanceUpse
 }
 
 // SetWeight sets the "weight" field.
-func (u *PolicyLoadBalanceUpsert) SetWeight(v int) *PolicyLoadBalanceUpsert {
+func (u *PolicyLoadBalanceUpsert) SetWeight(v int64) *PolicyLoadBalanceUpsert {
 	u.Set(policyloadbalance.FieldWeight, v)
 	return u
 }
@@ -282,7 +282,7 @@ func (u *PolicyLoadBalanceUpsert) UpdateWeight() *PolicyLoadBalanceUpsert {
 }
 
 // AddWeight adds v to the "weight" field.
-func (u *PolicyLoadBalanceUpsert) AddWeight(v int) *PolicyLoadBalanceUpsert {
+func (u *PolicyLoadBalanceUpsert) AddWeight(v int64) *PolicyLoadBalanceUpsert {
 	u.Add(policyloadbalance.FieldWeight, v)
 	return u
 }
@@ -356,14 +356,14 @@ func (u *PolicyLoadBalanceUpsertOne) UpdateStoragePolicyID() *PolicyLoadBalanceU
 }
 
 // SetWeight sets the "weight" field.
-func (u *PolicyLoadBalanceUpsertOne) SetWeight(v int) *PolicyLoadBalanceUpsertOne {
+func (u *PolicyLoadBalanceUpsertOne) SetWeight(v int64) *PolicyLoadBalanceUpsertOne {
 	return u.Update(func(s *PolicyLoadBalanceUpsert) {
 		s.SetWeight(v)
 	})
 }
 
 // AddWeight adds v to the "weight" field.
-func (u *PolicyLoadBalanceUpsertOne) AddWeight(v int) *PolicyLoadBalanceUpsertOne {
+func (u *PolicyLoadBalanceUpsertOne) AddWeight(v int64) *PolicyLoadBalanceUpsertOne {
 	return u.Update(func(s *PolicyLoadBalanceUpsert) {
 		s.AddWeight(v)
 	})
@@ -614,14 +614,14 @@ func (u *PolicyLoadBalanceUpsertBulk) UpdateStoragePolicyID() *PolicyLoadBalance
 }
 
 // SetWeight sets the "weight" field.
-func (u *PolicyLoadBalanceUpsertBulk) SetWeight(v int) *PolicyLoadBalanceUpsertBulk {
+func (u *PolicyLoadBalanceUpsertBulk) SetWeight(v int64) *PolicyLoadBalanceUpsertBulk {
 	return u.Update(func(s *PolicyLoadBalanceUpsert) {
 		s.SetWeight(v)
 	})
 }
 
 // AddWeight adds v to the "weight" field.
-func (u *PolicyLoadBalanceUpsertBulk) AddWeight(v int) *PolicyLoadBalanceUpsertBulk {
+func (u *PolicyLoadBalanceUpsertBulk) AddWeight(v int64) *PolicyLoadBalanceUpsertBulk {
 	return u.Update(func(s *PolicyLoadBalanceUpsert) {
 		s.AddWeight(v)
 	})

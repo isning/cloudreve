@@ -57,14 +57,14 @@ func (plbu *PolicyLoadBalanceUpdate) SetNillableStoragePolicyID(i *int) *PolicyL
 }
 
 // SetWeight sets the "weight" field.
-func (plbu *PolicyLoadBalanceUpdate) SetWeight(i int) *PolicyLoadBalanceUpdate {
+func (plbu *PolicyLoadBalanceUpdate) SetWeight(i int64) *PolicyLoadBalanceUpdate {
 	plbu.mutation.ResetWeight()
 	plbu.mutation.SetWeight(i)
 	return plbu
 }
 
 // SetNillableWeight sets the "weight" field if the given value is not nil.
-func (plbu *PolicyLoadBalanceUpdate) SetNillableWeight(i *int) *PolicyLoadBalanceUpdate {
+func (plbu *PolicyLoadBalanceUpdate) SetNillableWeight(i *int64) *PolicyLoadBalanceUpdate {
 	if i != nil {
 		plbu.SetWeight(*i)
 	}
@@ -72,7 +72,7 @@ func (plbu *PolicyLoadBalanceUpdate) SetNillableWeight(i *int) *PolicyLoadBalanc
 }
 
 // AddWeight adds i to the "weight" field.
-func (plbu *PolicyLoadBalanceUpdate) AddWeight(i int) *PolicyLoadBalanceUpdate {
+func (plbu *PolicyLoadBalanceUpdate) AddWeight(i int64) *PolicyLoadBalanceUpdate {
 	plbu.mutation.AddWeight(i)
 	return plbu
 }
@@ -160,10 +160,10 @@ func (plbu *PolicyLoadBalanceUpdate) sqlSave(ctx context.Context) (n int, err er
 		}
 	}
 	if value, ok := plbu.mutation.Weight(); ok {
-		_spec.SetField(policyloadbalance.FieldWeight, field.TypeInt, value)
+		_spec.SetField(policyloadbalance.FieldWeight, field.TypeInt64, value)
 	}
 	if value, ok := plbu.mutation.AddedWeight(); ok {
-		_spec.AddField(policyloadbalance.FieldWeight, field.TypeInt, value)
+		_spec.AddField(policyloadbalance.FieldWeight, field.TypeInt64, value)
 	}
 	if plbu.mutation.LoadBalanceCleared() {
 		edge := &sqlgraph.EdgeSpec{
@@ -272,14 +272,14 @@ func (plbuo *PolicyLoadBalanceUpdateOne) SetNillableStoragePolicyID(i *int) *Pol
 }
 
 // SetWeight sets the "weight" field.
-func (plbuo *PolicyLoadBalanceUpdateOne) SetWeight(i int) *PolicyLoadBalanceUpdateOne {
+func (plbuo *PolicyLoadBalanceUpdateOne) SetWeight(i int64) *PolicyLoadBalanceUpdateOne {
 	plbuo.mutation.ResetWeight()
 	plbuo.mutation.SetWeight(i)
 	return plbuo
 }
 
 // SetNillableWeight sets the "weight" field if the given value is not nil.
-func (plbuo *PolicyLoadBalanceUpdateOne) SetNillableWeight(i *int) *PolicyLoadBalanceUpdateOne {
+func (plbuo *PolicyLoadBalanceUpdateOne) SetNillableWeight(i *int64) *PolicyLoadBalanceUpdateOne {
 	if i != nil {
 		plbuo.SetWeight(*i)
 	}
@@ -287,7 +287,7 @@ func (plbuo *PolicyLoadBalanceUpdateOne) SetNillableWeight(i *int) *PolicyLoadBa
 }
 
 // AddWeight adds i to the "weight" field.
-func (plbuo *PolicyLoadBalanceUpdateOne) AddWeight(i int) *PolicyLoadBalanceUpdateOne {
+func (plbuo *PolicyLoadBalanceUpdateOne) AddWeight(i int64) *PolicyLoadBalanceUpdateOne {
 	plbuo.mutation.AddWeight(i)
 	return plbuo
 }
@@ -405,10 +405,10 @@ func (plbuo *PolicyLoadBalanceUpdateOne) sqlSave(ctx context.Context) (_node *Po
 		}
 	}
 	if value, ok := plbuo.mutation.Weight(); ok {
-		_spec.SetField(policyloadbalance.FieldWeight, field.TypeInt, value)
+		_spec.SetField(policyloadbalance.FieldWeight, field.TypeInt64, value)
 	}
 	if value, ok := plbuo.mutation.AddedWeight(); ok {
-		_spec.AddField(policyloadbalance.FieldWeight, field.TypeInt, value)
+		_spec.AddField(policyloadbalance.FieldWeight, field.TypeInt64, value)
 	}
 	if plbuo.mutation.LoadBalanceCleared() {
 		edge := &sqlgraph.EdgeSpec{

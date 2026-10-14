@@ -372,15 +372,15 @@ func init() {
 	// policyloadbalanceDescWeight is the schema descriptor for weight field.
 	policyloadbalanceDescWeight := policyloadbalanceFields[2].Descriptor()
 	// policyloadbalance.DefaultWeight holds the default value on creation for the weight field.
-	policyloadbalance.DefaultWeight = policyloadbalanceDescWeight.Default.(int)
+	policyloadbalance.DefaultWeight = policyloadbalanceDescWeight.Default.(int64)
 	// policyloadbalance.WeightValidator is a validator for the "weight" field. It is called by the builders before save.
-	policyloadbalance.WeightValidator = func() func(int) error {
+	policyloadbalance.WeightValidator = func() func(int64) error {
 		validators := policyloadbalanceDescWeight.Validators
-		fns := [...]func(int) error{
-			validators[0].(func(int) error),
-			validators[1].(func(int) error),
+		fns := [...]func(int64) error{
+			validators[0].(func(int64) error),
+			validators[1].(func(int64) error),
 		}
-		return func(weight int) error {
+		return func(weight int64) error {
 			for _, fn := range fns {
 				if err := fn(weight); err != nil {
 					return err

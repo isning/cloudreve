@@ -24,7 +24,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func (f *storageFixture) pool(t *testing.T, weights ...int) *ent.StoragePolicy {
+func (f *storageFixture) pool(t *testing.T, weights ...int64) *ent.StoragePolicy {
 	t.Helper()
 	f.loginAs(t, "storage-admin@example.com", f.adminPassword)
 	children := make([]map[string]any, len(weights))
@@ -39,7 +39,7 @@ func (f *storageFixture) pool(t *testing.T, weights ...int) *ent.StoragePolicy {
 	return &pool
 }
 
-func (f *storageFixture) poolWeights(t *testing.T, pool *ent.StoragePolicy, weights ...int) {
+func (f *storageFixture) poolWeights(t *testing.T, pool *ent.StoragePolicy, weights ...int64) {
 	t.Helper()
 	f.loginAs(t, "storage-admin@example.com", f.adminPassword)
 	for i, weight := range weights {
@@ -67,7 +67,7 @@ func TestLoadBalanceAdministrationMatchesProRelationContract(t *testing.T) {
 		"self":       []any{map[string]any{"storage_policy_id": pool.ID, "weight": 1}},
 		"null":       []any{nil},
 		"duplicate":  []any{map[string]any{"storage_policy_id": f.policies[0].ID, "weight": 1}, map[string]any{"storage_policy_id": f.policies[0].ID, "weight": 2}},
-		"overflow":   []any{map[string]any{"storage_policy_id": f.policies[0].ID, "weight": 9007199254740991}, map[string]any{"storage_policy_id": f.policies[1].ID, "weight": 1}},
+		"overflow":   []any{map[string]any{"storage_policy_id": f.policies[0].ID, "weight": int64(9007199254740991)}, map[string]any{"storage_policy_id": f.policies[1].ID, "weight": 1}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			require.Equal(t, serializer.CodeParamErr, f.responseCode(t, http.MethodPut, endpoint, map[string]any{"policy": map[string]any{
@@ -77,7 +77,7 @@ func TestLoadBalanceAdministrationMatchesProRelationContract(t *testing.T) {
 			f.request(t, http.MethodGet, endpoint, nil, &saved)
 			require.Equal(t, pool.Name, saved.Name)
 			require.Len(t, saved.Edges.PolicyLoadBalance, 2)
-			require.Equal(t, 3, saved.Edges.PolicyLoadBalance[1].Weight)
+			require.Equal(t, int64(3), saved.Edges.PolicyLoadBalance[1].Weight)
 		})
 	}
 	other := f.pool(t, 1)
@@ -96,6 +96,29 @@ func TestLoadBalanceAdministrationMatchesProRelationContract(t *testing.T) {
 	f.request(t, http.MethodDelete, fmt.Sprintf("/api/v4/admin/policy/%d", f.policies[1].ID), nil, nil)
 }
 
+func TestLoadBalanceLargeWeightsRetainPrecision(t *testing.T) {
+	f := newStorageFixture(t)
+	const weight int64 = 9007199254740991
+	pool := f.pool(t, weight, 0)
+	require.Equal(t, weight, pool.Edges.PolicyLoadBalance[0].Weight)
+	f.loginAs(t, "storage-admin@example.com", f.adminPassword)
+	f.request(t, http.MethodGet, fmt.Sprintf("/api/v4/admin/policy/%d", pool.ID), nil, &pool)
+	require.Equal(t, weight, pool.Edges.PolicyLoadBalance[0].Weight)
+	f.login(t)
+	f.assignPolicies(t, pool.ID)
+	var policies []explorer.StoragePolicy
+	f.request(t, http.MethodGet, "/api/v4/user/setting/policies", nil, &policies)
+	require.Len(t, policies, 1)
+	require.Len(t, policies[0].Children, 2)
+	require.Equal(t, weight, policies[0].Children[0].Weight)
+	data := []byte("large weights preserve the concrete destination")
+	uri := "cloudreve://my/large-weight.txt"
+	session := f.upload(t, uri, data, nil)
+	require.Equal(t, policies[0].Children[0].ID, session.StoragePolicy.ID)
+	require.Equal(t, data, f.readFile(t, uri))
+	f.assertObjectCounts(t, 1, 0)
+}
+
 func TestLoadBalanceDescriptorsAndExplicitChildAuthorization(t *testing.T) {
 	f := newStorageFixture(t)
 	pool := f.pool(t, 0, 1)
@@ -107,7 +130,7 @@ func TestLoadBalanceDescriptorsAndExplicitChildAuthorization(t *testing.T) {
 	require.EqualValues(t, types.PolicyTypeLoadBalance, policies[0].Type)
 	require.Len(t, policies[0].Children, 2)
 	require.Zero(t, policies[0].Children[0].Weight)
-	require.Equal(t, 1, policies[0].Children[1].Weight)
+	require.Equal(t, int64(1), policies[0].Children[1].Weight)
 	raw, err := json.Marshal(policies)
 	require.NoError(t, err)
 	for _, forbidden := range []string{"secret_key", "access_key", "settings", "bucket_name", "server", f.policies[0].SecretKey} {

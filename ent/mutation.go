@@ -14092,8 +14092,8 @@ type PolicyLoadBalanceMutation struct {
 	op                    Op
 	typ                   string
 	id                    *int
-	weight                *int
-	addweight             *int
+	weight                *int64
+	addweight             *int64
 	clearedFields         map[string]struct{}
 	load_balance          *int
 	clearedload_balance   bool
@@ -14275,13 +14275,13 @@ func (m *PolicyLoadBalanceMutation) ResetStoragePolicyID() {
 }
 
 // SetWeight sets the "weight" field.
-func (m *PolicyLoadBalanceMutation) SetWeight(i int) {
+func (m *PolicyLoadBalanceMutation) SetWeight(i int64) {
 	m.weight = &i
 	m.addweight = nil
 }
 
 // Weight returns the value of the "weight" field in the mutation.
-func (m *PolicyLoadBalanceMutation) Weight() (r int, exists bool) {
+func (m *PolicyLoadBalanceMutation) Weight() (r int64, exists bool) {
 	v := m.weight
 	if v == nil {
 		return
@@ -14292,7 +14292,7 @@ func (m *PolicyLoadBalanceMutation) Weight() (r int, exists bool) {
 // OldWeight returns the old "weight" field's value of the PolicyLoadBalance entity.
 // If the PolicyLoadBalance object wasn't provided to the builder, the object is fetched from the database.
 // An error is returned if the mutation operation is not UpdateOne, or the database query fails.
-func (m *PolicyLoadBalanceMutation) OldWeight(ctx context.Context) (v int, err error) {
+func (m *PolicyLoadBalanceMutation) OldWeight(ctx context.Context) (v int64, err error) {
 	if !m.op.Is(OpUpdateOne) {
 		return v, errors.New("OldWeight is only allowed on UpdateOne operations")
 	}
@@ -14307,7 +14307,7 @@ func (m *PolicyLoadBalanceMutation) OldWeight(ctx context.Context) (v int, err e
 }
 
 // AddWeight adds i to the "weight" field.
-func (m *PolicyLoadBalanceMutation) AddWeight(i int) {
+func (m *PolicyLoadBalanceMutation) AddWeight(i int64) {
 	if m.addweight != nil {
 		*m.addweight += i
 	} else {
@@ -14316,7 +14316,7 @@ func (m *PolicyLoadBalanceMutation) AddWeight(i int) {
 }
 
 // AddedWeight returns the value that was added to the "weight" field in this mutation.
-func (m *PolicyLoadBalanceMutation) AddedWeight() (r int, exists bool) {
+func (m *PolicyLoadBalanceMutation) AddedWeight() (r int64, exists bool) {
 	v := m.addweight
 	if v == nil {
 		return
@@ -14481,7 +14481,7 @@ func (m *PolicyLoadBalanceMutation) SetField(name string, value ent.Value) error
 		m.SetStoragePolicyID(v)
 		return nil
 	case policyloadbalance.FieldWeight:
-		v, ok := value.(int)
+		v, ok := value.(int64)
 		if !ok {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
@@ -14518,7 +14518,7 @@ func (m *PolicyLoadBalanceMutation) AddedField(name string) (ent.Value, bool) {
 func (m *PolicyLoadBalanceMutation) AddField(name string, value ent.Value) error {
 	switch name {
 	case policyloadbalance.FieldWeight:
-		v, ok := value.(int)
+		v, ok := value.(int64)
 		if !ok {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}

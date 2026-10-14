@@ -305,7 +305,7 @@ type StoragePolicy struct {
 	Relay             bool             `json:"relay,omitempty"`
 	ChunkConcurrency  int              `json:"chunk_concurrency,omitempty"`
 	Encryption        bool             `json:"encryption,omitempty"`
-	Weight            int              `json:"weight,omitempty"`
+	Weight            int64            `json:"weight,omitempty"`
 	Children          []*StoragePolicy `json:"children,omitempty"`
 }
 
