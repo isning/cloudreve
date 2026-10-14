@@ -94,6 +94,12 @@ func (service *SingleStoragePolicyService) Delete(c *gin.Context) error {
 
 	err = storagePolicyClient.Delete(ctx, policy)
 	if err != nil {
+		if errors.Is(err, inventory.ErrStoragePolicyGranted) {
+			return serializer.NewError(serializer.CodePolicyUsedByGroups, "Storage policy is granted to an active group", nil)
+		}
+		if errors.Is(err, inventory.ErrStoragePolicyInUse) {
+			return serializer.NewError(serializer.CodePolicyUsedByFiles, "Storage policy has active uploads or migration dependencies", nil)
+		}
 		return serializer.NewError(serializer.CodeDBError, "Failed to delete policy", err)
 	}
 
@@ -304,6 +310,9 @@ func (service *UpdateStoragePolicyService) Update(c *gin.Context) (*GetStoragePo
 	_, err = sc.Upsert(ctx, service.Policy)
 	if err != nil {
 		_ = inventory.Rollback(tx)
+		if errors.Is(err, inventory.ErrStoragePolicyInUse) {
+			return nil, serializer.NewError(serializer.CodePolicyUsedByFiles, "Storage policy has active uploads or migration dependencies", nil)
+		}
 		return nil, serializer.NewError(serializer.CodeDBError, "Failed to update policy", err)
 	}
 

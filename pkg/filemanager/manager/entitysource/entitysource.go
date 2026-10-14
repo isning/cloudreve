@@ -80,6 +80,7 @@ type EntitySourceOptions struct {
 	Expire             *time.Time
 	IsDownload         bool
 	NoInternalProxy    bool
+	PhysicalSource     bool
 	DisplayName        string
 	OneTimeDownloadKey string
 	Ctx                context.Context
@@ -113,6 +114,12 @@ func WithDownload(isDownload bool) EntitySourceOption {
 	return EntitySourceOptionFunc(func(option any) {
 		option.(*EntitySourceOptions).IsDownload = isDownload
 	})
+}
+
+// WithPhysicalSource opens an operator-owned physical object before its Entity
+// is admitted. ID zero normally represents the virtual empty-file response.
+func WithPhysicalSource() EntitySourceOption {
+	return EntitySourceOptionFunc(func(option any) { option.(*EntitySourceOptions).PhysicalSource = true })
 }
 
 // WithNoInternalProxy overwrite policy's internal proxy setting
@@ -580,7 +587,7 @@ func (f *entitySource) ShouldInternalProxy(opts ...EntitySourceOption) bool {
 		opt.Apply(f.o)
 	}
 	handlerCapability := f.handler.Capabilities()
-	return f.e.ID() == 0 || handlerCapability.StaticFeatures.Enabled(int(driver.HandlerCapabilityProxyRequired)) ||
+	return (f.e.ID() == 0 && !f.o.PhysicalSource) || handlerCapability.StaticFeatures.Enabled(int(driver.HandlerCapabilityProxyRequired)) ||
 		(f.policy.Settings.InternalProxy || f.e.Encrypted()) && !f.o.NoInternalProxy
 }
 
@@ -726,7 +733,9 @@ func (f *entitySource) getRsc(pos int64) (io.ReadCloser, error) {
 		}
 
 		h := http.Header{}
-		h.Set("Range", fmt.Sprintf("bytes=%d-", pos))
+		if !(f.o.PhysicalSource && f.e.Size() == 0) {
+			h.Set("Range", fmt.Sprintf("bytes=%d-", pos))
+		}
 		resp := f.c.Request(http.MethodGet, urlStr, nil,
 			request.WithContext(f.o.Ctx),
 			request.WithLogger(f.l),

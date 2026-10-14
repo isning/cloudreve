@@ -102,6 +102,7 @@ const (
 	CreateArchiveTaskType         = "create_archive"
 	ExtractArchiveTaskType        = "extract_archive"
 	RelocateTaskType              = "relocate"
+	RelocationCleanupTaskType     = "relocation_cleanup"
 	RemoteDownloadTaskType        = "remote_download"
 	ImportTaskType                = "import"
 
@@ -512,6 +513,9 @@ func saveTaskToInventory(ctx context.Context, task Task, newStatus task.Status, 
 		PrivateState:  task.State(),
 		OwnerID:       task.Owner().ID,
 		CorrelationID: logging.CorrelationID(ctx),
+	}
+	if protected, ok := task.(interface{ PreserveCompleted() bool }); ok {
+		args.PreserveCompleted = protected.PreserveCompleted()
 	}
 
 	var (

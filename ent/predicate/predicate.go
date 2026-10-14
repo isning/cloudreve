@@ -27,6 +27,9 @@ type FsEvent func(*sql.Selector)
 // Group is the predicate function for group builders.
 type Group func(*sql.Selector)
 
+// GroupPolicy is the predicate function for grouppolicy builders.
+type GroupPolicy func(*sql.Selector)
+
 // Metadata is the predicate function for metadata builders.
 type Metadata func(*sql.Selector)
 
@@ -48,11 +51,26 @@ type OpenIDTransaction func(*sql.Selector)
 // Passkey is the predicate function for passkey builders.
 type Passkey func(*sql.Selector)
 
+// RelocationAttempt is the predicate function for relocationattempt builders.
+type RelocationAttempt func(*sql.Selector)
+
+// RelocationItem is the predicate function for relocationitem builders.
+type RelocationItem func(*sql.Selector)
+
+// RelocationPlan is the predicate function for relocationplan builders.
+type RelocationPlan func(*sql.Selector)
+
 // Setting is the predicate function for setting builders.
 type Setting func(*sql.Selector)
 
 // Share is the predicate function for share builders.
 type Share func(*sql.Selector)
+
+// StorageObject is the predicate function for storageobject builders.
+type StorageObject func(*sql.Selector)
+
+// StorageObjectReader is the predicate function for storageobjectreader builders.
+type StorageObjectReader func(*sql.Selector)
 
 // StoragePolicy is the predicate function for storagepolicy builders.
 type StoragePolicy func(*sql.Selector)

@@ -12,6 +12,7 @@ import (
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
 	"github.com/cloudreve/Cloudreve/v4/ent/group"
+	"github.com/cloudreve/Cloudreve/v4/ent/grouppolicy"
 	"github.com/cloudreve/Cloudreve/v4/ent/storagepolicy"
 	"github.com/cloudreve/Cloudreve/v4/ent/user"
 	"github.com/cloudreve/Cloudreve/v4/inventory/types"
@@ -126,6 +127,21 @@ func (gc *GroupCreate) SetNillableStoragePolicyID(i *int) *GroupCreate {
 		gc.SetStoragePolicyID(*i)
 	}
 	return gc
+}
+
+// AddPolicyAssignmentIDs adds the "policy_assignments" edge to the GroupPolicy entity by IDs.
+func (gc *GroupCreate) AddPolicyAssignmentIDs(ids ...int) *GroupCreate {
+	gc.mutation.AddPolicyAssignmentIDs(ids...)
+	return gc
+}
+
+// AddPolicyAssignments adds the "policy_assignments" edges to the GroupPolicy entity.
+func (gc *GroupCreate) AddPolicyAssignments(g ...*GroupPolicy) *GroupCreate {
+	ids := make([]int, len(g))
+	for i := range g {
+		ids[i] = g[i].ID
+	}
+	return gc.AddPolicyAssignmentIDs(ids...)
 }
 
 // AddUserIDs adds the "users" edge to the User entity by IDs.
@@ -299,6 +315,22 @@ func (gc *GroupCreate) createSpec() (*Group, *sqlgraph.CreateSpec) {
 	if value, ok := gc.mutation.Settings(); ok {
 		_spec.SetField(group.FieldSettings, field.TypeJSON, value)
 		_node.Settings = value
+	}
+	if nodes := gc.mutation.PolicyAssignmentsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   group.PolicyAssignmentsTable,
+			Columns: []string{group.PolicyAssignmentsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(grouppolicy.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges = append(_spec.Edges, edge)
 	}
 	if nodes := gc.mutation.UsersIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{

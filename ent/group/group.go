@@ -34,12 +34,21 @@ const (
 	FieldSettings = "settings"
 	// FieldStoragePolicyID holds the string denoting the storage_policy_id field in the database.
 	FieldStoragePolicyID = "storage_policy_id"
+	// EdgePolicyAssignments holds the string denoting the policy_assignments edge name in mutations.
+	EdgePolicyAssignments = "policy_assignments"
 	// EdgeUsers holds the string denoting the users edge name in mutations.
 	EdgeUsers = "users"
 	// EdgeStoragePolicies holds the string denoting the storage_policies edge name in mutations.
 	EdgeStoragePolicies = "storage_policies"
 	// Table holds the table name of the group in the database.
 	Table = "groups"
+	// PolicyAssignmentsTable is the table that holds the policy_assignments relation/edge.
+	PolicyAssignmentsTable = "group_policies"
+	// PolicyAssignmentsInverseTable is the table name for the GroupPolicy entity.
+	// It exists in this package in order to avoid circular dependency with the "grouppolicy" package.
+	PolicyAssignmentsInverseTable = "group_policies"
+	// PolicyAssignmentsColumn is the table column denoting the policy_assignments relation/edge.
+	PolicyAssignmentsColumn = "group_id"
 	// UsersTable is the table that holds the users relation/edge.
 	UsersTable = "users"
 	// UsersInverseTable is the table name for the User entity.
@@ -141,6 +150,20 @@ func ByStoragePolicyID(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldStoragePolicyID, opts...).ToFunc()
 }
 
+// ByPolicyAssignmentsCount orders the results by policy_assignments count.
+func ByPolicyAssignmentsCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newPolicyAssignmentsStep(), opts...)
+	}
+}
+
+// ByPolicyAssignments orders the results by policy_assignments terms.
+func ByPolicyAssignments(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newPolicyAssignmentsStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
+
 // ByUsersCount orders the results by users count.
 func ByUsersCount(opts ...sql.OrderTermOption) OrderOption {
 	return func(s *sql.Selector) {
@@ -160,6 +183,13 @@ func ByStoragePoliciesField(field string, opts ...sql.OrderTermOption) OrderOpti
 	return func(s *sql.Selector) {
 		sqlgraph.OrderByNeighborTerms(s, newStoragePoliciesStep(), sql.OrderByField(field, opts...))
 	}
+}
+func newPolicyAssignmentsStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(PolicyAssignmentsInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2M, false, PolicyAssignmentsTable, PolicyAssignmentsColumn),
+	)
 }
 func newUsersStep() *sqlgraph.Step {
 	return sqlgraph.NewStep(

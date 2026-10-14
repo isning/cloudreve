@@ -20,12 +20,13 @@ type (
 	LoadTaskUser struct{}
 
 	TaskArgs struct {
-		Status        task.Status
-		Type          string
-		PublicState   *types.TaskPublicState
-		PrivateState  string
-		OwnerID       int
-		CorrelationID uuid.UUID
+		Status            task.Status
+		Type              string
+		PublicState       *types.TaskPublicState
+		PrivateState      string
+		OwnerID           int
+		PreserveCompleted bool
+		CorrelationID     uuid.UUID
 	}
 )
 
@@ -140,6 +141,10 @@ func (c *taskClient) DeleteBy(ctx context.Context, args *DeleteTaskArgs) error {
 }
 
 func (c *taskClient) Update(ctx context.Context, task *ent.Task, args *TaskArgs) (*ent.Task, error) {
+	if args.PreserveCompleted {
+		return c.updatePreservingCompleted(ctx, task, args)
+	}
+
 	stm := c.client.Task.UpdateOne(task).
 		SetPublicState(args.PublicState)
 

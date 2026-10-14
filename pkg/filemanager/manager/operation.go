@@ -398,3 +398,7 @@ func expireTimeToTTL(expireAt *time.Time) int {
 
 	return int(time.Until(*expireAt).Seconds())
 }
+
+func (m *manager) BindPolicy(ctx context.Context, uri *fs.URI, policyID int) error {
+	return m.fs.BindPolicy(ctx, uri, policyID)
+}

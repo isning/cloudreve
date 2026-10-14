@@ -42,16 +42,17 @@ type (
 	CreateArchiveTaskPhase string
 
 	CreateArchiveTaskState struct {
-		Uris               []string                     `json:"uris,omitempty"`
-		Dst                string                       `json:"dst,omitempty"`
-		TempPath           string                       `json:"temp_path,omitempty"`
-		ArchiveFile        string                       `json:"archive_file,omitempty"`
-		Phase              CreateArchiveTaskPhase       `json:"phase,omitempty"`
-		SlaveUploadTaskID  int                          `json:"slave__upload_task_id,omitempty"`
-		SlaveArchiveTaskID int                          `json:"slave__archive_task_id,omitempty"`
-		SlaveCompressState *SlaveCreateArchiveTaskState `json:"slave_compress_state,omitempty"`
-		Failed             int                          `json:"failed,omitempty"`
-		NodeState          `json:",inline"`
+		Uris                []string                     `json:"uris,omitempty"`
+		Dst                 string                       `json:"dst,omitempty"`
+		DestinationPolicyID int                          `json:"destination_policy_id,omitempty"`
+		TempPath            string                       `json:"temp_path,omitempty"`
+		ArchiveFile         string                       `json:"archive_file,omitempty"`
+		Phase               CreateArchiveTaskPhase       `json:"phase,omitempty"`
+		SlaveUploadTaskID   int                          `json:"slave__upload_task_id,omitempty"`
+		SlaveArchiveTaskID  int                          `json:"slave__archive_task_id,omitempty"`
+		SlaveCompressState  *SlaveCreateArchiveTaskState `json:"slave_compress_state,omitempty"`
+		Failed              int                          `json:"failed,omitempty"`
+		NodeState           `json:",inline"`
 	}
 )
 
@@ -75,11 +76,12 @@ func init() {
 }
 
 // NewCreateArchiveTask creates a new CreateArchiveTask
-func NewCreateArchiveTask(ctx context.Context, src []string, dst string) (queue.Task, error) {
+func NewCreateArchiveTask(ctx context.Context, src []string, dst string, destinationPolicyID int) (queue.Task, error) {
 	state := &CreateArchiveTaskState{
-		Uris:      src,
-		Dst:       dst,
-		NodeState: NodeState{},
+		Uris:                src,
+		Dst:                 dst,
+		DestinationPolicyID: destinationPolicyID,
+		NodeState:           NodeState{},
 	}
 	stateBytes, err := json.Marshal(state)
 	if err != nil {
@@ -311,9 +313,10 @@ func (m *CreateArchiveTask) createAndAwaitSlaveUploading(ctx context.Context, de
 		payload := &SlaveUploadTaskState{
 			Files: []SlaveUploadEntity{
 				{
-					Size: m.state.SlaveCompressState.CompressedSize,
-					Uri:  dst,
-					Src:  m.state.SlaveCompressState.ZipFilePath,
+					Size:                   m.state.SlaveCompressState.CompressedSize,
+					Uri:                    dst,
+					Src:                    m.state.SlaveCompressState.ZipFilePath,
+					PreferredStoragePolicy: m.state.DestinationPolicyID,
 				},
 			},
 			MaxParallel: dep.SettingProvider().MaxParallelTransfer(ctx),
@@ -457,8 +460,9 @@ func (m *CreateArchiveTask) uploadArchive(ctx context.Context, dep dependency.De
 	m.Unlock()
 	fileData := &fs.UploadRequest{
 		Props: &fs.UploadProps{
-			Uri:  uri,
-			Size: size,
+			Uri:                    uri,
+			Size:                   size,
+			PreferredStoragePolicy: m.state.DestinationPolicyID,
 		},
 		ProgressFunc: func(current, diff int64, total int64) {
 			atomic.StoreInt64(&m.progress[ProgressTypeUpload].Current, current)

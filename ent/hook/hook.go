@@ -93,6 +93,18 @@ func (f GroupFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error
 	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.GroupMutation", m)
 }
 
+// The GroupPolicyFunc type is an adapter to allow the use of ordinary
+// function as GroupPolicy mutator.
+type GroupPolicyFunc func(context.Context, *ent.GroupPolicyMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f GroupPolicyFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.GroupPolicyMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.GroupPolicyMutation", m)
+}
+
 // The MetadataFunc type is an adapter to allow the use of ordinary
 // function as Metadata mutator.
 type MetadataFunc func(context.Context, *ent.MetadataMutation) (ent.Value, error)
@@ -177,6 +189,42 @@ func (f PasskeyFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, err
 	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.PasskeyMutation", m)
 }
 
+// The RelocationAttemptFunc type is an adapter to allow the use of ordinary
+// function as RelocationAttempt mutator.
+type RelocationAttemptFunc func(context.Context, *ent.RelocationAttemptMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f RelocationAttemptFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.RelocationAttemptMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.RelocationAttemptMutation", m)
+}
+
+// The RelocationItemFunc type is an adapter to allow the use of ordinary
+// function as RelocationItem mutator.
+type RelocationItemFunc func(context.Context, *ent.RelocationItemMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f RelocationItemFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.RelocationItemMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.RelocationItemMutation", m)
+}
+
+// The RelocationPlanFunc type is an adapter to allow the use of ordinary
+// function as RelocationPlan mutator.
+type RelocationPlanFunc func(context.Context, *ent.RelocationPlanMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f RelocationPlanFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.RelocationPlanMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.RelocationPlanMutation", m)
+}
+
 // The SettingFunc type is an adapter to allow the use of ordinary
 // function as Setting mutator.
 type SettingFunc func(context.Context, *ent.SettingMutation) (ent.Value, error)
@@ -199,6 +247,30 @@ func (f ShareFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error
 		return f(ctx, mv)
 	}
 	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.ShareMutation", m)
+}
+
+// The StorageObjectFunc type is an adapter to allow the use of ordinary
+// function as StorageObject mutator.
+type StorageObjectFunc func(context.Context, *ent.StorageObjectMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f StorageObjectFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.StorageObjectMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.StorageObjectMutation", m)
+}
+
+// The StorageObjectReaderFunc type is an adapter to allow the use of ordinary
+// function as StorageObjectReader mutator.
+type StorageObjectReaderFunc func(context.Context, *ent.StorageObjectReaderMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f StorageObjectReaderFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.StorageObjectReaderMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.StorageObjectReaderMutation", m)
 }
 
 // The StoragePolicyFunc type is an adapter to allow the use of ordinary

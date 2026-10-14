@@ -48,6 +48,7 @@ var (
 		types.NodeCapabilityCreateArchive,
 		types.NodeCapabilityExtractArchive,
 		types.NodeCapabilityRemoteDownload,
+		types.NodeCapabilityRelocate,
 	}
 )
 

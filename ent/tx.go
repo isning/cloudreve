@@ -28,6 +28,8 @@ type Tx struct {
 	FsEvent *FsEventClient
 	// Group is the client for interacting with the Group builders.
 	Group *GroupClient
+	// GroupPolicy is the client for interacting with the GroupPolicy builders.
+	GroupPolicy *GroupPolicyClient
 	// Metadata is the client for interacting with the Metadata builders.
 	Metadata *MetadataClient
 	// Node is the client for interacting with the Node builders.
@@ -42,10 +44,20 @@ type Tx struct {
 	OpenIDTransaction *OpenIDTransactionClient
 	// Passkey is the client for interacting with the Passkey builders.
 	Passkey *PasskeyClient
+	// RelocationAttempt is the client for interacting with the RelocationAttempt builders.
+	RelocationAttempt *RelocationAttemptClient
+	// RelocationItem is the client for interacting with the RelocationItem builders.
+	RelocationItem *RelocationItemClient
+	// RelocationPlan is the client for interacting with the RelocationPlan builders.
+	RelocationPlan *RelocationPlanClient
 	// Setting is the client for interacting with the Setting builders.
 	Setting *SettingClient
 	// Share is the client for interacting with the Share builders.
 	Share *ShareClient
+	// StorageObject is the client for interacting with the StorageObject builders.
+	StorageObject *StorageObjectClient
+	// StorageObjectReader is the client for interacting with the StorageObjectReader builders.
+	StorageObjectReader *StorageObjectReaderClient
 	// StoragePolicy is the client for interacting with the StoragePolicy builders.
 	StoragePolicy *StoragePolicyClient
 	// Task is the client for interacting with the Task builders.
@@ -190,6 +202,7 @@ func (tx *Tx) init() {
 	tx.File = NewFileClient(tx.config)
 	tx.FsEvent = NewFsEventClient(tx.config)
 	tx.Group = NewGroupClient(tx.config)
+	tx.GroupPolicy = NewGroupPolicyClient(tx.config)
 	tx.Metadata = NewMetadataClient(tx.config)
 	tx.Node = NewNodeClient(tx.config)
 	tx.OAuthClient = NewOAuthClientClient(tx.config)
@@ -197,8 +210,13 @@ func (tx *Tx) init() {
 	tx.OpenIDSession = NewOpenIDSessionClient(tx.config)
 	tx.OpenIDTransaction = NewOpenIDTransactionClient(tx.config)
 	tx.Passkey = NewPasskeyClient(tx.config)
+	tx.RelocationAttempt = NewRelocationAttemptClient(tx.config)
+	tx.RelocationItem = NewRelocationItemClient(tx.config)
+	tx.RelocationPlan = NewRelocationPlanClient(tx.config)
 	tx.Setting = NewSettingClient(tx.config)
 	tx.Share = NewShareClient(tx.config)
+	tx.StorageObject = NewStorageObjectClient(tx.config)
+	tx.StorageObjectReader = NewStorageObjectReaderClient(tx.config)
 	tx.StoragePolicy = NewStoragePolicyClient(tx.config)
 	tx.Task = NewTaskClient(tx.config)
 	tx.User = NewUserClient(tx.config)

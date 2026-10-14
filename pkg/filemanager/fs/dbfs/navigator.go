@@ -99,8 +99,8 @@ const (
 	NavigatorCapabilityShare
 	NavigatorCapabilityInfo
 	NavigatorCapabilityVersionControl
-	NavigatorCapability_CommunityPlacehodler8
-	NavigatorCapability_CommunityPlacehodler9
+	NavigatorCapabilityBindPolicy
+	NavigatorCapabilityRelocate
 	NavigatorCapabilityEnterFolder
 	NavigatorCapabilityModifyProps
 
@@ -124,6 +124,8 @@ func init() {
 		NavigatorCapabilityVersionControl: true,
 		NavigatorCapabilityEnterFolder:    true,
 		NavigatorCapabilityModifyProps:    true,
+		NavigatorCapabilityBindPolicy:     true,
+		NavigatorCapabilityRelocate:       true,
 	}, myNavigatorCapability)
 	boolset.Sets(map[NavigatorCapability]bool{
 		NavigatorCapabilityDownloadFile:   true,

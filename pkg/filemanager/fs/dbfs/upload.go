@@ -9,11 +9,13 @@ import (
 	"time"
 
 	"github.com/cloudreve/Cloudreve/v4/ent"
+	entuser "github.com/cloudreve/Cloudreve/v4/ent/user"
 	"github.com/cloudreve/Cloudreve/v4/inventory"
 	"github.com/cloudreve/Cloudreve/v4/inventory/types"
 	"github.com/cloudreve/Cloudreve/v4/pkg/filemanager/fs"
 	"github.com/cloudreve/Cloudreve/v4/pkg/hashid"
 	"github.com/cloudreve/Cloudreve/v4/pkg/serializer"
+	"github.com/cloudreve/Cloudreve/v4/pkg/storagepolicy"
 	"github.com/cloudreve/Cloudreve/v4/pkg/util"
 )
 
@@ -43,14 +45,12 @@ func (f *DBFS) PreValidateUpload(ctx context.Context, dst *fs.URI, files ...fs.P
 		total += file.Size
 	}
 
-	// Get parent folder storage policy and performs validation
-	policy, err := f.getPreferredPolicy(ctx, dstFile)
-	if err != nil {
-		return err
-	}
-
-	// validate upload request
+	// Resolve each request against current grants, including fixed queued destinations.
 	for _, file := range files {
+		policy, err := storagepolicy.New(f.userClient, f.storagePolicyClient).SelectForFile(ctx, dstFile.OwnerID(), file.PreferredStoragePolicy, f.fileClient, dstFile.ID())
+		if err != nil {
+			return err
+		}
 		if file.OmitName {
 			if err := validateFileSize(file.Size, policy); err != nil {
 				return err
@@ -111,25 +111,26 @@ func (f *DBFS) PrepareUpload(ctx context.Context, req *fs.UploadRequest, opts ..
 		return nil, fs.ErrOwnerOnly
 	}
 
+	// Resolve once before locks, placeholders, quota reservation or provider I/O.
+	var policy *ent.StoragePolicy
+	if req.ImportFrom == nil {
+		policy, err = storagepolicy.New(f.userClient, f.storagePolicyClient).SelectForFile(ctx, ancestor.OwnerID(), req.Props.PreferredStoragePolicy, f.fileClient, ancestor.ID())
+	} else {
+		policy, err = f.storagePolicyClient.GetPolicyByID(ctx, req.Props.PreferredStoragePolicy)
+	}
+	if err != nil {
+		if errors.Is(err, storagepolicy.ErrPolicyNotGranted) || errors.Is(err, storagepolicy.ErrNoAvailablePolicies) {
+			return nil, serializer.NewError(serializer.CodeGroupNotAllowed, "Storage policy is unavailable", err)
+		}
+		return nil, serializer.NewError(serializer.CodeDBError, "Failed to resolve storage destination", err)
+	}
+
 	// Lock target
 	lockedPath := ancestor.RootUri().JoinRaw(req.Props.Uri.PathTrimmed())
 	lr := &LockByPath{lockedPath, ancestor, types.FileTypeFile, ""}
 	ls, err := f.acquireByPath(ctx, time.Until(req.Props.ExpireAt), f.user, false, fs.LockApp(fs.ApplicationUpload), lr)
 	defer func() { _ = f.Release(ctx, ls) }()
 	ctx = fs.LockSessionToContext(ctx, ls)
-	if err != nil {
-		return nil, err
-	}
-
-	// Get parent folder storage policy and performs validation
-	var (
-		policy *ent.StoragePolicy
-	)
-	if req.ImportFrom == nil {
-		policy, err = f.getPreferredPolicy(ctx, ancestor)
-	} else {
-		policy, err = f.storagePolicyClient.GetPolicyByID(ctx, req.Props.PreferredStoragePolicy)
-	}
 	if err != nil {
 		return nil, err
 	}
@@ -191,6 +192,54 @@ func (f *DBFS) PrepareUpload(ctx context.Context, req *fs.UploadRequest, opts ..
 			return nil, fs.ErrInsufficientCapacity
 		}
 		return nil, serializer.NewError(serializer.CodeDBError, "Failed to reserve storage capacity", err)
+	}
+	// Zero-byte uploads still need the same owner -> policy lock ordering.
+	if req.Props.Size == 0 {
+		if err := fc.GetClient().User.Update().Where(entuser.ID(owner.ID)).AddStorage(0).Exec(ctx); err != nil {
+			_ = inventory.Rollback(dbTx)
+			return nil, err
+		}
+	}
+	current, err := inventory.LockStoragePolicy(ctx, fc.GetClient(), policy.ID)
+	if err != nil {
+		_ = inventory.Rollback(dbTx)
+		return nil, err
+	}
+	if !inventory.SameStorageLocation(current, policy) {
+		_ = inventory.Rollback(dbTx)
+		return nil, serializer.NewError(serializer.CodeLockConflict, "Storage destination changed; retry upload", nil)
+	}
+	if req.ImportFrom == nil {
+		if _, err = storagepolicy.New(f.userClient, f.storagePolicyClient).Select(ctx, owner.ID, current.ID, 0); err != nil {
+			_ = inventory.Rollback(dbTx)
+			return nil, serializer.NewError(serializer.CodeGroupNotAllowed, "Storage policy is unavailable", err)
+		}
+	}
+	if err = validateNewFile(req.Props.Uri.Name(), req.Props.Size, current); err != nil {
+		_ = inventory.Rollback(dbTx)
+		return nil, err
+	}
+	policy = current
+	location, err := inventory.LockStorageObject(ctx, fc.GetClient(), policy, req.Props.SavePath)
+	if err != nil {
+		_ = inventory.Rollback(dbTx)
+		return nil, err
+	}
+	if req.ImportFrom != nil {
+		// The physical listing can be stale. Reopen under the deletion gate,
+		// including after a successful deletion whose SQL transaction rolled back.
+		if req.ImportVerifier == nil {
+			_ = inventory.Rollback(dbTx)
+			return nil, errors.New("physical import verifier is unavailable")
+		}
+		if err := req.ImportVerifier(ctx, policy, req.Props.SavePath, req.Props.Size); err != nil {
+			_ = inventory.Rollback(dbTx)
+			return nil, err
+		}
+	}
+	if err := fc.GetClient().StorageObject.UpdateOne(location).SetRetired(false).Exec(ctx); err != nil {
+		_ = inventory.Rollback(dbTx)
+		return nil, err
 	}
 
 	if fileExisted {

@@ -175,6 +175,7 @@ type dependency struct {
 	oAuthClient           inventory.OAuthClientClient
 	emailClient           email.Driver
 	generalAuth           auth.Auth
+	generalAuthOnce       sync.Once
 	hashidEncoder         hashid.Encoder
 	tokenAuth             auth.TokenAuth
 	lockSystem            lock.LockSystem
@@ -197,6 +198,7 @@ type dependency struct {
 	cron                  *cron.Cron
 	masterEncryptKeyVault encrypt.MasterEncryptKeyVault
 	eventHub              eventhub.EventHub
+	eventHubOnce          sync.Once
 	searchIndexer         searcher.SearchIndexer
 	textExtractor         searcher.TextExtractor
 
@@ -356,6 +358,9 @@ func (d *dependency) DBClient() *ent.Client {
 	if err := inventory.EnsureExternalAuthSchema(context.Background(), client); err != nil {
 		d.panicError(err)
 	}
+	if err := inventory.EnsureStorageSchema(context.Background(), client); err != nil {
+		d.panicError(err)
+	}
 	d.dbClient = client
 	return d.dbClient
 }
@@ -388,10 +393,11 @@ func (d *dependency) NavigatorStateKV() cache.Driver {
 }
 
 func (d *dependency) EventHub() eventhub.EventHub {
-	if d.eventHub != nil {
-		return d.eventHub
-	}
-	d.eventHub = eventhub.NewEventHub(d.UserClient(), d.FsEventClient(), d.SettingProvider())
+	d.eventHubOnce.Do(func() {
+		if d.eventHub == nil {
+			d.eventHub = eventhub.NewEventHub(d.UserClient(), d.FsEventClient(), d.SettingProvider())
+		}
+	})
 	return d.eventHub
 }
 
@@ -746,7 +752,7 @@ func (d *dependency) EntityRecycleQueue(ctx context.Context) queue.Queue {
 		queue.WithWorkerCount(queueSetting.WorkerNum),
 		queue.WithName("EntityRecycleQueue"),
 		queue.WithMaxTaskExecution(queueSetting.MaxExecution),
-		queue.WithResumeTaskType(queue.EntityRecycleRoutineTaskType, queue.ExplicitEntityRecycleTaskType, queue.UploadSentinelCheckTaskType),
+		queue.WithResumeTaskType(queue.EntityRecycleRoutineTaskType, queue.ExplicitEntityRecycleTaskType, queue.UploadSentinelCheckTaskType, queue.RelocationCleanupTaskType),
 		queue.WithTaskPullInterval(10*time.Second),
 	)
 	return d.entityRecycleQueue
@@ -781,24 +787,21 @@ func (d *dependency) SlaveQueue(ctx context.Context) queue.Queue {
 }
 
 func (d *dependency) GeneralAuth() auth.Auth {
-	if d.generalAuth != nil {
-		return d.generalAuth
-	}
-
-	var secretKey string
-	if d.ConfigProvider().System().Mode == conf.MasterMode {
-		secretKey = d.SettingProvider().SecretKey(context.Background())
-	} else {
-		secretKey = d.ConfigProvider().Slave().Secret
-		if secretKey == "" {
-			d.panicError(errors.New("SlaveSecret is not set, please specify it in config file"))
+	d.generalAuthOnce.Do(func() {
+		if d.generalAuth != nil {
+			return
 		}
-	}
-
-	d.generalAuth = auth.HMACAuth{
-		SecretKey: []byte(secretKey),
-	}
-
+		var secretKey string
+		if d.ConfigProvider().System().Mode == conf.MasterMode {
+			secretKey = d.SettingProvider().SecretKey(context.Background())
+		} else {
+			secretKey = d.ConfigProvider().Slave().Secret
+			if secretKey == "" {
+				d.panicError(errors.New("SlaveSecret is not set, please specify it in config file"))
+			}
+		}
+		d.generalAuth = auth.HMACAuth{SecretKey: []byte(secretKey)}
+	})
 	return d.generalAuth
 }
 

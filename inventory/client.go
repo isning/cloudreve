@@ -70,7 +70,11 @@ func NewRawEntClient(l logging.Logger, config conf.ConfigProvider) (*ent.Client,
 	// If Database connection string provided, use it directly.
 	if dbConfig.DatabaseURL != "" {
 		l.Info("Connect to database with connection string")
-		client, err = sql.Open(string(confDBType), dbConfig.DatabaseURL)
+		driverName := string(confDBType)
+		if confDBType == conf.SQLiteDB {
+			driverName = "sqlite3"
+		}
+		client, err = sql.Open(driverName, dbConfig.DatabaseURL)
 	} else {
 
 		switch confDBType {
@@ -128,12 +132,13 @@ func NewRawEntClient(l logging.Logger, config conf.ConfigProvider) (*ent.Client,
 	// Set timeout
 	db.SetConnMaxLifetime(time.Second * 30)
 
-	driverOpt := ent.Driver(client)
+	stableDriver := contextDriver{Driver: client}
+	driverOpt := ent.Driver(stableDriver)
 
 	// Enable verbose logging for debug mode.
 	if config.System().Debug {
 		l.Debug("Debug mode is enabled for DB client.")
-		driverOpt = ent.Driver(debug.DebugWithContext(client, func(ctx context.Context, i ...any) {
+		driverOpt = ent.Driver(debug.DebugWithContext(stableDriver, func(ctx context.Context, i ...any) {
 			logging.FromContext(ctx).Debug(i[0].(string), i[1:]...)
 		}))
 	}
@@ -172,6 +177,25 @@ func (d sqlite3Driver) Open(name string) (conn driver.Conn, err error) {
 	_, err = conn.(sqlite3DriverConn).Exec("PRAGMA foreign_keys = ON;", nil)
 	if err != nil {
 		_ = conn.Close()
+		return
+	}
+	// Separate workers can hold short-lived SQLite write/schema locks. Honor
+	// an operator's explicit timeout; otherwise wait within the HTTP deadline
+	// instead of failing valid writes immediately with SQLITE_BUSY.
+	explicitTimeout := false
+	if parts := strings.SplitN(name, "?", 2); len(parts) == 2 {
+		values, _ := url.ParseQuery(parts[1])
+		for _, pragma := range values["_pragma"] {
+			if strings.HasPrefix(strings.ToLower(strings.TrimSpace(pragma)), "busy_timeout") {
+				explicitTimeout = true
+			}
+		}
+	}
+	if !explicitTimeout {
+		_, err = conn.(sqlite3DriverConn).Exec("PRAGMA busy_timeout = 5000;", nil)
+		if err != nil {
+			_ = conn.Close()
+		}
 	}
 	return
 }

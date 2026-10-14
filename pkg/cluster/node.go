@@ -219,9 +219,18 @@ func (b *masterNode) CreateDownloader(ctx context.Context, c request.Client, set
 
 // NewDownloader creates a new downloader instance from the node for remote download tasks.
 func NewDownloader(ctx context.Context, c request.Client, settings setting.Provider, options *types.NodeSetting) (downloader.Downloader, error) {
+	if options == nil {
+		return nil, errors.New("downloader not configured for this node")
+	}
 	if options.Provider == types.DownloaderProviderQBittorrent {
+		if options.QBittorrentSetting == nil {
+			return nil, errors.New("qbittorrent settings missing for this node")
+		}
 		return qbittorrent.NewClient(logging.FromContext(ctx), c, settings, options.QBittorrentSetting)
 	} else if options.Provider == types.DownloaderProviderAria2 {
+		if options.Aria2Setting == nil {
+			return nil, errors.New("aria2 settings missing for this node")
+		}
 		return aria2.New(logging.FromContext(ctx), settings, options.Aria2Setting), nil
 	} else if options.Provider == "" {
 		return nil, errors.New("downloader not configured for this node")

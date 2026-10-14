@@ -177,6 +177,7 @@ type (
 	}
 
 	EntityProps struct {
+		UploadExpiresAt int64            `json:"upload_expires_at,omitempty"`
 		UnlinkOnly      bool             `json:"unlink_only,omitempty"`
 		EncryptMetadata *EncryptMetadata `json:"encrypt_metadata,omitempty"`
 	}
@@ -253,7 +254,7 @@ const (
 	GroupPermissionShareDownload
 	GroupPermission_CommunityPlaceholder1
 	GroupPermissionRemoteDownload
-	GroupPermission_CommunityPlaceholder2
+	GroupPermissionRelocate
 	GroupPermissionRedirectedSource // not used
 	GroupPermissionAdvanceDelete
 	GroupPermission_CommunityPlaceholder3
@@ -268,7 +269,7 @@ const (
 	NodeCapabilityCreateArchive
 	NodeCapabilityExtractArchive
 	NodeCapabilityRemoteDownload
-	NodeCapability_CommunityPlaceholder
+	NodeCapabilityRelocate
 )
 
 const (

@@ -14,6 +14,7 @@ import (
 	"github.com/cloudreve/Cloudreve/v4/ent/entity"
 	"github.com/cloudreve/Cloudreve/v4/ent/file"
 	"github.com/cloudreve/Cloudreve/v4/ent/group"
+	"github.com/cloudreve/Cloudreve/v4/ent/grouppolicy"
 	"github.com/cloudreve/Cloudreve/v4/ent/node"
 	"github.com/cloudreve/Cloudreve/v4/ent/predicate"
 	"github.com/cloudreve/Cloudreve/v4/ent/storagepolicy"
@@ -286,6 +287,21 @@ func (spu *StoragePolicyUpdate) ClearNodeID() *StoragePolicyUpdate {
 	return spu
 }
 
+// AddGroupAssignmentIDs adds the "group_assignments" edge to the GroupPolicy entity by IDs.
+func (spu *StoragePolicyUpdate) AddGroupAssignmentIDs(ids ...int) *StoragePolicyUpdate {
+	spu.mutation.AddGroupAssignmentIDs(ids...)
+	return spu
+}
+
+// AddGroupAssignments adds the "group_assignments" edges to the GroupPolicy entity.
+func (spu *StoragePolicyUpdate) AddGroupAssignments(g ...*GroupPolicy) *StoragePolicyUpdate {
+	ids := make([]int, len(g))
+	for i := range g {
+		ids[i] = g[i].ID
+	}
+	return spu.AddGroupAssignmentIDs(ids...)
+}
+
 // AddGroupIDs adds the "groups" edge to the Group entity by IDs.
 func (spu *StoragePolicyUpdate) AddGroupIDs(ids ...int) *StoragePolicyUpdate {
 	spu.mutation.AddGroupIDs(ids...)
@@ -339,6 +355,27 @@ func (spu *StoragePolicyUpdate) SetNode(n *Node) *StoragePolicyUpdate {
 // Mutation returns the StoragePolicyMutation object of the builder.
 func (spu *StoragePolicyUpdate) Mutation() *StoragePolicyMutation {
 	return spu.mutation
+}
+
+// ClearGroupAssignments clears all "group_assignments" edges to the GroupPolicy entity.
+func (spu *StoragePolicyUpdate) ClearGroupAssignments() *StoragePolicyUpdate {
+	spu.mutation.ClearGroupAssignments()
+	return spu
+}
+
+// RemoveGroupAssignmentIDs removes the "group_assignments" edge to GroupPolicy entities by IDs.
+func (spu *StoragePolicyUpdate) RemoveGroupAssignmentIDs(ids ...int) *StoragePolicyUpdate {
+	spu.mutation.RemoveGroupAssignmentIDs(ids...)
+	return spu
+}
+
+// RemoveGroupAssignments removes "group_assignments" edges to GroupPolicy entities.
+func (spu *StoragePolicyUpdate) RemoveGroupAssignments(g ...*GroupPolicy) *StoragePolicyUpdate {
+	ids := make([]int, len(g))
+	for i := range g {
+		ids[i] = g[i].ID
+	}
+	return spu.RemoveGroupAssignmentIDs(ids...)
 }
 
 // ClearGroups clears all "groups" edges to the Group entity.
@@ -532,6 +569,51 @@ func (spu *StoragePolicyUpdate) sqlSave(ctx context.Context) (n int, err error) 
 	}
 	if spu.mutation.SettingsCleared() {
 		_spec.ClearField(storagepolicy.FieldSettings, field.TypeJSON)
+	}
+	if spu.mutation.GroupAssignmentsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   storagepolicy.GroupAssignmentsTable,
+			Columns: []string{storagepolicy.GroupAssignmentsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(grouppolicy.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := spu.mutation.RemovedGroupAssignmentsIDs(); len(nodes) > 0 && !spu.mutation.GroupAssignmentsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   storagepolicy.GroupAssignmentsTable,
+			Columns: []string{storagepolicy.GroupAssignmentsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(grouppolicy.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := spu.mutation.GroupAssignmentsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   storagepolicy.GroupAssignmentsTable,
+			Columns: []string{storagepolicy.GroupAssignmentsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(grouppolicy.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
 	}
 	if spu.mutation.GroupsCleared() {
 		edge := &sqlgraph.EdgeSpec{
@@ -970,6 +1052,21 @@ func (spuo *StoragePolicyUpdateOne) ClearNodeID() *StoragePolicyUpdateOne {
 	return spuo
 }
 
+// AddGroupAssignmentIDs adds the "group_assignments" edge to the GroupPolicy entity by IDs.
+func (spuo *StoragePolicyUpdateOne) AddGroupAssignmentIDs(ids ...int) *StoragePolicyUpdateOne {
+	spuo.mutation.AddGroupAssignmentIDs(ids...)
+	return spuo
+}
+
+// AddGroupAssignments adds the "group_assignments" edges to the GroupPolicy entity.
+func (spuo *StoragePolicyUpdateOne) AddGroupAssignments(g ...*GroupPolicy) *StoragePolicyUpdateOne {
+	ids := make([]int, len(g))
+	for i := range g {
+		ids[i] = g[i].ID
+	}
+	return spuo.AddGroupAssignmentIDs(ids...)
+}
+
 // AddGroupIDs adds the "groups" edge to the Group entity by IDs.
 func (spuo *StoragePolicyUpdateOne) AddGroupIDs(ids ...int) *StoragePolicyUpdateOne {
 	spuo.mutation.AddGroupIDs(ids...)
@@ -1023,6 +1120,27 @@ func (spuo *StoragePolicyUpdateOne) SetNode(n *Node) *StoragePolicyUpdateOne {
 // Mutation returns the StoragePolicyMutation object of the builder.
 func (spuo *StoragePolicyUpdateOne) Mutation() *StoragePolicyMutation {
 	return spuo.mutation
+}
+
+// ClearGroupAssignments clears all "group_assignments" edges to the GroupPolicy entity.
+func (spuo *StoragePolicyUpdateOne) ClearGroupAssignments() *StoragePolicyUpdateOne {
+	spuo.mutation.ClearGroupAssignments()
+	return spuo
+}
+
+// RemoveGroupAssignmentIDs removes the "group_assignments" edge to GroupPolicy entities by IDs.
+func (spuo *StoragePolicyUpdateOne) RemoveGroupAssignmentIDs(ids ...int) *StoragePolicyUpdateOne {
+	spuo.mutation.RemoveGroupAssignmentIDs(ids...)
+	return spuo
+}
+
+// RemoveGroupAssignments removes "group_assignments" edges to GroupPolicy entities.
+func (spuo *StoragePolicyUpdateOne) RemoveGroupAssignments(g ...*GroupPolicy) *StoragePolicyUpdateOne {
+	ids := make([]int, len(g))
+	for i := range g {
+		ids[i] = g[i].ID
+	}
+	return spuo.RemoveGroupAssignmentIDs(ids...)
 }
 
 // ClearGroups clears all "groups" edges to the Group entity.
@@ -1246,6 +1364,51 @@ func (spuo *StoragePolicyUpdateOne) sqlSave(ctx context.Context) (_node *Storage
 	}
 	if spuo.mutation.SettingsCleared() {
 		_spec.ClearField(storagepolicy.FieldSettings, field.TypeJSON)
+	}
+	if spuo.mutation.GroupAssignmentsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   storagepolicy.GroupAssignmentsTable,
+			Columns: []string{storagepolicy.GroupAssignmentsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(grouppolicy.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := spuo.mutation.RemovedGroupAssignmentsIDs(); len(nodes) > 0 && !spuo.mutation.GroupAssignmentsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   storagepolicy.GroupAssignmentsTable,
+			Columns: []string{storagepolicy.GroupAssignmentsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(grouppolicy.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := spuo.mutation.GroupAssignmentsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   storagepolicy.GroupAssignmentsTable,
+			Columns: []string{storagepolicy.GroupAssignmentsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(grouppolicy.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
 	}
 	if spuo.mutation.GroupsCleared() {
 		edge := &sqlgraph.EdgeSpec{

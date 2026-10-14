@@ -563,6 +563,11 @@ func initMasterRouter(dep dependency.Dep) *gin.Engine {
 				controllers.FromQuery[explorer.ListTaskService](explorer.ListTaskParamCtx{}),
 				controllers.ListTasks,
 			)
+			wf.POST("reloacte",
+				middleware.RequiredScopes(types.ScopeWorkflowWrite),
+				controllers.FromJSON[explorer.RelocateService](explorer.RelocateParamCtx{}),
+				controllers.RelocateStorage,
+			)
 			// GetTaskProgress
 			wf.GET("progress/:id",
 				middleware.HashID(hashid.TaskID),
@@ -612,6 +617,11 @@ func initMasterRouter(dep dependency.Dep) *gin.Engine {
 			file.GET("",
 				controllers.FromQuery[explorer.ListFileService](explorer.ListFileParameterCtx{}),
 				controllers.ListDirectory,
+			)
+			file.PATCH("policy",
+				middleware.RequiredScopes(types.ScopeFilesWrite),
+				controllers.FromJSON[explorer.BindPolicyService](explorer.BindPolicyParamCtx{}),
+				controllers.BindStoragePolicy,
 			)
 			file.GET("archive",
 				controllers.FromQuery[explorer.ArchiveListFilesService](explorer.ArchiveListFilesParamCtx{}),
@@ -1286,6 +1296,7 @@ func initMasterRouter(dep dependency.Dep) *gin.Engine {
 				{
 					// 获取当前用户设定
 					setting.GET("", controllers.UserSetting)
+					setting.GET("policies", controllers.UserAvailableStoragePolicies)
 					// 从文件上传头像
 					setting.PUT("avatar", middleware.RequiredScopes(types.ScopeUserInfoWrite), controllers.UploadAvatar)
 					// 更改用户设定

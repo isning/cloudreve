@@ -7,6 +7,7 @@ import (
 	"strconv"
 
 	"github.com/cloudreve/Cloudreve/v4/ent"
+	"github.com/cloudreve/Cloudreve/v4/ent/grouppolicy"
 	"github.com/cloudreve/Cloudreve/v4/ent/storagepolicy"
 	"github.com/cloudreve/Cloudreve/v4/inventory/types"
 	"github.com/cloudreve/Cloudreve/v4/pkg/cache"
@@ -30,6 +31,8 @@ type (
 		TxOperator
 		// GetByGroup returns the storage policies of the group.
 		GetByGroup(ctx context.Context, group *ent.Group) (*ent.StoragePolicy, error)
+		// AvailableByGroup returns ordered grants, with the legacy default as fallback.
+		AvailableByGroup(ctx context.Context, group *ent.Group) ([]*ent.StoragePolicy, error)
 		// GetPolicyByID returns the storage policy by id.
 		GetPolicyByID(ctx context.Context, id int) (*ent.StoragePolicy, error)
 		// UpdateAccessKey updates the access key of the storage policy. It also clear related cache in KV.
@@ -74,6 +77,27 @@ func (c *storagePolicyClient) GetClient() *ent.Client {
 }
 
 func (c *storagePolicyClient) Delete(ctx context.Context, policy *ent.StoragePolicy) error {
+	sc, tx, ctx, err := WithTx(ctx, c)
+	if err != nil {
+		return err
+	}
+	defer Rollback(tx)
+	if _, err = LockStoragePolicy(ctx, sc.client, policy.ID); err != nil {
+		return err
+	}
+	if err = checkGroupPolicyDependencies(ctx, sc.client, policy.ID); err != nil {
+		return err
+	}
+	if err = checkUploadPolicyDependencies(ctx, sc.client, policy.ID); err != nil {
+		return err
+	}
+	if err = sc.delete(ctx, policy); err != nil {
+		return err
+	}
+	return Commit(tx)
+}
+
+func (c *storagePolicyClient) delete(ctx context.Context, policy *ent.StoragePolicy) error {
 	if err := c.client.StoragePolicy.DeleteOne(policy).Exec(ctx); err != nil {
 		return fmt.Errorf("failed to delete storage policy: %w", err)
 	}
@@ -86,6 +110,34 @@ func (c *storagePolicyClient) Delete(ctx context.Context, policy *ent.StoragePol
 }
 
 func (c *storagePolicyClient) Upsert(ctx context.Context, policy *ent.StoragePolicy) (*ent.StoragePolicy, error) {
+	if policy.ID == 0 {
+		return c.upsert(ctx, policy)
+	}
+	sc, tx, ctx, err := WithTx(ctx, c)
+	if err != nil {
+		return nil, err
+	}
+	defer Rollback(tx)
+	stored, err := LockStoragePolicy(ctx, sc.client, policy.ID)
+	if err != nil {
+		return nil, err
+	}
+	if !SameStorageLocation(stored, policy) {
+		if err = checkUploadPolicyDependencies(ctx, sc.client, policy.ID); err != nil {
+			return nil, err
+		}
+	}
+	result, err := sc.upsert(ctx, policy)
+	if err != nil {
+		return nil, err
+	}
+	if err = Commit(tx); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func (c *storagePolicyClient) upsert(ctx context.Context, policy *ent.StoragePolicy) (*ent.StoragePolicy, error) {
 	var nodeId *int
 	if policy.NodeID != 0 {
 		nodeId = &policy.NodeID
@@ -152,6 +204,33 @@ func (c *storagePolicyClient) GetByGroup(ctx context.Context, group *ent.Group) 
 	}
 
 	return res, nil
+}
+
+func (c *storagePolicyClient) AvailableByGroup(ctx context.Context, group *ent.Group) ([]*ent.StoragePolicy, error) {
+	grants, err := c.client.GroupPolicy.Query().Where(grouppolicy.GroupID(group.ID)).Order(ent.Asc(grouppolicy.FieldPosition)).WithStoragePolicy(func(q *ent.StoragePolicyQuery) { q.WithNode() }).All(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("load group policy grants: %w", err)
+	}
+	if len(grants) > 0 {
+		policies := make([]*ent.StoragePolicy, 0, len(grants))
+		for _, grant := range grants {
+			if grant.Edges.StoragePolicy != nil {
+				policies = append(policies, grant.Edges.StoragePolicy)
+			}
+		}
+		return policies, nil
+	}
+	if group.StoragePolicyID == 0 {
+		return []*ent.StoragePolicy{}, nil
+	}
+	policy, err := c.GetByGroup(ctx, group)
+	if ent.IsNotFound(err) {
+		return []*ent.StoragePolicy{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return []*ent.StoragePolicy{policy}, nil
 }
 
 // GetPolicyByID returns the storage policy by id.

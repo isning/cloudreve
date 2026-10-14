@@ -2,6 +2,7 @@ package explorer
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"time"
@@ -60,7 +61,7 @@ func (service *CreateUploadSessionService) Create(c context.Context) (*UploadSes
 	policyId := 0
 	if service.PolicyID != "" {
 		policyId, err = hasher.Decode(service.PolicyID, hashid.PolicyID)
-		if err != nil {
+		if err != nil || policyId <= 0 {
 			return nil, serializer.NewError(serializer.CodeParamErr, "unknown policy id", err)
 		}
 	}
@@ -87,6 +88,10 @@ func (service *CreateUploadSessionService) Create(c context.Context) (*UploadSes
 
 	credential, err := m.CreateUploadSession(c, uploadRequest)
 	if err != nil {
+		var appError serializer.AppError
+		if !errors.As(err, &appError) {
+			return nil, serializer.NewError(serializer.CodeIOFailed, "Failed to create upload credential", err)
+		}
 		return nil, err
 	}
 

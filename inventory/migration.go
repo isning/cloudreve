@@ -253,6 +253,7 @@ func migrateMasterNode(l logging.Logger, client *ent.Client, ctx context.Context
 		types.NodeCapabilityCreateArchive:  true,
 		types.NodeCapabilityExtractArchive: true,
 		types.NodeCapabilityRemoteDownload: true,
+		types.NodeCapabilityRelocate:       true,
 	}, capabilities)
 
 	stm := client.Node.Create().

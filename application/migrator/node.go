@@ -63,6 +63,7 @@ func (m *Migrator) migrateNode() error {
 			boolset.Sets(map[types.NodeCapability]bool{
 				types.NodeCapabilityExtractArchive: true,
 				types.NodeCapabilityCreateArchive:  true,
+				types.NodeCapabilityRelocate:       true,
 			}, cap)
 		}
 

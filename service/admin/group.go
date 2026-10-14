@@ -2,6 +2,8 @@ package admin
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"strconv"
 
 	"github.com/cloudreve/Cloudreve/v4/application/dependency"
@@ -132,7 +134,15 @@ func (s *SingleGroupService) Get(c *gin.Context) (*GetGroupResponse, error) {
 		return nil, serializer.NewError(serializer.CodeDBError, "Failed to get group", err)
 	}
 
-	res := &GetGroupResponse{Group: group}
+	policies, err := dep.StoragePolicyClient().AvailableByGroup(ctx, group)
+	if err != nil {
+		return nil, serializer.NewError(serializer.CodeDBError, "Failed to get group policies", err)
+	}
+	ids := make([]int, 0, len(policies))
+	for _, policy := range policies {
+		ids = append(ids, policy.ID)
+	}
+	res := &GetGroupResponse{Group: group, GroupObject: group, PolicyIDs: ids}
 
 	if c.Query(countUserQuery) != "" {
 		totalUsers, err := groupClient.CountUsers(ctx, int(s.ID))
@@ -147,10 +157,59 @@ func (s *SingleGroupService) Get(c *gin.Context) (*GetGroupResponse, error) {
 
 type (
 	UpsertGroupService struct {
-		Group *ent.Group `json:"group" binding:"required"`
+		Group           *ent.Group      `json:"group" binding:"required"`
+		PolicyIDs       json.RawMessage `json:"policy_ids"`
+		defaultPolicyID *int
 	}
 	UpsertGroupParamCtx struct{}
 )
+
+func (s *UpsertGroupService) UnmarshalJSON(data []byte) error {
+	var raw struct {
+		Group     json.RawMessage `json:"group"`
+		PolicyIDs json.RawMessage `json:"policy_ids"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	if err := json.Unmarshal(raw.Group, &s.Group); err != nil {
+		return err
+	}
+	s.PolicyIDs = raw.PolicyIDs
+	var group struct {
+		Edges map[string]json.RawMessage `json:"edges"`
+	}
+	if err := json.Unmarshal(raw.Group, &group); err != nil {
+		return err
+	}
+	if edge, ok := group.Edges["storage_policies"]; ok {
+		var policy *struct {
+			ID int `json:"id"`
+		}
+		if err := json.Unmarshal(edge, &policy); err != nil {
+			return err
+		}
+		id := 0
+		if policy != nil {
+			id = policy.ID
+		}
+		s.defaultPolicyID = &id
+	}
+	return nil
+}
+
+func (s *UpsertGroupService) upsert(ctx context.Context, client inventory.GroupClient) (*ent.Group, error) {
+	var requested *[]int
+	if len(s.PolicyIDs) > 0 {
+		var ids []int
+		if err := json.Unmarshal(s.PolicyIDs, &ids); err != nil || len(ids) == 0 {
+			return nil, inventory.ErrInvalidGroupPolicies
+		}
+		requested = &ids
+	}
+	group, err := client.UpsertWithPolicies(ctx, s.Group, requested, s.defaultPolicyID)
+	return group, err
+}
 
 func (s *UpsertGroupService) Update(c *gin.Context) (*GetGroupResponse, error) {
 	dep := dependency.FromContext(c)
@@ -161,12 +220,15 @@ func (s *UpsertGroupService) Update(c *gin.Context) (*GetGroupResponse, error) {
 	}
 
 	// Initial admin group have to be admin
-	if s.Group.ID == 1 && !s.Group.Permissions.Enabled(int(types.GroupPermissionIsAdmin)) {
+	if s.Group.ID == 1 && (s.Group.Permissions == nil || !s.Group.Permissions.Enabled(int(types.GroupPermissionIsAdmin))) {
 		return nil, serializer.NewError(serializer.CodeParamErr, "Initial admin group have to be admin", nil)
 	}
 
-	group, err := groupClient.Upsert(c, s.Group)
+	group, err := s.upsert(c, groupClient)
 	if err != nil {
+		if errors.Is(err, inventory.ErrInvalidGroupPolicies) {
+			return nil, serializer.NewError(serializer.CodeParamErr, "Invalid group storage policy assignment", err)
+		}
 		return nil, serializer.NewError(serializer.CodeDBError, "Failed to update group", err)
 	}
 
@@ -182,8 +244,11 @@ func (s *UpsertGroupService) Create(c *gin.Context) (*GetGroupResponse, error) {
 		return nil, serializer.NewError(serializer.CodeParamErr, "ID must be 0", nil)
 	}
 
-	group, err := groupClient.Upsert(c, s.Group)
+	group, err := s.upsert(c, groupClient)
 	if err != nil {
+		if errors.Is(err, inventory.ErrInvalidGroupPolicies) {
+			return nil, serializer.NewError(serializer.CodeParamErr, "Invalid group storage policy assignment", err)
+		}
 		return nil, serializer.NewError(serializer.CodeDBError, "Failed to create group", err)
 	}
 

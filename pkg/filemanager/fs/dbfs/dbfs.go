@@ -22,6 +22,7 @@ import (
 	"github.com/cloudreve/Cloudreve/v4/pkg/logging"
 	"github.com/cloudreve/Cloudreve/v4/pkg/serializer"
 	"github.com/cloudreve/Cloudreve/v4/pkg/setting"
+	"github.com/cloudreve/Cloudreve/v4/pkg/storagepolicy"
 	"github.com/cloudreve/Cloudreve/v4/pkg/util"
 	"github.com/gofrs/uuid"
 	"github.com/samber/lo"
@@ -289,6 +290,7 @@ func (f *DBFS) CreateEntity(ctx context.Context, file fs.File, policy *ent.Stora
 		Source:          req.Props.SavePath,
 		Size:            req.Props.Size,
 		UploadSessionID: uuid.FromStringOrNil(o.UploadRequest.Props.UploadSessionID),
+		UploadExpiresAt: req.Props.ExpireAt,
 		EncryptMetadata: o.encryptMetadata,
 	})
 	if err != nil {
@@ -619,6 +621,7 @@ func (f *DBFS) createFile(ctx context.Context, parent *File, name string, fileTy
 			Size:            o.UploadRequest.Props.Size,
 			ModifiedAt:      o.UploadRequest.Props.LastModified,
 			UploadSessionID: uuid.FromStringOrNil(o.UploadRequest.Props.UploadSessionID),
+			UploadExpiresAt: o.UploadRequest.Props.ExpireAt,
 			Importing:       o.UploadRequest.ImportFrom != nil,
 			EncryptMetadata: o.encryptMetadata,
 		}
@@ -667,13 +670,7 @@ func (f *DBFS) generateEncryptMetadata(ctx context.Context, uploadRequest *fs.Up
 
 // getPreferredPolicy tries to get the preferred storage policy for the given file.
 func (f *DBFS) getPreferredPolicy(ctx context.Context, file *File) (*ent.StoragePolicy, error) {
-	ownerGroup := file.Owner().Edges.Group
-	if ownerGroup == nil {
-		return nil, fmt.Errorf("owner group not loaded")
-	}
-
-	sc, _ := inventory.InheritTx(ctx, f.storagePolicyClient)
-	groupPolicy, err := sc.GetByGroup(ctx, ownerGroup)
+	groupPolicy, err := storagepolicy.New(f.userClient, f.storagePolicyClient).SelectForFile(ctx, file.OwnerID(), 0, f.fileClient, file.ID())
 	if err != nil {
 		return nil, serializer.NewError(serializer.CodeDBError, "Failed to get available storage policies", err)
 	}

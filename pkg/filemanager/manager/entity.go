@@ -4,10 +4,15 @@ import (
 	"context"
 	"crypto/sha1"
 	"encoding/hex"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"time"
 
 	"github.com/cloudreve/Cloudreve/v4/ent"
+	entfile "github.com/cloudreve/Cloudreve/v4/ent/file"
+	"github.com/cloudreve/Cloudreve/v4/inventory"
 	"github.com/cloudreve/Cloudreve/v4/inventory/types"
 	"github.com/cloudreve/Cloudreve/v4/pkg/cluster/routes"
 	"github.com/cloudreve/Cloudreve/v4/pkg/filemanager/driver"
@@ -152,7 +157,14 @@ func (m *manager) GetUrlForRedirectedDirectLink(ctx context.Context, dl *ent.Dir
 	}
 
 	// Find primary entity
-	primaryEntity := file.PrimaryEntity()
+	primaryEntity, err := m.currentDownloadEntity(ctx, file.ID(), 0)
+	if err != nil {
+		return "", nil, err
+	}
+	policy, d, err := m.getEntityPolicyDriver(context.WithValue(ctx, inventory.SkipStoragePolicyCache{}, true), primaryEntity, nil)
+	if err != nil {
+		return "", nil, err
+	}
 
 	// Generate url
 	var (
@@ -161,18 +173,14 @@ func (m *manager) GetUrlForRedirectedDirectLink(ctx context.Context, dl *ent.Dir
 	)
 
 	// Try to read from cache.
-	cacheKey := entityUrlCacheKey(primaryEntity.ID(), int64(dl.Speed), dl.Name, o.IsDownload,
+	cacheKey := entityUrlCacheKey(primaryEntity, policy, int64(dl.Speed), dl.Name, o.IsDownload,
 		m.settings.SiteURL(ctx).String())
-	if cached, ok := m.kv.Get(cacheKey); ok {
+	if cached, ok := m.kv.Get(cacheKey); ok && !o.NoCache {
 		cachedItem := cached.(EntityUrlCache)
 		res = cachedItem.Url
 		expire = cachedItem.ExpireAt
 	} else {
 		// Cache miss, Generate new url
-		policy, d, err := m.getEntityPolicyDriver(ctx, primaryEntity, nil)
-		if err != nil {
-			return "", nil, err
-		}
 
 		source := entitysource.NewEntitySource(primaryEntity, d, policy, m.auth, m.settings, m.hasher, m.dep.RequestClient(),
 			m.l, m.config, m.dep.MimeDetector(ctx), m.dep.EncryptorFactory(ctx))
@@ -246,19 +254,29 @@ func (m *manager) GetEntityUrls(ctx context.Context, args []GetEntityUrlArgs, op
 			}
 		}
 
+		preferred := 0
+		if arg.PreferredEntityID != "" {
+			preferred = target.ID()
+		}
+		target, err = m.currentDownloadEntity(ctx, file.ID(), preferred)
+		if err != nil {
+			ae.Add(arg.URI.String(), err)
+			continue
+		}
+
 		// Hooks for entity download
 		if err := m.fs.ExecuteNavigatorHooks(ctx, fs.HookTypeBeforeDownload, file); err != nil {
 			m.l.Warning("Failed to execute navigator hooks: %s", err)
 		}
 
-		policy, d, err := m.getEntityPolicyDriver(ctx, target, nil)
+		policy, d, err := m.getEntityPolicyDriver(context.WithValue(ctx, inventory.SkipStoragePolicyCache{}, true), target, nil)
 		if err != nil {
 			ae.Add(arg.URI.String(), err)
 			continue
 		}
 
 		// Try to read from cache.
-		cacheKey := entityUrlCacheKey(target.ID(), o.DownloadSpeed, getEntityDisplayName(file, target), o.IsDownload,
+		cacheKey := entityUrlCacheKey(target, policy, o.DownloadSpeed, getEntityDisplayName(file, target), o.IsDownload,
 			m.settings.SiteURL(ctx).String())
 		if cached, ok := m.kv.Get(cacheKey); ok && !o.NoCache {
 			cachedItem := cached.(EntityUrlCache)
@@ -383,6 +401,23 @@ func (l *manager) ImportPhysical(ctx context.Context, dst *fs.URI, policyId int,
 			LastModified:           &src.LastModify,
 		},
 		ImportFrom: &src,
+		ImportVerifier: func(checkCtx context.Context, policy *ent.StoragePolicy, key string, size int64) error {
+			r, err := l.GetEntitySource(checkCtx, 0, fs.WithEntity(fs.NewEntity(&ent.Entity{Source: key, Size: size, StoragePolicyEntities: policy.ID})), fs.WithPolicy(policy))
+			if err != nil {
+				return errors.New("physical import source is unavailable")
+			}
+			defer r.Close()
+			r.Apply(entitysource.WithDisableCryptor(), entitysource.WithPhysicalSource())
+			var probe [1]byte
+			n, err := r.Read(probe[:])
+			if size == 0 && n == 0 && err == io.EOF {
+				return nil
+			}
+			if size > 0 && n == 1 && (err == nil || err == io.EOF) {
+				return nil
+			}
+			return errors.New("physical import source is unavailable")
+		},
 	}
 
 	// Prepare for upload
@@ -402,11 +437,31 @@ func (l *manager) ImportPhysical(ctx context.Context, dst *fs.URI, policyId int,
 	return nil
 }
 
-func entityUrlCacheKey(id int, speed int64, displayName string, download bool, siteUrl string) string {
+func entityUrlCacheKey(entity fs.Entity, policy *ent.StoragePolicy, speed int64, displayName string, download bool, siteUrl string) string {
 	hash := sha1.New()
-	hash.Write([]byte(fmt.Sprintf("%d_%d_%s_%t_%s", id,
+	locator, _ := json.Marshal([]any{entity.Source(), entity.PolicyID(), inventory.StorageLocationFingerprint(policy), entity.Props()})
+	hash.Write(locator)
+	hash.Write([]byte(fmt.Sprintf("%d_%d_%s_%t_%s", entity.ID(),
 		speed, displayName, download, siteUrl)))
 	hashRes := hex.EncodeToString(hash.Sum(nil))
 
 	return fmt.Sprintf("%s_%s", EntityUrlCacheKeyPrefix, hashRes)
+}
+
+// Authorization still uses native navigation; physical addressing and primary
+// selection are reloaded before consulting the long-lived URL cache.
+func (m *manager) currentDownloadEntity(ctx context.Context, fileID, preferred int) (fs.Entity, error) {
+	file, err := m.dep.DBClient().File.Query().Where(entfile.ID(fileID)).WithEntities().Only(ctx)
+	if err != nil {
+		return nil, fs.ErrEntityNotExist
+	}
+	if preferred == 0 {
+		preferred = file.PrimaryEntity
+	}
+	for _, entity := range file.Edges.Entities {
+		if entity.ID == preferred {
+			return fs.NewEntity(entity), nil
+		}
+	}
+	return nil, fs.ErrEntityNotExist
 }

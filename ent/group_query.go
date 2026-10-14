@@ -12,6 +12,7 @@ import (
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
 	"github.com/cloudreve/Cloudreve/v4/ent/group"
+	"github.com/cloudreve/Cloudreve/v4/ent/grouppolicy"
 	"github.com/cloudreve/Cloudreve/v4/ent/predicate"
 	"github.com/cloudreve/Cloudreve/v4/ent/storagepolicy"
 	"github.com/cloudreve/Cloudreve/v4/ent/user"
@@ -20,12 +21,13 @@ import (
 // GroupQuery is the builder for querying Group entities.
 type GroupQuery struct {
 	config
-	ctx                 *QueryContext
-	order               []group.OrderOption
-	inters              []Interceptor
-	predicates          []predicate.Group
-	withUsers           *UserQuery
-	withStoragePolicies *StoragePolicyQuery
+	ctx                   *QueryContext
+	order                 []group.OrderOption
+	inters                []Interceptor
+	predicates            []predicate.Group
+	withPolicyAssignments *GroupPolicyQuery
+	withUsers             *UserQuery
+	withStoragePolicies   *StoragePolicyQuery
 	// intermediate query (i.e. traversal path).
 	sql  *sql.Selector
 	path func(context.Context) (*sql.Selector, error)
@@ -60,6 +62,28 @@ func (gq *GroupQuery) Unique(unique bool) *GroupQuery {
 func (gq *GroupQuery) Order(o ...group.OrderOption) *GroupQuery {
 	gq.order = append(gq.order, o...)
 	return gq
+}
+
+// QueryPolicyAssignments chains the current query on the "policy_assignments" edge.
+func (gq *GroupQuery) QueryPolicyAssignments() *GroupPolicyQuery {
+	query := (&GroupPolicyClient{config: gq.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := gq.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := gq.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(group.Table, group.FieldID, selector),
+			sqlgraph.To(grouppolicy.Table, grouppolicy.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, group.PolicyAssignmentsTable, group.PolicyAssignmentsColumn),
+		)
+		fromU = sqlgraph.SetNeighbors(gq.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
 }
 
 // QueryUsers chains the current query on the "users" edge.
@@ -293,17 +317,29 @@ func (gq *GroupQuery) Clone() *GroupQuery {
 		return nil
 	}
 	return &GroupQuery{
-		config:              gq.config,
-		ctx:                 gq.ctx.Clone(),
-		order:               append([]group.OrderOption{}, gq.order...),
-		inters:              append([]Interceptor{}, gq.inters...),
-		predicates:          append([]predicate.Group{}, gq.predicates...),
-		withUsers:           gq.withUsers.Clone(),
-		withStoragePolicies: gq.withStoragePolicies.Clone(),
+		config:                gq.config,
+		ctx:                   gq.ctx.Clone(),
+		order:                 append([]group.OrderOption{}, gq.order...),
+		inters:                append([]Interceptor{}, gq.inters...),
+		predicates:            append([]predicate.Group{}, gq.predicates...),
+		withPolicyAssignments: gq.withPolicyAssignments.Clone(),
+		withUsers:             gq.withUsers.Clone(),
+		withStoragePolicies:   gq.withStoragePolicies.Clone(),
 		// clone intermediate query.
 		sql:  gq.sql.Clone(),
 		path: gq.path,
 	}
+}
+
+// WithPolicyAssignments tells the query-builder to eager-load the nodes that are connected to
+// the "policy_assignments" edge. The optional arguments are used to configure the query builder of the edge.
+func (gq *GroupQuery) WithPolicyAssignments(opts ...func(*GroupPolicyQuery)) *GroupQuery {
+	query := (&GroupPolicyClient{config: gq.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	gq.withPolicyAssignments = query
+	return gq
 }
 
 // WithUsers tells the query-builder to eager-load the nodes that are connected to
@@ -406,7 +442,8 @@ func (gq *GroupQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*Group,
 	var (
 		nodes       = []*Group{}
 		_spec       = gq.querySpec()
-		loadedTypes = [2]bool{
+		loadedTypes = [3]bool{
+			gq.withPolicyAssignments != nil,
 			gq.withUsers != nil,
 			gq.withStoragePolicies != nil,
 		}
@@ -429,6 +466,13 @@ func (gq *GroupQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*Group,
 	if len(nodes) == 0 {
 		return nodes, nil
 	}
+	if query := gq.withPolicyAssignments; query != nil {
+		if err := gq.loadPolicyAssignments(ctx, query, nodes,
+			func(n *Group) { n.Edges.PolicyAssignments = []*GroupPolicy{} },
+			func(n *Group, e *GroupPolicy) { n.Edges.PolicyAssignments = append(n.Edges.PolicyAssignments, e) }); err != nil {
+			return nil, err
+		}
+	}
 	if query := gq.withUsers; query != nil {
 		if err := gq.loadUsers(ctx, query, nodes,
 			func(n *Group) { n.Edges.Users = []*User{} },
@@ -445,6 +489,36 @@ func (gq *GroupQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*Group,
 	return nodes, nil
 }
 
+func (gq *GroupQuery) loadPolicyAssignments(ctx context.Context, query *GroupPolicyQuery, nodes []*Group, init func(*Group), assign func(*Group, *GroupPolicy)) error {
+	fks := make([]driver.Value, 0, len(nodes))
+	nodeids := make(map[int]*Group)
+	for i := range nodes {
+		fks = append(fks, nodes[i].ID)
+		nodeids[nodes[i].ID] = nodes[i]
+		if init != nil {
+			init(nodes[i])
+		}
+	}
+	if len(query.ctx.Fields) > 0 {
+		query.ctx.AppendFieldOnce(grouppolicy.FieldGroupID)
+	}
+	query.Where(predicate.GroupPolicy(func(s *sql.Selector) {
+		s.Where(sql.InValues(s.C(group.PolicyAssignmentsColumn), fks...))
+	}))
+	neighbors, err := query.All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		fk := n.GroupID
+		node, ok := nodeids[fk]
+		if !ok {
+			return fmt.Errorf(`unexpected referenced foreign-key "group_id" returned %v for node %v`, fk, n.ID)
+		}
+		assign(node, n)
+	}
+	return nil
+}
 func (gq *GroupQuery) loadUsers(ctx context.Context, query *UserQuery, nodes []*Group, init func(*Group), assign func(*Group, *User)) error {
 	fks := make([]driver.Value, 0, len(nodes))
 	nodeids := make(map[int]*Group)

@@ -46,6 +46,9 @@ func init() {
 	crontab.Register(setting.CronTypeEntityCollect, func(ctx context.Context) {
 		dep := dependency.FromContext(ctx)
 		l := dep.Logger()
+		if err := ensureAllRelocationCleanup(ctx, dep); err != nil {
+			l.Warning("Migration compensation scheduling deferred; journals retained")
+		}
 		t, err := NewEntityRecycleRoutineTask(ctx)
 		if err != nil {
 			l.Error("Failed to create entity recycle routine task: %s", err)
@@ -195,93 +198,9 @@ func (m *manager) RecycleEntities(ctx context.Context, force bool, entityIDs ...
 		return fmt.Errorf("failed to get entities: %w", err)
 	}
 
-	// Group entities by policy ID
-	entityGroup := lo.GroupBy(entities, func(entity fs.Entity) int {
-		return entity.PolicyID()
-	})
-
-	// Delete entity in each group in batch
-	for _, entities := range entityGroup {
-		entityChunk := lo.Chunk(entities, 100)
-		m.l.Info("Recycling %d entities in %d batches", len(entities), len(entityChunk))
-
-		for batch, chunk := range entityChunk {
-			m.l.Info("Start to recycle batch #%d, %d entities", batch, len(chunk))
-			mapSrcToId := make(map[string]int, len(chunk))
-			_, d, err := m.getEntityPolicyDriver(ctx, chunk[0], nil)
-			if err != nil {
-				for _, entity := range chunk {
-					ae.Add(strconv.Itoa(entity.ID()), err)
-				}
-				continue
-			}
-
-			for _, entity := range chunk {
-				mapSrcToId[entity.Source()] = entity.ID()
-			}
-
-			toBeDeletedSrc := lo.Map(lo.Filter(chunk, func(item fs.Entity, index int) bool {
-				// Only delete entities that are not marked as "unlink only"
-				return item.Model().Props == nil || !item.Model().Props.UnlinkOnly
-			}), func(entity fs.Entity, index int) string {
-				return entity.Source()
-			})
-			if len(toBeDeletedSrc) > 0 {
-				res, err := d.Delete(ctx, toBeDeletedSrc...)
-				if err != nil {
-					for _, src := range res {
-						ae.Add(strconv.Itoa(mapSrcToId[src]), err)
-					}
-				}
-			}
-
-			// Delete upload session if it's still valid
-			for _, entity := range chunk {
-				sid := entity.UploadSessionID()
-				if sid == nil {
-					continue
-				}
-
-				if session, ok := m.kv.Get(UploadSessionCachePrefix + sid.String()); ok {
-					session := session.(fs.UploadSession)
-					if err := d.CancelToken(ctx, &session); err != nil {
-						m.l.Warning("Failed to cancel upload session for %q: %s, this is expected if it's remote policy.", session.Props.Uri.String(), err)
-					}
-					_ = m.kv.Delete(UploadSessionCachePrefix, sid.String())
-				}
-			}
-
-			// Filtering out entities that are successfully deleted
-			rawAe := ae.Raw()
-			successEntities := lo.FilterMap(chunk, func(entity fs.Entity, index int) (int, bool) {
-				entityIdStr := fmt.Sprintf("%d", entity.ID())
-				_, ok := rawAe[entityIdStr]
-				if !ok {
-					// No error, deleted
-					return entity.ID(), true
-				}
-
-				if force {
-					ae.Remove(entityIdStr)
-				}
-				return entity.ID(), force
-			})
-
-			// Remove entities from DB
-			fc, tx, ctx, err := inventory.WithTx(ctx, m.dep.FileClient())
-			if err != nil {
-				return fmt.Errorf("failed to start transaction: %w", err)
-			}
-			storageReduced, err := fc.RemoveEntitiesByID(ctx, successEntities...)
-			if err != nil {
-				_ = inventory.Rollback(tx)
-				return fmt.Errorf("failed to remove entities from DB: %w", err)
-			}
-
-			tx.AppendStorageDiff(storageReduced)
-			if err := inventory.CommitWithStorageDiff(ctx, tx, m.l, m.dep.UserClient()); err != nil {
-				return fmt.Errorf("failed to commit delete change: %w", err)
-			}
+	for _, candidate := range entities {
+		if err := m.recycleEntityLocation(ctx, candidate); err != nil {
+			ae.Add(strconv.Itoa(candidate.ID()), err)
 		}
 	}
 

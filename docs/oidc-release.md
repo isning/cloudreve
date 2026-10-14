@@ -29,7 +29,10 @@ go test -race -count=1 -timeout=15m ./routers/controllers ./inventory -run 'Test
 ```
 
 GitHub Actions runs the frontend build, native Go tests, Ent generation check and
-database matrix. For tag pushes, the official GoReleaser action invokes the same
+database matrix. The same workflow runs native storage tests against real S3,
+including migration, recovery and database upgrade checks. All checks gate the
+GoReleaser publishing job in `release.yml`. For tag pushes, the official
+GoReleaser action invokes the same
 release configuration after these checks pass. It builds the upstream binary
 targets, archives and AMD64/ARM64 Docker images, then publishes to GHCR.
 

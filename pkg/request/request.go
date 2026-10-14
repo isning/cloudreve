@@ -34,6 +34,13 @@ const (
 	LocalIP           = "localhost"
 )
 
+// UnexpectedStatusError retains the status for callers without parsing messages.
+type UnexpectedStatusError int
+
+func (e UnexpectedStatusError) Error() string {
+	return fmt.Sprintf("Remote returns unexpected status code: %d", int(e))
+}
+
 // Response 请求的响应或错误信息
 type Response struct {
 	Err      error
@@ -253,7 +260,7 @@ func (resp *Response) CheckHTTPResponse(status ...int) *Response {
 
 	// 检查HTTP状态码
 	if !lo.Contains(status, resp.Response.StatusCode) {
-		resp.Err = fmt.Errorf("Remote returns unexpected status code: %d", resp.Response.StatusCode)
+		resp.Err = UnexpectedStatusError(resp.Response.StatusCode)
 	}
 	return resp
 }
