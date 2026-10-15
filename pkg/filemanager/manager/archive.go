@@ -174,6 +174,9 @@ func (m *manager) CreateArchive(ctx context.Context, uris []*fs.URI, writer io.W
 
 	var compressed int64
 	for _, file := range files {
+		if o.ArchiveSource != nil {
+			o.ArchiveSource(file)
+		}
 		if file.Type() == types.FileTypeFile {
 			if err := m.compressFileToArchive(ctx, "/", file, zipWriter, o.ArchiveCompression, o.DryRun); err != nil {
 				failed++
@@ -231,6 +234,9 @@ func (m *manager) compressFileToArchive(ctx context.Context, parent string, file
 	if dryrun != nil {
 		dryrun(zipName, es.Entity())
 		return nil
+	}
+	if err := m.recordFileAudit(ctx, types.AuditEntityDownloaded, file, file.PrimaryEntityID(), types.LogEntry{}); err != nil {
+		return err
 	}
 
 	m.l.Debug("Compressing %s to archive...", file.Uri(false))

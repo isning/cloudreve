@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"github.com/cloudreve/Cloudreve/v4/application/dependency"
 	"github.com/cloudreve/Cloudreve/v4/inventory"
+	"github.com/cloudreve/Cloudreve/v4/inventory/types"
+	"github.com/cloudreve/Cloudreve/v4/pkg/audit"
 	"github.com/cloudreve/Cloudreve/v4/pkg/auth"
 	"github.com/cloudreve/Cloudreve/v4/pkg/hashid"
 	"github.com/cloudreve/Cloudreve/v4/pkg/oidc"
@@ -77,6 +79,7 @@ func FinishOpenID(c *gin.Context) {
 
 	result, err := dependency.FromContext(c).OIDC().Finish(c.Request.Context(), request)
 	if err != nil {
+		audit.Observe(c, audit.Event{Type: types.AuditUserLoginFailed, Content: types.LogEntry{OpenIDProvider: &request.ProviderID, Failed: true}})
 		openIDError(c, err)
 		return
 	}
@@ -97,6 +100,10 @@ func writeOpenIDLogin(c *gin.Context, result *oidc.FinishResult) {
 	u, err := dep.UserClient().GetActiveByID(context.WithValue(c.Request.Context(), inventory.LoadUserGroup{}, true), result.UserID)
 	if err != nil {
 		openIDError(c, fmt.Errorf("account is unavailable"))
+		return
+	}
+	if err := audit.Record(c, audit.Event{Type: types.AuditUserLogin, User: u, Content: types.LogEntry{Reason: "openid"}}); err != nil {
+		openIDError(c, err)
 		return
 	}
 	c.JSON(200, serializer.Response{Data: struct {

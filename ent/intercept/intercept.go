@@ -8,6 +8,9 @@ import (
 
 	"entgo.io/ent/dialect/sql"
 	"github.com/cloudreve/Cloudreve/v4/ent"
+	"github.com/cloudreve/Cloudreve/v4/ent/auditarchive"
+	"github.com/cloudreve/Cloudreve/v4/ent/auditarchiveitem"
+	"github.com/cloudreve/Cloudreve/v4/ent/auditlog"
 	"github.com/cloudreve/Cloudreve/v4/ent/davaccount"
 	"github.com/cloudreve/Cloudreve/v4/ent/directlink"
 	"github.com/cloudreve/Cloudreve/v4/ent/entity"
@@ -91,6 +94,87 @@ func (f TraverseFunc) Traverse(ctx context.Context, q ent.Query) error {
 		return err
 	}
 	return f(ctx, query)
+}
+
+// The AuditArchiveFunc type is an adapter to allow the use of ordinary function as a Querier.
+type AuditArchiveFunc func(context.Context, *ent.AuditArchiveQuery) (ent.Value, error)
+
+// Query calls f(ctx, q).
+func (f AuditArchiveFunc) Query(ctx context.Context, q ent.Query) (ent.Value, error) {
+	if q, ok := q.(*ent.AuditArchiveQuery); ok {
+		return f(ctx, q)
+	}
+	return nil, fmt.Errorf("unexpected query type %T. expect *ent.AuditArchiveQuery", q)
+}
+
+// The TraverseAuditArchive type is an adapter to allow the use of ordinary function as Traverser.
+type TraverseAuditArchive func(context.Context, *ent.AuditArchiveQuery) error
+
+// Intercept is a dummy implementation of Intercept that returns the next Querier in the pipeline.
+func (f TraverseAuditArchive) Intercept(next ent.Querier) ent.Querier {
+	return next
+}
+
+// Traverse calls f(ctx, q).
+func (f TraverseAuditArchive) Traverse(ctx context.Context, q ent.Query) error {
+	if q, ok := q.(*ent.AuditArchiveQuery); ok {
+		return f(ctx, q)
+	}
+	return fmt.Errorf("unexpected query type %T. expect *ent.AuditArchiveQuery", q)
+}
+
+// The AuditArchiveItemFunc type is an adapter to allow the use of ordinary function as a Querier.
+type AuditArchiveItemFunc func(context.Context, *ent.AuditArchiveItemQuery) (ent.Value, error)
+
+// Query calls f(ctx, q).
+func (f AuditArchiveItemFunc) Query(ctx context.Context, q ent.Query) (ent.Value, error) {
+	if q, ok := q.(*ent.AuditArchiveItemQuery); ok {
+		return f(ctx, q)
+	}
+	return nil, fmt.Errorf("unexpected query type %T. expect *ent.AuditArchiveItemQuery", q)
+}
+
+// The TraverseAuditArchiveItem type is an adapter to allow the use of ordinary function as Traverser.
+type TraverseAuditArchiveItem func(context.Context, *ent.AuditArchiveItemQuery) error
+
+// Intercept is a dummy implementation of Intercept that returns the next Querier in the pipeline.
+func (f TraverseAuditArchiveItem) Intercept(next ent.Querier) ent.Querier {
+	return next
+}
+
+// Traverse calls f(ctx, q).
+func (f TraverseAuditArchiveItem) Traverse(ctx context.Context, q ent.Query) error {
+	if q, ok := q.(*ent.AuditArchiveItemQuery); ok {
+		return f(ctx, q)
+	}
+	return fmt.Errorf("unexpected query type %T. expect *ent.AuditArchiveItemQuery", q)
+}
+
+// The AuditLogFunc type is an adapter to allow the use of ordinary function as a Querier.
+type AuditLogFunc func(context.Context, *ent.AuditLogQuery) (ent.Value, error)
+
+// Query calls f(ctx, q).
+func (f AuditLogFunc) Query(ctx context.Context, q ent.Query) (ent.Value, error) {
+	if q, ok := q.(*ent.AuditLogQuery); ok {
+		return f(ctx, q)
+	}
+	return nil, fmt.Errorf("unexpected query type %T. expect *ent.AuditLogQuery", q)
+}
+
+// The TraverseAuditLog type is an adapter to allow the use of ordinary function as Traverser.
+type TraverseAuditLog func(context.Context, *ent.AuditLogQuery) error
+
+// Intercept is a dummy implementation of Intercept that returns the next Querier in the pipeline.
+func (f TraverseAuditLog) Intercept(next ent.Querier) ent.Querier {
+	return next
+}
+
+// Traverse calls f(ctx, q).
+func (f TraverseAuditLog) Traverse(ctx context.Context, q ent.Query) error {
+	if q, ok := q.(*ent.AuditLogQuery); ok {
+		return f(ctx, q)
+	}
+	return fmt.Errorf("unexpected query type %T. expect *ent.AuditLogQuery", q)
 }
 
 // The DavAccountFunc type is an adapter to allow the use of ordinary function as a Querier.
@@ -798,6 +882,12 @@ func (f TraverseUser) Traverse(ctx context.Context, q ent.Query) error {
 // NewQuery returns the generic Query interface for the given typed query.
 func NewQuery(q ent.Query) (Query, error) {
 	switch q := q.(type) {
+	case *ent.AuditArchiveQuery:
+		return &query[*ent.AuditArchiveQuery, predicate.AuditArchive, auditarchive.OrderOption]{typ: ent.TypeAuditArchive, tq: q}, nil
+	case *ent.AuditArchiveItemQuery:
+		return &query[*ent.AuditArchiveItemQuery, predicate.AuditArchiveItem, auditarchiveitem.OrderOption]{typ: ent.TypeAuditArchiveItem, tq: q}, nil
+	case *ent.AuditLogQuery:
+		return &query[*ent.AuditLogQuery, predicate.AuditLog, auditlog.OrderOption]{typ: ent.TypeAuditLog, tq: q}, nil
 	case *ent.DavAccountQuery:
 		return &query[*ent.DavAccountQuery, predicate.DavAccount, davaccount.OrderOption]{typ: ent.TypeDavAccount, tq: q}, nil
 	case *ent.DirectLinkQuery:

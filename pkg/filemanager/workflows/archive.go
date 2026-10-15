@@ -52,6 +52,7 @@ type (
 		SlaveArchiveTaskID  int                          `json:"slave__archive_task_id,omitempty"`
 		SlaveCompressState  *SlaveCreateArchiveTaskState `json:"slave_compress_state,omitempty"`
 		Failed              int                          `json:"failed,omitempty"`
+		AuditSources        []ArchiveAuditSource         `json:"audit_sources,omitempty"`
 		NodeState           `json:",inline"`
 	}
 )
@@ -221,8 +222,10 @@ func (m *CreateArchiveTask) listEntitiesAndSendToSlave(ctx context.Context, dep 
 	fm := manager.NewFileManager(dep, user)
 	storagePolicyClient := dep.StoragePolicyClient()
 	masterKey, _ := dep.MasterEncryptKeyVault(ctx).GetMasterKey(ctx)
+	sources := make([]ArchiveAuditSource, 0, len(uris))
 
 	failed, err := fm.CreateArchive(ctx, uris, io.Discard,
+		fs.WithArchiveSource(func(file fs.File) { sources = append(sources, archiveSource(file, dep.HashIDEncoder())) }),
 		fs.WithDryRun(func(name string, e fs.Entity) {
 			entityModel, err := decryptEntityKeyIfNeeded(masterKey, e.Model())
 			if err != nil {
@@ -250,6 +253,7 @@ func (m *CreateArchiveTask) listEntitiesAndSendToSlave(ctx context.Context, dep 
 	}
 
 	m.state.Failed = failed
+	m.state.AuditSources = sources
 	payloadStr, err := json.Marshal(payload)
 	if err != nil {
 		return task.StatusError, fmt.Errorf("failed to marshal payload: %w", err)
@@ -399,7 +403,9 @@ func (m *CreateArchiveTask) createArchiveFile(ctx context.Context, dep dependenc
 	m.progress[ProgressTypeArchiveCount] = &queue.Progress{}
 	m.progress[ProgressTypeArchiveSize] = &queue.Progress{}
 	m.Unlock()
+	sources := make([]ArchiveAuditSource, 0, len(uris))
 	failed, err := fm.CreateArchive(ctx, uris, zipFile,
+		fs.WithArchiveSource(func(file fs.File) { sources = append(sources, archiveSource(file, dep.HashIDEncoder())) }),
 		fs.WithArchiveCompression(true),
 		fs.WithMaxArchiveSize(user.Edges.Group.Settings.CompressSize),
 		fs.WithProgressFunc(func(current, diff int64, total int64) {
@@ -414,6 +420,7 @@ func (m *CreateArchiveTask) createArchiveFile(ctx context.Context, dep dependenc
 	}
 
 	m.state.Failed = failed
+	m.state.AuditSources = sources
 	m.Lock()
 	delete(m.progress, ProgressTypeArchiveSize)
 	delete(m.progress, ProgressTypeArchiveCount)

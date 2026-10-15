@@ -8,6 +8,8 @@ import (
 	"github.com/cloudreve/Cloudreve/v4/ent"
 	"github.com/cloudreve/Cloudreve/v4/ent/user"
 	"github.com/cloudreve/Cloudreve/v4/inventory"
+	"github.com/cloudreve/Cloudreve/v4/inventory/types"
+	"github.com/cloudreve/Cloudreve/v4/pkg/audit"
 	"github.com/cloudreve/Cloudreve/v4/pkg/auth"
 	"github.com/cloudreve/Cloudreve/v4/pkg/authpolicy"
 	"github.com/cloudreve/Cloudreve/v4/pkg/cluster/routes"
@@ -145,6 +147,8 @@ func (service *UserLoginService) Login(c *gin.Context) (*ent.User, string, error
 	}
 
 	if err != nil {
+		audit.Observe(c, audit.Event{Type: types.AuditUserLoginFailed, User: expectedUser,
+			Content: types.LogEntry{Failed: true, Error: "login rejected", Account: service.UserName}})
 		return nil, "", err
 	}
 
@@ -171,6 +175,9 @@ func IssueToken(c *gin.Context) (*BuiltinLoginResponse, error) {
 	if err != nil {
 		return nil, serializer.NewError(serializer.CodeEncryptError, "Failed to issue token pair", err)
 	}
+	if err := audit.Record(c, audit.Event{Type: types.AuditUserLogin, User: u}); err != nil {
+		return nil, serializer.NewError(serializer.CodeDBError, "Failed to record login", err)
+	}
 
 	return &BuiltinLoginResponse{
 		User:  BuildUser(u, dep.HashIDEncoder()),
@@ -193,6 +200,9 @@ func (s *RefreshTokenService) Refresh(c *gin.Context) (*oidc.Token, error) {
 		return nil, serializer.NewError(serializer.CodeCredentialInvalid, "Failed to issue token pair", err)
 	}
 
+	if u, err := dep.UserClient().GetActiveByID(c, token.UserID); err == nil {
+		audit.Observe(c, audit.Event{Type: types.AuditUserTokenRefresh, User: u})
+	}
 	return token, nil
 }
 

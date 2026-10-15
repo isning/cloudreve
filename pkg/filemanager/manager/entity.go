@@ -111,6 +111,11 @@ func (m *manager) GetDirectLink(ctx context.Context, urls ...*fs.URI) ([]DirectL
 			}
 
 			linkHashID := hashid.EncodeSourceLinkID(m.hasher, link.ID)
+			if err := m.recordFileAudit(ctx, types.AuditGetDirectLink, file, target.ID(), types.LogEntry{DirectLinkID: linkHashID}); err != nil {
+				ae.Add(url.String(), err)
+				continue
+			}
+
 			res = append(res, DirectLink{
 				File: file,
 				Url:  routes.MasterDirectLink(siteUrl, linkHashID, link.Name).String(),
@@ -134,6 +139,10 @@ func (m *manager) GetDirectLink(ctx context.Context, urls ...*fs.URI) ([]DirectL
 				continue
 			}
 
+			if err := m.recordFileAudit(ctx, types.AuditGetDirectLink, file, target.ID(), types.LogEntry{}); err != nil {
+				ae.Add(url.String(), err)
+				continue
+			}
 			res = append(res, DirectLink{
 				File: file,
 				Url:  sourceUrl.Url,
@@ -207,6 +216,9 @@ func (m *manager) GetUrlForRedirectedDirectLink(ctx context.Context, dl *ent.Dir
 		expire = downloadUrl.ExpireAt
 	}
 
+	if err := m.recordFileAudit(ctx, types.AuditEntityDownloaded, file, primaryEntity.ID(), types.LogEntry{DirectLinkID: hashid.EncodeSourceLinkID(m.hasher, dl.ID)}); err != nil {
+		return "", nil, err
+	}
 	return res, expire, nil
 }
 
@@ -279,6 +291,10 @@ func (m *manager) GetEntityUrls(ctx context.Context, args []GetEntityUrlArgs, op
 		cacheKey := entityUrlCacheKey(target, policy, o.DownloadSpeed, getEntityDisplayName(file, target), o.IsDownload,
 			m.settings.SiteURL(ctx).String())
 		if cached, ok := m.kv.Get(cacheKey); ok && !o.NoCache {
+			if err := m.recordFileAudit(ctx, types.AuditEntityDownloaded, file, target.ID(), types.LogEntry{}); err != nil {
+				ae.Add(arg.URI.String(), err)
+				continue
+			}
 			cachedItem := cached.(EntityUrlCache)
 			// Find the earliest expiry time
 			if cachedItem.ExpireAt != nil && (earliestExpireAt == nil || cachedItem.ExpireAt.Before(*earliestExpireAt)) {
@@ -305,6 +321,10 @@ func (m *manager) GetEntityUrls(ctx context.Context, args []GetEntityUrlArgs, op
 			continue
 		}
 
+		if err := m.recordFileAudit(ctx, types.AuditEntityDownloaded, file, target.ID(), types.LogEntry{}); err != nil {
+			ae.Add(arg.URI.String(), err)
+			continue
+		}
 		// Find the earliest expiry time
 		if downloadUrl.ExpireAt != nil && (earliestExpireAt == nil || downloadUrl.ExpireAt.Before(*earliestExpireAt)) {
 			earliestExpireAt = downloadUrl.ExpireAt

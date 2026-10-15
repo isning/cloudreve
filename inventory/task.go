@@ -27,6 +27,7 @@ type (
 		OwnerID           int
 		PreserveCompleted bool
 		CorrelationID     uuid.UUID
+		AuditEvents       []AuditEvent
 	}
 )
 
@@ -141,6 +142,29 @@ func (c *taskClient) DeleteBy(ctx context.Context, args *DeleteTaskArgs) error {
 }
 
 func (c *taskClient) Update(ctx context.Context, task *ent.Task, args *TaskArgs) (*ent.Task, error) {
+	if len(args.AuditEvents) > 0 {
+		return auditMutation(ctx, c, func(ctx context.Context, c *taskClient) (*ent.Task, []AuditEvent, error) {
+			// Serialize completion and its audit records on the durable task row.
+			if err := c.client.Task.UpdateOneID(task.ID).SetType(task.Type).Exec(ctx); err != nil {
+				return nil, nil, err
+			}
+			previous, err := c.client.Task.Get(ctx, task.ID)
+			if err != nil {
+				return nil, nil, err
+			}
+			if previous.Status == "completed" {
+				previous.Edges = task.Edges
+				return previous, nil, nil
+			}
+			copy := *task
+			result, err := c.update(ctx, &copy, args)
+			return result, args.AuditEvents, err
+		})
+	}
+	return c.update(ctx, task, args)
+}
+
+func (c *taskClient) update(ctx context.Context, task *ent.Task, args *TaskArgs) (*ent.Task, error) {
 	if args.PreserveCompleted {
 		return c.updatePreservingCompleted(ctx, task, args)
 	}

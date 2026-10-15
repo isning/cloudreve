@@ -8,6 +8,102 @@ import (
 )
 
 var (
+	// AuditArchivesColumns holds the columns for the "audit_archives" table.
+	AuditArchivesColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt, Increment: true},
+		{Name: "created_at", Type: field.TypeTime, SchemaType: map[string]string{"mysql": "datetime"}},
+		{Name: "updated_at", Type: field.TypeTime, SchemaType: map[string]string{"mysql": "datetime"}},
+		{Name: "deleted_at", Type: field.TypeTime, Nullable: true, SchemaType: map[string]string{"mysql": "datetime"}},
+		{Name: "archive_key", Type: field.TypeString, Unique: true, Size: 36},
+		{Name: "owner_id", Type: field.TypeInt},
+		{Name: "token_hash", Type: field.TypeString, Size: 64},
+		{Name: "not_before", Type: field.TypeTime},
+		{Name: "not_after", Type: field.TypeTime},
+		{Name: "categories", Type: field.TypeJSON},
+		{Name: "high_id", Type: field.TypeInt},
+		{Name: "status", Type: field.TypeString, Default: "pending"},
+		{Name: "expires", Type: field.TypeTime},
+	}
+	// AuditArchivesTable holds the schema information for the "audit_archives" table.
+	AuditArchivesTable = &schema.Table{
+		Name:       "audit_archives",
+		Columns:    AuditArchivesColumns,
+		PrimaryKey: []*schema.Column{AuditArchivesColumns[0]},
+		Indexes: []*schema.Index{
+			{
+				Name:    "auditarchive_expires",
+				Unique:  false,
+				Columns: []*schema.Column{AuditArchivesColumns[12]},
+			},
+		},
+	}
+	// AuditArchiveItemsColumns holds the columns for the "audit_archive_items" table.
+	AuditArchiveItemsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt, Increment: true},
+		{Name: "archive_id", Type: field.TypeString, Size: 36},
+		{Name: "log_id", Type: field.TypeInt},
+	}
+	// AuditArchiveItemsTable holds the schema information for the "audit_archive_items" table.
+	AuditArchiveItemsTable = &schema.Table{
+		Name:       "audit_archive_items",
+		Columns:    AuditArchiveItemsColumns,
+		PrimaryKey: []*schema.Column{AuditArchiveItemsColumns[0]},
+		Indexes: []*schema.Index{
+			{
+				Name:    "auditarchiveitem_archive_id_log_id",
+				Unique:  true,
+				Columns: []*schema.Column{AuditArchiveItemsColumns[1], AuditArchiveItemsColumns[2]},
+			},
+		},
+	}
+	// AuditLogsColumns holds the columns for the "audit_logs" table.
+	AuditLogsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt, Increment: true},
+		{Name: "created_at", Type: field.TypeTime, SchemaType: map[string]string{"mysql": "datetime"}},
+		{Name: "updated_at", Type: field.TypeTime, SchemaType: map[string]string{"mysql": "datetime"}},
+		{Name: "deleted_at", Type: field.TypeTime, Nullable: true, SchemaType: map[string]string{"mysql": "datetime"}},
+		{Name: "type", Type: field.TypeInt},
+		{Name: "correlation_id", Type: field.TypeString, Size: 64, Default: ""},
+		{Name: "ip", Type: field.TypeString, Size: 64, Default: ""},
+		{Name: "user_id", Type: field.TypeInt, Default: 0},
+		{Name: "file_id", Type: field.TypeInt, Default: 0},
+		{Name: "entity_id", Type: field.TypeInt, Default: 0},
+		{Name: "share_id", Type: field.TypeInt, Default: 0},
+		{Name: "content", Type: field.TypeJSON},
+	}
+	// AuditLogsTable holds the schema information for the "audit_logs" table.
+	AuditLogsTable = &schema.Table{
+		Name:       "audit_logs",
+		Columns:    AuditLogsColumns,
+		PrimaryKey: []*schema.Column{AuditLogsColumns[0]},
+		Indexes: []*schema.Index{
+			{
+				Name:    "auditlog_file_id_id",
+				Unique:  false,
+				Columns: []*schema.Column{AuditLogsColumns[8], AuditLogsColumns[0]},
+			},
+			{
+				Name:    "auditlog_user_id_id",
+				Unique:  false,
+				Columns: []*schema.Column{AuditLogsColumns[7], AuditLogsColumns[0]},
+			},
+			{
+				Name:    "auditlog_type_id",
+				Unique:  false,
+				Columns: []*schema.Column{AuditLogsColumns[4], AuditLogsColumns[0]},
+			},
+			{
+				Name:    "auditlog_correlation_id",
+				Unique:  false,
+				Columns: []*schema.Column{AuditLogsColumns[5]},
+			},
+			{
+				Name:    "auditlog_created_at_id",
+				Unique:  false,
+				Columns: []*schema.Column{AuditLogsColumns[1], AuditLogsColumns[0]},
+			},
+		},
+	}
 	// DavAccountsColumns holds the columns for the "dav_accounts" table.
 	DavAccountsColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt, Increment: true},
@@ -857,6 +953,9 @@ var (
 	}
 	// Tables holds all the tables in the schema.
 	Tables = []*schema.Table{
+		AuditArchivesTable,
+		AuditArchiveItemsTable,
+		AuditLogsTable,
 		DavAccountsTable,
 		DirectLinksTable,
 		EntitiesTable,

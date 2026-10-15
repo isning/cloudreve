@@ -496,6 +496,8 @@ var mailTemplateContents = []MailTemplateContent{
 }
 
 var DefaultSettings = map[string]string{
+	"audit_enabled_flags":                        "/////////z8=",
+	"audit_record_ip":                            "1",
 	"siteURL":                                    `http://localhost:5212`,
 	"siteName":                                   `Cloudreve`,
 	"siteDes":                                    "Cloudreve",

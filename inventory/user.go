@@ -160,18 +160,31 @@ func (c *userClient) CountByTimeRange(ctx context.Context, start, end *time.Time
 }
 
 func (c *userClient) UpdateNickname(ctx context.Context, u *ent.User, name string) (*ent.User, error) {
-	return c.client.User.UpdateOne(u).SetNick(name).Save(ctx)
+	return c.mutateWithAudit(ctx, u, types.AuditChangeNick, types.LogEntry{
+		OriginalName: u.Nick, NewName: name,
+		Exts: map[string]string{"from": u.Nick, "to": name},
+	}, func(ctx context.Context, client *ent.Client) (*ent.User, error) {
+		return client.User.UpdateOne(u).SetNick(name).Save(ctx)
+	})
 }
 
 func (c *userClient) UpdateAvatar(ctx context.Context, u *ent.User, avatar string) (*ent.User, error) {
-	return c.client.User.UpdateOne(u).SetAvatar(avatar).Save(ctx)
+	return c.mutateWithAudit(ctx, u, types.AuditChangeAvatar, types.LogEntry{}, func(ctx context.Context, client *ent.Client) (*ent.User, error) {
+		return client.User.UpdateOne(u).SetAvatar(avatar).Save(ctx)
+	})
 }
 
 func (c *userClient) UpdateTwoFASecret(ctx context.Context, u *ent.User, secret string) (*ent.User, error) {
+	kind := types.AuditEnable2FA
 	if secret == "" {
-		return c.client.User.UpdateOne(u).ClearTwoFactorSecret().Save(ctx)
+		kind = types.AuditDisable2FA
 	}
-	return c.client.User.UpdateOne(u).SetTwoFactorSecret(secret).Save(ctx)
+	return c.mutateWithAudit(ctx, u, kind, types.LogEntry{}, func(ctx context.Context, client *ent.Client) (*ent.User, error) {
+		if secret == "" {
+			return client.User.UpdateOne(u).ClearTwoFactorSecret().Save(ctx)
+		}
+		return client.User.UpdateOne(u).SetTwoFactorSecret(secret).Save(ctx)
+	})
 }
 
 func (c *userClient) UpdatePassword(ctx context.Context, u *ent.User, newPassword string) (*ent.User, error) {
@@ -187,7 +200,9 @@ func (c *userClient) UpdatePassword(ctx context.Context, u *ent.User, newPasswor
 		return nil, err
 	}
 
-	return c.client.User.UpdateOne(u).SetPassword(digest).Save(ctx)
+	return c.mutateWithAudit(ctx, u, types.AuditChangePassword, types.LogEntry{}, func(ctx context.Context, client *ent.Client) (*ent.User, error) {
+		return client.User.UpdateOne(u).SetPassword(digest).Save(ctx)
+	})
 }
 
 func (c *userClient) SetClient(newClient *ent.Client) TxOperator {
@@ -202,7 +217,7 @@ func (c *userClient) ListPasskeys(ctx context.Context, uid int) ([]*ent.Passkey,
 	return c.client.Passkey.Query().Where(passkey.UserID(uid)).All(ctx)
 }
 
-func (c *userClient) AddPasskey(ctx context.Context, uid int, name string, credential *webauthn.Credential) (*ent.Passkey, error) {
+func (c *userClient) addPasskey(ctx context.Context, uid int, name string, credential *webauthn.Credential) (*ent.Passkey, error) {
 	u, err := c.GetByID(ctx, uid)
 	if err != nil {
 		return nil, err
@@ -218,7 +233,7 @@ func (c *userClient) AddPasskey(ctx context.Context, uid int, name string, crede
 		Save(ctx)
 }
 
-func (c *userClient) RemovePasskey(ctx context.Context, uid int, keyId string) error {
+func (c *userClient) removePasskey(ctx context.Context, uid int, keyId string) error {
 	ctx = schema.SkipSoftDelete(ctx)
 	_, err := c.client.Passkey.Delete().Where(passkey.UserID(uid), passkey.CredentialID(keyId)).Exec(ctx)
 	return err
@@ -236,6 +251,9 @@ func (c *userClient) Delete(ctx context.Context, uid int) error {
 	}
 	defer Rollback(tx)
 	if err = scoped.(*userClient).deleteUser(ctx, uid); err != nil {
+		return err
+	}
+	if err := RecordAudit(ctx, scoped.GetClient(), AuditEvent{Type: types.AuditUserChanged, Content: types.LogEntry{AccountID: uid, Reason: "deleted"}}); err != nil {
 		return err
 	}
 	return Commit(tx)
@@ -396,10 +414,22 @@ func (c *userClient) CalculateStorage(ctx context.Context, uid int) (int64, erro
 }
 
 func (c *userClient) SetStatus(ctx context.Context, u *ent.User, status user.Status) (*ent.User, error) {
-	return c.client.User.UpdateOne(u).SetStatus(status).Save(ctx)
+	kind := types.AuditUserChanged
+	if u.Status == user.StatusInactive && status == user.StatusActive {
+		kind = types.AuditUserActivated
+	}
+	return c.mutateWithAudit(ctx, u, kind, types.LogEntry{}, func(ctx context.Context, client *ent.Client) (*ent.User, error) {
+		return client.User.UpdateOne(u).SetStatus(status).Save(ctx)
+	})
 }
 
 func (c *userClient) Create(ctx context.Context, args *NewUserArgs) (*ent.User, error) {
+	return c.mutateWithAudit(ctx, nil, types.AuditUserSignup, types.LogEntry{}, func(ctx context.Context, client *ent.Client) (*ent.User, error) {
+		return (&userClient{client: client}).create(ctx, args)
+	})
+}
+
+func (c *userClient) create(ctx context.Context, args *NewUserArgs) (*ent.User, error) {
 	// Try to check if there's user with same email.
 	if existedUser, err := c.GetByEmail(ctx, args.Email); err == nil {
 		if existedUser.Status == user.StatusInactive {
@@ -586,6 +616,24 @@ func (c *userClient) ListUsers(ctx context.Context, args *ListUserParameters) (*
 }
 
 func (c *userClient) Upsert(ctx context.Context, u *ent.User, password, twoFa string) (*ent.User, error) {
+	previous := u
+	if u.ID > 0 {
+		var err error
+		previous, err = c.GetByID(ctx, u.ID)
+		if err != nil {
+			return nil, err
+		}
+	}
+	kind := types.AuditUserChanged
+	if u.ID == 0 {
+		kind = types.AuditUserSignup
+	}
+	return c.mutateWithAudit(ctx, previous, kind, types.LogEntry{}, func(ctx context.Context, client *ent.Client) (*ent.User, error) {
+		return (&userClient{client: client}).upsert(ctx, u, password, twoFa)
+	})
+}
+
+func (c *userClient) upsert(ctx context.Context, u *ent.User, password, twoFa string) (*ent.User, error) {
 	if u.ID == 0 {
 		q := c.client.User.Create().
 			SetEmail(u.Email).

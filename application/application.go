@@ -13,6 +13,8 @@ import (
 	"github.com/cloudreve/Cloudreve/v4/application/constants"
 	"github.com/cloudreve/Cloudreve/v4/application/dependency"
 	"github.com/cloudreve/Cloudreve/v4/ent"
+	"github.com/cloudreve/Cloudreve/v4/inventory/types"
+	"github.com/cloudreve/Cloudreve/v4/pkg/audit"
 	"github.com/cloudreve/Cloudreve/v4/pkg/cache"
 	"github.com/cloudreve/Cloudreve/v4/pkg/conf"
 	"github.com/cloudreve/Cloudreve/v4/pkg/crontab"
@@ -125,6 +127,9 @@ func (s *server) Start() error {
 
 		// Start node pool
 		if _, err := s.dep.NodePool(context.Background()); err != nil {
+			return err
+		}
+		if err := audit.New(s.dbClient, s.dep.SettingProvider(), s.logger).Record(context.Background(), audit.Event{Type: types.AuditServerStart, Content: types.LogEntry{Exts: map[string]string{"version": constants.BackendVersion, "commit": constants.LastCommit}}}); err != nil {
 			return err
 		}
 	} else {

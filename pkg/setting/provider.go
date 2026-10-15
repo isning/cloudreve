@@ -19,6 +19,7 @@ import (
 type (
 	// Provider provides strong type setting access.
 	Provider interface {
+		Audit(ctx context.Context) *AuditSetting
 		ExternalLoginProviders(ctx context.Context) (*oidc.Registry, error)
 		// Site basic information
 		SiteBasic(ctx context.Context) *SiteBasic
@@ -244,6 +245,15 @@ type (
 	}
 	UseFirstSiteUrlCtxKey = struct{}
 )
+
+type AuditSetting struct {
+	Enabled  *boolset.BooleanSet
+	RecordIP bool
+}
+
+func (s *settingProvider) Audit(ctx context.Context) *AuditSetting {
+	return &AuditSetting{Enabled: s.getBoolSet(ctx, "audit_enabled_flags"), RecordIP: s.getBoolean(ctx, "audit_record_ip", true)}
+}
 
 // NewProvider creates a new setting provider.
 func NewProvider(root SettingStoreAdapter) Provider {

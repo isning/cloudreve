@@ -14,6 +14,12 @@ import (
 // Tx is a transactional client that is created by calling Client.Tx().
 type Tx struct {
 	config
+	// AuditArchive is the client for interacting with the AuditArchive builders.
+	AuditArchive *AuditArchiveClient
+	// AuditArchiveItem is the client for interacting with the AuditArchiveItem builders.
+	AuditArchiveItem *AuditArchiveItemClient
+	// AuditLog is the client for interacting with the AuditLog builders.
+	AuditLog *AuditLogClient
 	// DavAccount is the client for interacting with the DavAccount builders.
 	DavAccount *DavAccountClient
 	// DirectLink is the client for interacting with the DirectLink builders.
@@ -197,6 +203,9 @@ func (tx *Tx) Client() *Client {
 }
 
 func (tx *Tx) init() {
+	tx.AuditArchive = NewAuditArchiveClient(tx.config)
+	tx.AuditArchiveItem = NewAuditArchiveItemClient(tx.config)
+	tx.AuditLog = NewAuditLogClient(tx.config)
 	tx.DavAccount = NewDavAccountClient(tx.config)
 	tx.DirectLink = NewDirectLinkClient(tx.config)
 	tx.Entity = NewEntityClient(tx.config)
@@ -232,7 +241,7 @@ func (tx *Tx) init() {
 // of them in order to commit or rollback the transaction.
 //
 // If a closed transaction is embedded in one of the generated entities, and the entity
-// applies a query, for example: DavAccount.QueryXXX(), the query will be executed
+// applies a query, for example: AuditArchive.QueryXXX(), the query will be executed
 // through the driver which created this transaction.
 //
 // Note that txDriver is not goroutine safe.

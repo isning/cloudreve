@@ -108,7 +108,7 @@ type kvSettingStore struct {
 
 func (s *kvSettingStore) Get(ctx context.Context, name string, defaultVal any) any {
 	// Provider changes must be visible across processes with in-memory caches.
-	if name == "external_login_providers" {
+	if name == "external_login_providers" || name == "audit_enabled_flags" || name == "audit_record_ip" {
 		return s.next.Get(ctx, name, defaultVal)
 	}
 	if val, exist := s.kv.Get(KvSettingPrefix + name); exist {

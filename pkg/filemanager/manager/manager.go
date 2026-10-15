@@ -9,6 +9,7 @@ import (
 	"github.com/cloudreve/Cloudreve/v4/ent"
 	"github.com/cloudreve/Cloudreve/v4/inventory"
 	"github.com/cloudreve/Cloudreve/v4/inventory/types"
+	"github.com/cloudreve/Cloudreve/v4/pkg/audit"
 	"github.com/cloudreve/Cloudreve/v4/pkg/auth"
 	"github.com/cloudreve/Cloudreve/v4/pkg/cache"
 	"github.com/cloudreve/Cloudreve/v4/pkg/conf"
@@ -157,13 +158,14 @@ func NewFileManager(dep dependency.Dep, u *ent.User) FileManager {
 	if config.System().Mode == conf.SlaveMode || u == nil {
 		return newStatelessFileManager(dep)
 	}
+	fileClient := dep.FileClient()
 	return &manager{
 		l:        dep.Logger(),
 		user:     u,
 		settings: dep.SettingProvider(),
-		fs: dbfs.NewDatabaseFS(u, dep.FileClient(), dep.ShareClient(), dep.Logger(), dep.LockSystem(),
+		fs: dbfs.NewDatabaseFS(u, fileClient, dep.ShareClient(), dep.Logger(), dep.LockSystem(),
 			dep.SettingProvider(), dep.StoragePolicyClient(), dep.HashIDEncoder(), dep.UserClient(), dep.KV(), dep.NavigatorStateKV(),
-			dep.DirectLinkClient(), dep.EncryptorFactory(context.TODO()), dep.EventHub()),
+			dep.DirectLinkClient(), dep.EncryptorFactory(context.TODO()), dep.EventHub(), audit.New(fileClient.GetClient(), dep.SettingProvider(), dep.Logger())),
 		kv:           dep.KV(),
 		config:       config,
 		auth:         dep.GeneralAuth(),

@@ -4,6 +4,24 @@ package ent
 
 // SetUpdatedAt sets the "updated_at" field.
 
+func (m *AuditArchiveMutation) SetRawID(t int) {
+	m.id = &t
+}
+
+// SetUpdatedAt sets the "updated_at" field.
+
+func (m *AuditArchiveItemMutation) SetRawID(t int) {
+	m.id = &t
+}
+
+// SetUpdatedAt sets the "updated_at" field.
+
+func (m *AuditLogMutation) SetRawID(t int) {
+	m.id = &t
+}
+
+// SetUpdatedAt sets the "updated_at" field.
+
 func (m *DavAccountMutation) SetRawID(t int) {
 	m.id = &t
 }

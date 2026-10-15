@@ -10,6 +10,7 @@ import (
 	"github.com/cloudreve/Cloudreve/v4/ent"
 	"github.com/cloudreve/Cloudreve/v4/inventory"
 	"github.com/cloudreve/Cloudreve/v4/inventory/types"
+	"github.com/cloudreve/Cloudreve/v4/pkg/audit"
 	"github.com/cloudreve/Cloudreve/v4/pkg/auth"
 	"github.com/cloudreve/Cloudreve/v4/pkg/cluster/routes"
 	"github.com/cloudreve/Cloudreve/v4/pkg/hashid"
@@ -216,6 +217,8 @@ func (s *ExchangeTokenService) Exchange(c *gin.Context) (*TokenResponse, error) 
 	if err != nil {
 		return nil, serializer.NewError(serializer.CodeCredentialInvalid, "Failed to issue token", err)
 	}
+
+	audit.Observe(c, audit.Event{Type: types.AuditOAuthTokenExchange, User: user, Content: types.LogEntry{AccountID: app.ID, Account: s.ClientID}})
 
 	// 9. Update grant last used at
 	if err := oAuthClient.UpdateGrantLastUsedAt(c, user.ID, app.ID); err != nil {

@@ -75,7 +75,10 @@ type (
 		Unlock()
 	}
 	ResumableTaskFactory func(model *ent.Task) Task
-	Progress             struct {
+	completionAuditor    interface {
+		CompletionAudit(context.Context) []inventory.AuditEvent
+	}
+	Progress struct {
 		Total      int64  `json:"total"`
 		Current    int64  `json:"current"`
 		Identifier string `json:"identifier"`
@@ -398,6 +401,13 @@ func init() {
 		task.StatusProcessing: {
 			task.StatusQueued: persistTask,
 			task.StatusCompleted: func(ctx context.Context, task Task, newStatus task.Status, q *queue) error {
+				_, audited := task.(completionAuditor)
+				if audited {
+					// Commit the audit and completion before releasing recovery material.
+					if err := persistTask(ctx, task, newStatus, q); err != nil {
+						return err
+					}
+				}
 				q.logger.Info("Execution completed in %s with %d retries, clean up...", task.Executed(), task.Retried())
 				q.metric.IncSuccessTask()
 
@@ -409,8 +419,10 @@ func init() {
 					q.registry.Delete(task.ID())
 				}
 
-				if err := persistTask(ctx, task, newStatus, q); err != nil {
-					return err
+				if !audited {
+					if err := persistTask(ctx, task, newStatus, q); err != nil {
+						return err
+					}
 				}
 				return nil
 			},
@@ -516,6 +528,13 @@ func saveTaskToInventory(ctx context.Context, task Task, newStatus task.Status, 
 	}
 	if protected, ok := task.(interface{ PreserveCompleted() bool }); ok {
 		args.PreserveCompleted = protected.PreserveCompleted()
+	}
+	if audited, ok := task.(completionAuditor); ok {
+		// Stale workers must not reopen a completed task and emit its events again.
+		args.PreserveCompleted = true
+		if newStatus == "completed" {
+			args.AuditEvents = audited.CompletionAudit(ctx)
+		}
 	}
 
 	var (

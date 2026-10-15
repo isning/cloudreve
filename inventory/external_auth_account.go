@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/cloudreve/Cloudreve/v4/ent/user"
+	"github.com/cloudreve/Cloudreve/v4/inventory/types"
 	"github.com/cloudreve/Cloudreve/v4/pkg/oidc"
 	"strings"
 )
@@ -16,6 +17,7 @@ func (s *externalAuthStore) CreateIdentityAccount(ctx context.Context, id oidc.I
 	}
 	defer tx.Rollback()
 	c := tx.Client()
+	ctx = context.WithValue(ctx, TxCtx{}, &Tx{tx: tx})
 	// Configuration was validated when saved, but the target group can disappear
 	// before this login. Check it again inside account creation on every dialect.
 	if _, err := c.Group.Get(ctx, profile.GroupID); err != nil {
@@ -29,6 +31,9 @@ func (s *externalAuthStore) CreateIdentityAccount(ctx context.Context, id oidc.I
 	}
 	if err = c.ExternalIdentity.Create().SetIdentityKey(id.Key()).SetProviderID(id.ProviderID).SetIssuer(id.Issuer).SetSubject(id.Subject).SetUserID(u.ID).Exec(ctx); err != nil {
 		return 0, fmt.Errorf("external identity association conflicts; restart authentication")
+	}
+	if err := RecordAudit(ctx, c, AuditEvent{Type: types.AuditLinkAccount, User: u, Content: types.LogEntry{OpenIDProvider: &id.ProviderID, Sub: id.Subject, AccountID: u.ID}}); err != nil {
+		return 0, err
 	}
 	if err = tx.Commit(); err != nil {
 		return 0, fmt.Errorf("cannot commit external account creation")

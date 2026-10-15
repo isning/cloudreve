@@ -12,6 +12,9 @@ import (
 	"entgo.io/ent"
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
+	"github.com/cloudreve/Cloudreve/v4/ent/auditarchive"
+	"github.com/cloudreve/Cloudreve/v4/ent/auditarchiveitem"
+	"github.com/cloudreve/Cloudreve/v4/ent/auditlog"
 	"github.com/cloudreve/Cloudreve/v4/ent/davaccount"
 	"github.com/cloudreve/Cloudreve/v4/ent/directlink"
 	"github.com/cloudreve/Cloudreve/v4/ent/entity"
@@ -98,6 +101,9 @@ var (
 func checkColumn(table, column string) error {
 	initCheck.Do(func() {
 		columnCheck = sql.NewColumnCheck(map[string]func(string) bool{
+			auditarchive.Table:        auditarchive.ValidColumn,
+			auditarchiveitem.Table:    auditarchiveitem.ValidColumn,
+			auditlog.Table:            auditlog.ValidColumn,
 			davaccount.Table:          davaccount.ValidColumn,
 			directlink.Table:          directlink.ValidColumn,
 			entity.Table:              entity.ValidColumn,

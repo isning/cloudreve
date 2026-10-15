@@ -47,12 +47,12 @@ func (service *UserRegisterService) Register(c *gin.Context) serializer.Response
 	}
 
 	userClient := dep.UserClient()
-	uc, tx, _, err := inventory.WithTx(c, userClient)
+	uc, tx, txCtx, err := inventory.WithTx(c, userClient)
 	if err != nil {
 		return serializer.DBErr(c, "Failed to start transaction", err)
 	}
 
-	expectedUser, err := uc.Create(c, args)
+	expectedUser, err := uc.Create(txCtx, args)
 	if expectedUser != nil {
 		util.WithValue(c, inventory.UserCtx{}, expectedUser)
 	}

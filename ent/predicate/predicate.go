@@ -6,6 +6,15 @@ import (
 	"entgo.io/ent/dialect/sql"
 )
 
+// AuditArchive is the predicate function for auditarchive builders.
+type AuditArchive func(*sql.Selector)
+
+// AuditArchiveItem is the predicate function for auditarchiveitem builders.
+type AuditArchiveItem func(*sql.Selector)
+
+// AuditLog is the predicate function for auditlog builders.
+type AuditLog func(*sql.Selector)
+
 // DavAccount is the predicate function for davaccount builders.
 type DavAccount func(*sql.Selector)
 

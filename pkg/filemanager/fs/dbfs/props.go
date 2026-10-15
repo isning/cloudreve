@@ -48,11 +48,19 @@ func (f *DBFS) PatchProps(ctx context.Context, uri *fs.URI, props *types.FilePro
 		}
 	}
 
-	if _, err := f.fileClient.UpdateProps(ctx, target.Model, currentProps); err != nil {
+	fc, tx, ctx, err := inventory.WithTx(ctx, f.fileClient)
+	if err != nil {
+		return err
+	}
+	defer inventory.Rollback(tx)
+	if _, err := fc.UpdateProps(ctx, target.Model, currentProps); err != nil {
 		return serializer.NewError(serializer.CodeDBError, "failed to update file props", err)
 	}
 
-	return nil
+	if err := f.recordAudit(ctx, types.AuditUpdateView, target, types.LogEntry{}, 0); err != nil {
+		return err
+	}
+	return inventory.Commit(tx)
 }
 
 func (f *DBFS) PatchMetadata(ctx context.Context, path []*fs.URI, metas ...fs.MetadataPatch) error {
@@ -139,6 +147,13 @@ func (f *DBFS) PatchMetadata(ctx context.Context, path []*fs.URI, metas ...fs.Me
 				_ = inventory.Rollback(tx)
 				return fmt.Errorf("failed to update file modified at: %w", err)
 			}
+		}
+	}
+
+	for _, target := range targets {
+		if err := f.recordAudit(ctx, types.AuditUpdateMetadata, target, types.LogEntry{}, 0); err != nil {
+			_ = inventory.Rollback(tx)
+			return err
 		}
 	}
 

@@ -19,6 +19,7 @@ import (
 	"github.com/cloudreve/Cloudreve/v4/ent"
 	"github.com/cloudreve/Cloudreve/v4/inventory"
 	"github.com/cloudreve/Cloudreve/v4/inventory/types"
+	"github.com/cloudreve/Cloudreve/v4/pkg/audit"
 	"github.com/cloudreve/Cloudreve/v4/pkg/filemanager/fs"
 	"github.com/cloudreve/Cloudreve/v4/pkg/filemanager/fs/dbfs"
 	"github.com/cloudreve/Cloudreve/v4/pkg/filemanager/lock"
@@ -352,6 +353,11 @@ func handleGetHeadPost(c *gin.Context, user *ent.User, fm manager.FileManager) (
 	}
 
 	defer es.Close()
+	if c.Request.Method != http.MethodHead {
+		if err := audit.Record(c, audit.Event{Type: types.AuditEntityDownloaded, User: user, FileID: target.ID(), EntityID: target.PrimaryEntityID()}); err != nil {
+			return http.StatusInternalServerError, err
+		}
+	}
 
 	es.Apply(entitysource.WithSpeedLimit(int64(user.Edges.Group.SpeedLimit)))
 	if es.ShouldInternalProxy() ||

@@ -32,6 +32,7 @@ import (
 	"github.com/cloudreve/Cloudreve/v4/pkg/filemanager/fs"
 	"github.com/cloudreve/Cloudreve/v4/pkg/filemanager/manager"
 	"github.com/cloudreve/Cloudreve/v4/pkg/filemanager/manager/entitysource"
+	"github.com/cloudreve/Cloudreve/v4/pkg/hashid"
 	"github.com/cloudreve/Cloudreve/v4/pkg/securelog"
 	"github.com/cloudreve/Cloudreve/v4/pkg/storagepolicy"
 	"github.com/cloudreve/Cloudreve/v4/pkg/util"
@@ -692,12 +693,12 @@ func commitSingle(ctx context.Context, dep dependency.Dep, fm manager.FileManage
 	if err := verifyTarget(ctx, fm, source, b, attempt); err != nil {
 		return err
 	}
-	tx, err := db.Tx(ctx)
+	fc, tx, ctx, err := inventory.WithTx(ctx, dep.FileClient())
 	if err != nil {
 		return errors.New("failed to start migration commit")
 	}
-	defer tx.Rollback()
-	c := tx.Client()
+	defer inventory.Rollback(tx)
+	c := fc.GetClient()
 	if err := lockOwner(ctx, c, item.OwnerID, item.DestinationPolicyID); err != nil {
 		return err
 	}
@@ -766,7 +767,12 @@ func commitSingle(ctx context.Context, dep dependency.Dep, fm manager.FileManage
 	if err := c.RelocationAttempt.UpdateOneID(attempt.ID).SetCleanup(relocationattempt.CleanupRetained).Exec(ctx); err != nil {
 		return errors.New("failed to retain committed migration target")
 	}
-	if err := tx.Commit(); err != nil {
+	for _, ref := range item.References {
+		if err := inventory.RecordAudit(ctx, c, inventory.AuditEvent{Type: types.AuditRelocate, User: inventory.UserFromContext(ctx), FileID: ref.FileID, EntityID: targetID, Content: types.LogEntry{StoragePolicyID: hashid.EncodePolicyID(dep.HashIDEncoder(), item.DestinationPolicyID), StoragePolicy: b.Name}}); err != nil {
+			return err
+		}
+	}
+	if err := inventory.Commit(tx); err != nil {
 		return errors.New("failed to commit migration references")
 	}
 	return nil

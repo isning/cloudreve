@@ -97,7 +97,7 @@ func (c *oauthClientClient) GetByGUIDWithGrants(ctx context.Context, guid string
 	return stm.First(ctx)
 }
 
-func (c *oauthClientClient) UpsertGrant(ctx context.Context, userID, clientID int, scopes []string) error {
+func (c *oauthClientClient) upsertGrant(ctx context.Context, userID, clientID int, scopes []string) error {
 	return c.client.OAuthGrant.Create().
 		SetUserID(userID).
 		SetClientID(clientID).
@@ -124,7 +124,7 @@ func (c *oauthClientClient) GetGrantsByUserID(ctx context.Context, userID int) (
 		All(ctx)
 }
 
-func (c *oauthClientClient) DeleteGrantByUserAndClientGUID(ctx context.Context, userID int, clientGUID string) (bool, error) {
+func (c *oauthClientClient) deleteGrantByUserAndClientGUID(ctx context.Context, userID int, clientGUID string) (bool, error) {
 	// First, get the client by GUID to get its ID
 	client, err := c.client.OAuthClient.Query().
 		Where(oauthclient.GUID(clientGUID)).

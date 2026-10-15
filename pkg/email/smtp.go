@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/cloudreve/Cloudreve/v4/inventory"
+	"github.com/cloudreve/Cloudreve/v4/inventory/types"
+	"github.com/cloudreve/Cloudreve/v4/pkg/audit"
 	"github.com/cloudreve/Cloudreve/v4/pkg/logging"
 	"github.com/cloudreve/Cloudreve/v4/pkg/setting"
 	"github.com/wneessen/go-mail"
@@ -38,6 +40,7 @@ type SMTPConfig struct {
 }
 
 type message struct {
+	ctx     context.Context
 	msg     *mail.Msg
 	to      string
 	subject string
@@ -93,6 +96,7 @@ func (client *SMTPPool) Send(ctx context.Context, to, title, body string) error 
 	m.SetMessageID()
 	m.SetBodyString(mail.TypeTextHTML, body)
 	client.ch <- &message{
+		ctx:     audit.Detach(ctx),
 		msg:     m,
 		subject: title,
 		to:      to,
@@ -153,6 +157,7 @@ func (client *SMTPPool) Init() {
 
 				if !open {
 					if err = d.DialWithContext(context.Background()); err != nil {
+						m.recordDelivery(false)
 						panic(err)
 					}
 					open = true
@@ -164,14 +169,17 @@ func (client *SMTPPool) Init() {
 					var sendErr *mail.SendError
 					var errParsed = errors.As(err, &sendErr)
 					if errParsed && sendErr.Reason == mail.ErrSMTPReset {
+						m.recordDelivery(true)
 						open = false
 						l.Debug("SMTP RESET error, closing connection...")
 						// https://github.com/wneessen/go-mail/issues/463
 						continue // Don't treat this as a delivery failure since mail was sent
 					}
 
+					m.recordDelivery(false)
 					l.Warning("Failed to send email: %s, Cid=%s", err, m.cid)
 				} else {
+					m.recordDelivery(true)
 					l.Info("Email sent to %q, title: %q.", m.to, m.subject)
 				}
 			// 长时间没有新邮件，则关闭SMTP连接
@@ -185,4 +193,17 @@ func (client *SMTPPool) Init() {
 			}
 		}
 	}()
+}
+
+func (m *message) recordDelivery(delivered bool) {
+	if m.ctx == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(m.ctx, 10*time.Second)
+	defer cancel()
+	content := types.LogEntry{EmailTo: m.to, EmailTitle: m.subject, Failed: !delivered}
+	if !delivered {
+		content.Error = "operation failed"
+	}
+	audit.Observe(ctx, audit.Event{Type: types.AuditEmailSent, Content: content})
 }

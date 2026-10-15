@@ -2,6 +2,7 @@ package admin
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/gob"
 	"encoding/json"
 	"fmt"
@@ -282,6 +283,15 @@ func (s *SetSettingService) SetSetting(c *gin.Context) (map[string]string, error
 	kv := dep.KV()
 	settingClient := dep.SettingClient()
 
+	if raw, ok := s.Settings["audit_enabled_flags"]; ok {
+		flags, err := base64.StdEncoding.DecodeString(raw)
+		if err != nil || len(flags) > 8 || (len(flags) == 8 && flags[7]&0xc0 != 0) {
+			return nil, serializer.NewError(serializer.CodeParamErr, "Invalid audit event flags", nil)
+		}
+	}
+	if raw, ok := s.Settings["audit_record_ip"]; ok && raw != "0" && raw != "1" {
+		return nil, serializer.NewError(serializer.CodeParamErr, "Invalid audit IP setting", nil)
+	}
 	if raw, ok := s.Settings[oidc.SettingName]; ok {
 		registry, err := oidc.ParseRegistry(raw)
 		if err != nil {

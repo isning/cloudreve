@@ -6,6 +6,7 @@ import (
 	"github.com/cloudreve/Cloudreve/v4/ent"
 	"github.com/cloudreve/Cloudreve/v4/ent/externalidentity"
 	"github.com/cloudreve/Cloudreve/v4/ent/user"
+	"github.com/cloudreve/Cloudreve/v4/inventory/types"
 	"github.com/cloudreve/Cloudreve/v4/pkg/oidc"
 	"time"
 )
@@ -36,6 +37,7 @@ func (s *externalAuthStore) ResolveIdentity(ctx context.Context, id oidc.Identit
 	}
 	defer tx.Rollback()
 	c := tx.Client()
+	ctx = context.WithValue(ctx, TxCtx{}, &Tx{tx: tx})
 	// Use the user row as the shared lifecycle lock, including unlink and deletion.
 	_, err = c.User.Update().Where(user.ID(target), user.StatusEQ(user.StatusActive)).AddStorage(0).Save(ctx)
 	if err != nil {
@@ -65,6 +67,9 @@ func (s *externalAuthStore) ResolveIdentity(ctx context.Context, id oidc.Identit
 		if _, err = c.ExternalIdentity.Create().SetIdentityKey(id.Key()).SetProviderID(id.ProviderID).SetIssuer(id.Issuer).SetSubject(id.Subject).SetUserID(target).Save(ctx); err != nil {
 			return 0, fmt.Errorf("identity or account provider association conflicts")
 		}
+	}
+	if err := RecordAudit(ctx, c, AuditEvent{Type: types.AuditLinkAccount, User: &ent.User{ID: target}, Content: types.LogEntry{OpenIDProvider: &id.ProviderID, Sub: id.Subject, AccountID: target}}); err != nil {
+		return 0, err
 	}
 	if err = tx.Commit(); err != nil {
 		return 0, fmt.Errorf("cannot commit identity association")

@@ -241,6 +241,7 @@ func initMasterRouter(dep dependency.Dep) *gin.Engine {
 		路由
 	*/
 	{
+		v4.GET("audit/archive/:id", controllers.FromUri[adminsvc.AuditArchiveService](adminsvc.AuditArchiveParamCtx{}), controllers.DownloadAuditArchive)
 		// Redirect file source link
 		source := r.Group("f")
 		source.Use(middleware.ContentCORS())
@@ -806,6 +807,7 @@ func initMasterRouter(dep dependency.Dep) *gin.Engine {
 			)
 
 			// Server event push
+			file.GET("activities", controllers.FromQuery[explorer.FileActivitiesService](explorer.FileActivitiesParamCtx{}), controllers.FileActivities)
 			file.GET("events",
 				middleware.LoginRequired(),
 				middleware.IsFunctionEnabled(func(c *gin.Context) bool {
@@ -890,6 +892,13 @@ func initMasterRouter(dep dependency.Dep) *gin.Engine {
 			admin := auth.Group("admin", middleware.IsAdmin())
 			admin.Use(middleware.RequiredScopes(types.ScopeAdminRead))
 			{
+				admin.POST("event/batch/delete", middleware.RequiredScopes(types.ScopeAdminWrite), controllers.FromJSON[adminsvc.BatchAuditLogService](adminsvc.BatchAuditLogParamCtx{}), controllers.AdminDeleteAuditLogs)
+				admin.POST("event/cleanup", middleware.RequiredScopes(types.ScopeAdminWrite), controllers.FromJSON[adminsvc.CleanupAuditLogService](adminsvc.CleanupAuditLogParamCtx{}), controllers.AdminCleanupAuditLogs)
+				admin.POST("event/archive", middleware.RequiredScopes(types.ScopeAdminWrite), controllers.FromJSON[adminsvc.CreateAuditArchiveService](adminsvc.CreateAuditArchiveParamCtx{}), controllers.AdminCreateAuditArchive)
+				admin.GET("event/archive/:id/status", controllers.FromUri[adminsvc.AuditArchiveService](adminsvc.AuditArchiveParamCtx{}), controllers.AdminAuditArchiveStatus)
+				admin.DELETE("event/archive/:id", middleware.RequiredScopes(types.ScopeAdminWrite), controllers.FromUri[adminsvc.AuditArchiveService](adminsvc.AuditArchiveParamCtx{}), controllers.AdminPurgeAuditArchive)
+				admin.POST("event", controllers.FromJSON[adminsvc.AdminListService](adminsvc.AdminListServiceParamsCtx{}), controllers.AdminListAuditLogs)
+				admin.GET("event/:id", controllers.FromUri[adminsvc.SingleAuditLogService](adminsvc.SingleAuditLogParamCtx{}), controllers.AdminGetAuditLog)
 				admin.GET("summary",
 					controllers.FromQuery[adminsvc.SummaryService](adminsvc.SummaryParamCtx{}),
 					controllers.AdminSummary,

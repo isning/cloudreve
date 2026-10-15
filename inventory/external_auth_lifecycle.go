@@ -7,7 +7,7 @@ import (
 	"github.com/cloudreve/Cloudreve/v4/ent/externalidentity"
 	"github.com/cloudreve/Cloudreve/v4/ent/openidsession"
 	"github.com/cloudreve/Cloudreve/v4/ent/openidtransaction"
-	"github.com/cloudreve/Cloudreve/v4/ent/user"
+	"github.com/cloudreve/Cloudreve/v4/inventory/types"
 	"time"
 )
 
@@ -36,15 +36,16 @@ func (s *externalAuthStore) Cleanup(ctx context.Context, now time.Time) error {
 	return nil
 }
 func ReleaseManagedAccount(ctx context.Context, c *ent.Client, uid int) error {
-	n, err := c.User.Update().Where(user.ID(uid)).SetSSOManaged(false).Save(externalAuthContext(ctx))
+	uc := NewUserClient(c).(*userClient)
+	previous, err := uc.GetByID(ctx, uid)
 	if err != nil {
 		return fmt.Errorf("cannot release managed account")
 	}
-	if n == 0 {
-		row, err := c.User.Get(externalAuthContext(ctx), uid)
-		if err != nil || row.SSOManaged {
-			return fmt.Errorf("cannot release managed account")
-		}
+	if !previous.SSOManaged {
+		return nil
 	}
-	return nil
+	_, err = uc.mutateWithAudit(ctx, previous, types.AuditUserChanged, types.LogEntry{Reason: "release_managed_account"}, func(ctx context.Context, c *ent.Client) (*ent.User, error) {
+		return c.User.UpdateOneID(uid).SetSSOManaged(false).Save(externalAuthContext(ctx))
+	})
+	return err
 }

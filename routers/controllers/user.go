@@ -4,6 +4,8 @@ import (
 	"github.com/cloudreve/Cloudreve/v4/application/dependency"
 	"github.com/cloudreve/Cloudreve/v4/ent"
 	"github.com/cloudreve/Cloudreve/v4/inventory"
+	"github.com/cloudreve/Cloudreve/v4/inventory/types"
+	"github.com/cloudreve/Cloudreve/v4/pkg/audit"
 	"github.com/cloudreve/Cloudreve/v4/pkg/hashid"
 	"github.com/cloudreve/Cloudreve/v4/pkg/oidc"
 	"github.com/cloudreve/Cloudreve/v4/pkg/serializer"
@@ -30,6 +32,7 @@ func FinishLoginAuthn(c *gin.Context) {
 	service := ParametersFromContext[*user.FinishPasskeyLoginService](c, user.FinishPasskeyLoginParameterCtx{})
 	u, err := service.FinishPasskeyLogin(c)
 	if err != nil {
+		audit.Observe(c, audit.Event{Type: types.AuditUserLoginFailed, Content: types.LogEntry{Failed: true, Reason: "passkey"}})
 		c.JSON(200, serializer.Err(c, err))
 		c.Abort()
 		return
@@ -101,6 +104,7 @@ func UserLogin2FAValidation(c *gin.Context) {
 		proof, _ := c.Cookie(openIDCookieName(service.SessionID))
 		result, err := dependency.FromContext(c).OIDC().CompleteMFA(c.Request.Context(), service.SessionID, proof, service.OTP)
 		if err != nil {
+			audit.Observe(c, audit.Event{Type: types.AuditUserLoginFailed, Content: types.LogEntry{Failed: true, Reason: "openid_2fa"}})
 			openIDError(c, err)
 		} else {
 			writeOpenIDLogin(c, result)
@@ -110,6 +114,7 @@ func UserLogin2FAValidation(c *gin.Context) {
 	}
 	expectedUser, err := service.Verify2FA(c)
 	if err != nil {
+		audit.Observe(c, audit.Event{Type: types.AuditUserLoginFailed, Content: types.LogEntry{Failed: true, Reason: "2fa"}})
 		c.JSON(200, serializer.Err(c, err))
 		c.Abort()
 		return

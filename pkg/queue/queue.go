@@ -238,10 +238,19 @@ func (q *queue) work(t Task) {
 		q.schedule()
 	}()
 
-	err = q.transitStatus(ctx, t, task.StatusProcessing)
-	if err != nil {
-		l.Error("failed to transit task %d to processing: %s", t.ID(), err.Error())
-		panic(err)
+	if t.Status() != task.StatusCompleted {
+		err = q.transitStatus(ctx, t, task.StatusProcessing)
+		if err != nil {
+			l.Error("failed to transit task %d to processing: %s", t.ID(), err.Error())
+			panic(err)
+		}
+	}
+	if t.Status() == task.StatusCompleted {
+		// A competing worker may have completed this task before our first write.
+		if q.registry != nil {
+			q.registry.Delete(t.ID())
+		}
+		return
 	}
 
 	for {
@@ -258,9 +267,38 @@ func (q *queue) work(t Task) {
 
 		// iteration completes
 		t.OnIterationComplete(time.Since(timeIterationStart))
-		_ = q.transitStatus(ctx, t, next)
+		if err := q.transitStatus(ctx, t, next); err != nil && next == task.StatusCompleted {
+			if _, audited := t.(completionAuditor); audited {
+				q.retryCompletion(ctx, t)
+			}
+		}
 		if next != task.StatusProcessing {
 			break
+		}
+	}
+}
+
+// Retry only the completed transition: the workflow has already finished its I/O.
+// Shutdown leaves its durable pending state and recovery resources for restart.
+func (q *queue) retryCompletion(ctx context.Context, t Task) {
+	b := &backoff.Backoff{Max: q.backoffMaxDuration, Factor: q.backoffFactor}
+	for attempt := 0; ; attempt++ {
+		delay := q.retryDelay
+		if delay <= 0 {
+			delay = b.ForAttempt(float64(attempt))
+		}
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return
+		case <-q.quit:
+			timer.Stop()
+			return
+		case <-timer.C:
+		}
+		if err := q.transitStatus(ctx, t, task.StatusCompleted); err == nil {
+			return
 		}
 	}
 }

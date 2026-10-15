@@ -13,6 +13,7 @@ import (
 	"github.com/cloudreve/Cloudreve/v4/ent"
 	"github.com/cloudreve/Cloudreve/v4/inventory"
 	"github.com/cloudreve/Cloudreve/v4/inventory/types"
+	"github.com/cloudreve/Cloudreve/v4/pkg/audit"
 	"github.com/cloudreve/Cloudreve/v4/pkg/cache"
 	"github.com/cloudreve/Cloudreve/v4/pkg/filemanager/encrypt"
 	"github.com/cloudreve/Cloudreve/v4/pkg/filemanager/eventhub"
@@ -46,8 +47,13 @@ type (
 func NewDatabaseFS(u *ent.User, fileClient inventory.FileClient, shareClient inventory.ShareClient,
 	l logging.Logger, ls lock.LockSystem, settingClient setting.Provider,
 	storagePolicyClient inventory.StoragePolicyClient, hasher hashid.Encoder, userClient inventory.UserClient,
-	cache, stateKv cache.Driver, directLinkClient inventory.DirectLinkClient, encryptorFactory encrypt.CryptorFactory, eventHub eventhub.EventHub) fs.FileSystem {
+	cache, stateKv cache.Driver, directLinkClient inventory.DirectLinkClient, encryptorFactory encrypt.CryptorFactory, eventHub eventhub.EventHub, recorders ...*audit.Recorder) fs.FileSystem {
+	var recorder *audit.Recorder
+	if len(recorders) > 0 {
+		recorder = recorders[0]
+	}
 	return &DBFS{
+		audit:               recorder,
 		user:                u,
 		navigators:          make(map[string]Navigator),
 		fileClient:          fileClient,
@@ -67,6 +73,7 @@ func NewDatabaseFS(u *ent.User, fileClient inventory.FileClient, shareClient inv
 }
 
 type DBFS struct {
+	audit               *audit.Recorder
 	user                *ent.User
 	navigators          map[string]Navigator
 	fileClient          inventory.FileClient
@@ -644,6 +651,14 @@ func (f *DBFS) createFile(ctx context.Context, parent *File, name string, fileTy
 	}
 
 	tx.AppendStorageDiff(storageDiff)
+	kind := types.AuditFileCreate
+	if o.isSymbolicLink {
+		kind = types.AuditMount
+	}
+	if err := f.recordAuditModel(ctx, kind, file, parent.Uri(true).Join(name), types.LogEntry{}, 0); err != nil {
+		_ = inventory.Rollback(tx)
+		return nil, err
+	}
 	if err := inventory.CommitWithStorageDiff(ctx, tx, f.l, f.userClient); err != nil {
 		return nil, serializer.NewError(serializer.CodeDBError, "Failed to commit create change", err)
 	}

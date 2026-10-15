@@ -40,16 +40,17 @@ type (
 	}
 	ExtractArchiveTaskPhase string
 	ExtractArchiveTaskState struct {
-		Uri                 string   `json:"uri,omitempty"`
-		Encoding            string   `json:"encoding,omitempty"`
-		Dst                 string   `json:"dst,omitempty"`
-		DestinationPolicyID int      `json:"destination_policy_id,omitempty"`
-		TempPath            string   `json:"temp_path,omitempty"`
-		TempZipFilePath     string   `json:"temp_zip_file_path,omitempty"`
-		ProcessedCursor     string   `json:"processed_cursor,omitempty"`
-		SlaveTaskID         int      `json:"slave_task_id,omitempty"`
-		Password            string   `json:"password,omitempty"`
-		FileMask            []string `json:"file_mask,omitempty"`
+		Uri                 string              `json:"uri,omitempty"`
+		Encoding            string              `json:"encoding,omitempty"`
+		Dst                 string              `json:"dst,omitempty"`
+		DestinationPolicyID int                 `json:"destination_policy_id,omitempty"`
+		TempPath            string              `json:"temp_path,omitempty"`
+		TempZipFilePath     string              `json:"temp_zip_file_path,omitempty"`
+		ProcessedCursor     string              `json:"processed_cursor,omitempty"`
+		SlaveTaskID         int                 `json:"slave_task_id,omitempty"`
+		Password            string              `json:"password,omitempty"`
+		FileMask            []string            `json:"file_mask,omitempty"`
+		AuditSource         *ArchiveAuditSource `json:"audit_source,omitempty"`
 		NodeState           `json:",inline"`
 		Phase               ExtractArchiveTaskPhase `json:"phase,omitempty"`
 	}
@@ -226,6 +227,8 @@ func (m *ExtractArchiveTask) createSlaveExtractTask(ctx context.Context, dep dep
 
 	m.state.Phase = ExtractArchivePhaseAwaitSlaveComplete
 	m.state.SlaveTaskID = taskId
+	source := archiveSource(archiveFile, dep.HashIDEncoder())
+	m.state.AuditSource = &source
 	m.ResumeAfter((10 * time.Second))
 	return task.StatusSuspending, nil
 }
@@ -289,6 +292,11 @@ func (m *ExtractArchiveTask) masterExtractArchive(ctx context.Context, dep depen
 	}
 
 	defer es.Close()
+
+	if m.state.TempZipFilePath == "" {
+		source := archiveSource(archiveFile, dep.HashIDEncoder())
+		m.state.AuditSource = &source
+	}
 
 	m.l.Info("Extracting archive %q to %q", uri, m.state.Dst)
 	// Identify file format
@@ -506,6 +514,8 @@ func (m *ExtractArchiveTask) masterDownloadZip(ctx context.Context, dep dependen
 	delete(m.progress, ProgressTypeDownload)
 	m.Unlock()
 	m.state.TempZipFilePath = zipFilePath
+	source := archiveSource(archiveFile, dep.HashIDEncoder())
+	m.state.AuditSource = &source
 	m.state.Phase = ExtractArchivePhaseNotStarted
 	m.ResumeAfter(0)
 	return task.StatusSuspending, nil

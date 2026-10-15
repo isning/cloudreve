@@ -11,6 +11,7 @@ import (
 	"github.com/cloudreve/Cloudreve/v4/inventory"
 	"github.com/cloudreve/Cloudreve/v4/inventory/types"
 	"github.com/cloudreve/Cloudreve/v4/pkg/filemanager/fs"
+	"github.com/cloudreve/Cloudreve/v4/pkg/hashid"
 	"github.com/cloudreve/Cloudreve/v4/pkg/serializer"
 	"github.com/cloudreve/Cloudreve/v4/pkg/storagepolicy"
 )
@@ -77,7 +78,8 @@ func (f *DBFS) BindPolicy(ctx context.Context, uri *fs.URI, policyID int) error 
 	if root.Name != inventory.RootFolderName {
 		return fs.ErrNotSupportedAction
 	}
-	if _, err = inventory.LockStoragePolicy(ctx, fc.GetClient(), policyID); err != nil {
+	policy, err := inventory.LockStoragePolicy(ctx, fc.GetClient(), policyID)
+	if err != nil {
 		if ent.IsNotFound(err) {
 			return serializer.NewError(serializer.CodeGroupNotAllowed, "Storage policy is unavailable", nil)
 		}
@@ -92,6 +94,11 @@ func (f *DBFS) BindPolicy(ctx context.Context, uri *fs.URI, policyID int) error 
 	updated, err := fc.SetStoragePreference(ctx, current, policyID)
 	if err != nil {
 		return err
+	}
+	if current.StoragePolicyFiles != policyID {
+		if err := f.recordAudit(ctx, types.AuditMount, target, types.LogEntry{StoragePolicyID: hashid.EncodePolicyID(f.hasher, policyID), StoragePolicy: policy.Name}, 0); err != nil {
+			return err
+		}
 	}
 	if err = inventory.Commit(tx); err != nil {
 		return err

@@ -8,6 +8,7 @@ import (
 	"github.com/cloudreve/Cloudreve/v4/ent"
 	"github.com/cloudreve/Cloudreve/v4/inventory"
 	"github.com/cloudreve/Cloudreve/v4/inventory/types"
+	"github.com/cloudreve/Cloudreve/v4/pkg/audit"
 	"github.com/cloudreve/Cloudreve/v4/pkg/filemanager/driver/oss"
 	"github.com/cloudreve/Cloudreve/v4/pkg/filemanager/fs"
 	"github.com/cloudreve/Cloudreve/v4/pkg/filemanager/manager"
@@ -140,6 +141,7 @@ func WebDAVAuth() gin.HandlerFunc {
 				}
 			}
 
+			audit.Observe(c, audit.Event{Type: types.AuditWebDAVLoginFailed, Content: types.LogEntry{Failed: true, Account: username}})
 			l.Debug("WebDAVAuth: failed to get user %q with provided credential: %s", username, err)
 			c.Status(http.StatusUnauthorized)
 			c.Abort()

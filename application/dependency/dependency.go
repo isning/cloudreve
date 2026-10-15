@@ -11,6 +11,7 @@ import (
 	"github.com/cloudreve/Cloudreve/v4/application/statics"
 	"github.com/cloudreve/Cloudreve/v4/ent"
 	"github.com/cloudreve/Cloudreve/v4/inventory"
+	"github.com/cloudreve/Cloudreve/v4/pkg/audit"
 	"github.com/cloudreve/Cloudreve/v4/pkg/auth"
 	"github.com/cloudreve/Cloudreve/v4/pkg/cache"
 	"github.com/cloudreve/Cloudreve/v4/pkg/cluster"
@@ -359,6 +360,9 @@ func (d *dependency) DBClient() *ent.Client {
 		d.panicError(err)
 	}
 	if err := inventory.EnsureStorageSchema(context.Background(), client); err != nil {
+		d.panicError(err)
+	}
+	if err := inventory.EnsureAuditSchema(context.Background(), client); err != nil {
 		d.panicError(err)
 	}
 	d.dbClient = client
@@ -1007,7 +1011,11 @@ func (d *dependency) ForkWithLogger(ctx context.Context, l logging.Logger) conte
 		l:          l,
 		dependency: d,
 	}
-	return context.WithValue(ctx, DepCtx{}, dep)
+	ctx = context.WithValue(ctx, DepCtx{}, dep)
+	if d.ConfigProvider().System().Mode == conf.MasterMode {
+		ctx = audit.WithRecorder(ctx, audit.New(d.DBClient(), d.SettingProvider(), l))
+	}
+	return ctx
 }
 
 type dependencyCorrelated struct {

@@ -114,6 +114,14 @@ func (f *DBFS) Create(ctx context.Context, path *fs.URI, fileType types.FileType
 				return nil, fmt.Errorf("failed to create folder %q: %w", desired[i], err)
 			}
 
+			kind := types.AuditFileCreate
+			if newFolder.IsSymbolic {
+				kind = types.AuditMount
+			}
+			if err := f.recordAuditModel(ctx, kind, newFolder, ancestor.Uri(true).Join(desired[i]), types.LogEntry{}, 0); err != nil {
+				_ = inventory.Rollback(tx)
+				return nil, err
+			}
 			if err := inventory.Commit(tx); err != nil {
 				return nil, serializer.NewError(serializer.CodeDBError, "Failed to commit folder creation", err)
 			}
@@ -227,6 +235,12 @@ func (f *DBFS) Rename(ctx context.Context, path *fs.URI, newName string) (fs.Fil
 		}
 	}
 
+	if oldName != newName {
+		if err := f.recordAudit(ctx, types.AuditFileRename, target, types.LogEntry{OriginalName: oldName, NewName: newName}, 0); err != nil {
+			_ = inventory.Rollback(tx)
+			return nil, nil, err
+		}
+	}
 	if err := inventory.Commit(tx); err != nil {
 		return nil, nil, serializer.NewError(serializer.CodeDBError, "Failed to commit rename change", err)
 	}
@@ -321,6 +335,13 @@ func (f *DBFS) SoftDelete(ctx context.Context, path ...*fs.URI) error {
 		}
 	}
 
+	for _, target := range targets {
+		if err := f.recordAudit(ctx, types.AuditMoveToTrash, target, types.LogEntry{}, 0); err != nil {
+			_ = inventory.Rollback(tx)
+			return err
+		}
+	}
+
 	// Commit transaction
 	if err := inventory.Commit(tx); err != nil {
 		return serializer.NewError(serializer.CodeDBError, "Failed to commit soft-delete change", err)
@@ -404,6 +425,13 @@ func (f *DBFS) Delete(ctx context.Context, path []*fs.URI, opts ...fs.Option) ([
 	if err != nil {
 		_ = inventory.Rollback(tx)
 		return nil, nil, serializer.NewError(serializer.CodeDBError, "failed to delete files", err)
+	}
+
+	for _, target := range targets {
+		if err := f.recordAudit(ctx, types.AuditDeleteFile, target, types.LogEntry{}, 0); err != nil {
+			_ = inventory.Rollback(tx)
+			return nil, nil, err
+		}
 	}
 
 	tx.AppendStorageDiff(storageDiff)
@@ -666,6 +694,22 @@ func (f *DBFS) MoveOrCopy(ctx context.Context, path []*fs.URI, dst *fs.URI, isCo
 			return nil, err
 		}
 
+		for _, target := range targets {
+			content := types.LogEntry{From: auditURI(target.Uri(true), target.OwnerID(), f.hasher), To: auditURI(destination.Uri(true), destination.OwnerID(), f.hasher)}
+			if isCopy {
+				if err := f.recordAudit(ctx, types.AuditCopyFrom, target, content, 0); err != nil {
+					_ = inventory.Rollback(tx)
+					return nil, err
+				}
+				if err := f.recordAuditModel(ctx, types.AuditCopyTo, copiedNewTargetsMap[target.ID()], destination.Uri(true).Join(target.Name()), content, 0); err != nil {
+					_ = inventory.Rollback(tx)
+					return nil, err
+				}
+			} else if err := f.recordAudit(ctx, types.AuditMoveTo, target, content, 0); err != nil {
+				_ = inventory.Rollback(tx)
+				return nil, err
+			}
+		}
 		indexDiff.Merge(indexDiffBatch)
 		tx.AppendStorageDiff(storageDiff)
 		if err := inventory.CommitWithStorageDiff(ctx, tx, f.l, f.userClient); err != nil {
@@ -770,18 +814,29 @@ func (f *DBFS) deleteEntity(ctx context.Context, target *File, entityId int) (in
 		return nil, fs.ErrEntityNotExist.WithError(fmt.Errorf("version not found"))
 	}
 
-	diff, err := f.fileClient.UnlinkEntity(ctx, targetVersion.Model(), target.Model, target.Owner())
+	fc, tx, ctx, err := inventory.WithTx(ctx, f.fileClient)
+	if err != nil {
+		return nil, err
+	}
+	defer inventory.Rollback(tx)
+	diff, err := fc.UnlinkEntity(ctx, targetVersion.Model(), target.Model, target.Owner())
 	if err != nil {
 		return nil, serializer.NewError(serializer.CodeDBError, "Failed to unlink entity", err)
 	}
 
 	if targetVersion.UploadSessionID() != nil {
-		err = f.fileClient.RemoveMetadata(ctx, target.Model, MetadataUploadSessionID)
+		err = fc.RemoveMetadata(ctx, target.Model, MetadataUploadSessionID)
 		if err != nil {
 			return nil, serializer.NewError(serializer.CodeDBError, "Failed to remove upload session metadata", err)
 		}
 	}
 
+	if err := f.recordAudit(ctx, types.AuditDeleteVersion, target, types.LogEntry{EntityCreateTime: targetVersion.CreatedAt().Format(time.RFC3339Nano)}, entityId); err != nil {
+		return nil, err
+	}
+	if err := inventory.Commit(tx); err != nil {
+		return nil, err
+	}
 	f.emitFileModified(ctx, target)
 	return diff, nil
 }
@@ -815,6 +870,10 @@ func (f *DBFS) setCurrentVersion(ctx context.Context, target *File, versionId in
 		return serializer.NewError(serializer.CodeDBError, "Failed to cap thumbnail entities", err)
 	}
 
+	if err := f.recordAudit(ctx, types.AuditSetCurrentVersion, target, types.LogEntry{EntityCreateTime: targetVersion.CreatedAt().Format(time.RFC3339Nano)}, versionId); err != nil {
+		_ = inventory.Rollback(tx)
+		return err
+	}
 	tx.AppendStorageDiff(diff)
 	if err := inventory.CommitWithStorageDiff(ctx, tx, f.l, f.userClient); err != nil {
 		return serializer.NewError(serializer.CodeDBError, "Failed to commit set current version", err)

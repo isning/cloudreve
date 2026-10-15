@@ -312,6 +312,12 @@ func (f *DBFS) PrepareUpload(ctx context.Context, req *fs.UploadRequest, opts ..
 		}
 	}
 
+	if req.ImportFrom != nil {
+		if err := f.recordAuditModel(ctx, types.AuditFileImported, targetFile, req.Props.Uri, types.LogEntry{StoragePolicyID: hashid.EncodePolicyID(f.hasher, policy.ID), StoragePolicy: policy.Name}, entityId); err != nil {
+			_ = inventory.Rollback(dbTx)
+			return nil, err
+		}
+	}
 	if err := inventory.CommitWithStorageDiff(ctx, dbTx, f.l, f.userClient); err != nil {
 		return nil, serializer.NewError(serializer.CodeDBError, "Failed to commit file upload preparation", err)
 	}
@@ -431,6 +437,17 @@ func (f *DBFS) CompleteUpload(ctx context.Context, session *fs.UploadSession) (f
 		tx.AppendStorageDiff(diff)
 	}
 
+	kind := types.AuditEntityUploaded
+	if entityType == types.EntityTypeThumbnail {
+		kind = types.AuditThumbGenerated
+	}
+	if entityType == types.EntityTypeLivePhoto {
+		kind = types.AuditLivePhotoUploaded
+	}
+	if err := f.recordAudit(ctx, kind, filePrivate, types.LogEntry{}, session.EntityID); err != nil {
+		_ = inventory.Rollback(tx)
+		return nil, err
+	}
 	if err := inventory.CommitWithStorageDiff(ctx, tx, f.l, f.userClient); err != nil {
 		return nil, serializer.NewError(serializer.CodeDBError, "Failed to commit file change", err)
 	}

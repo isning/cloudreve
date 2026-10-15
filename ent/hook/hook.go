@@ -9,6 +9,42 @@ import (
 	"github.com/cloudreve/Cloudreve/v4/ent"
 )
 
+// The AuditArchiveFunc type is an adapter to allow the use of ordinary
+// function as AuditArchive mutator.
+type AuditArchiveFunc func(context.Context, *ent.AuditArchiveMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f AuditArchiveFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.AuditArchiveMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.AuditArchiveMutation", m)
+}
+
+// The AuditArchiveItemFunc type is an adapter to allow the use of ordinary
+// function as AuditArchiveItem mutator.
+type AuditArchiveItemFunc func(context.Context, *ent.AuditArchiveItemMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f AuditArchiveItemFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.AuditArchiveItemMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.AuditArchiveItemMutation", m)
+}
+
+// The AuditLogFunc type is an adapter to allow the use of ordinary
+// function as AuditLog mutator.
+type AuditLogFunc func(context.Context, *ent.AuditLogMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f AuditLogFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.AuditLogMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.AuditLogMutation", m)
+}
+
 // The DavAccountFunc type is an adapter to allow the use of ordinary
 // function as DavAccount mutator.
 type DavAccountFunc func(context.Context, *ent.DavAccountMutation) (ent.Value, error)

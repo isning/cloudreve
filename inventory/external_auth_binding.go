@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/cloudreve/Cloudreve/v4/ent/externalidentity"
 	"github.com/cloudreve/Cloudreve/v4/ent/user"
+	"github.com/cloudreve/Cloudreve/v4/inventory/types"
 	"github.com/cloudreve/Cloudreve/v4/pkg/oidc"
 	"strconv"
 )
@@ -28,6 +29,7 @@ func (s *externalAuthStore) UnlinkIdentity(ctx context.Context, uid, provider in
 	}
 	defer tx.Rollback()
 	c := tx.Client()
+	ctx = context.WithValue(ctx, TxCtx{}, &Tx{tx: tx})
 	_, err = c.User.Update().Where(user.ID(uid), user.StatusEQ(user.StatusActive)).AddStorage(0).Save(ctx)
 	if err != nil {
 		return fmt.Errorf("account is unavailable")
@@ -57,6 +59,9 @@ func (s *externalAuthStore) UnlinkIdentity(ctx context.Context, uid, provider in
 	}
 	if err = c.ExternalIdentity.UpdateOne(row).ClearUserID().SetState(externalidentity.StateUnlinked).Exec(ctx); err != nil {
 		return fmt.Errorf("cannot remove identity association")
+	}
+	if err := RecordAudit(ctx, c, AuditEvent{Type: types.AuditUnlinkAccount, Content: types.LogEntry{OpenIDProvider: &provider, Sub: row.Subject, AccountID: uid}}); err != nil {
+		return err
 	}
 	return tx.Commit()
 }

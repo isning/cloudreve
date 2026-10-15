@@ -145,7 +145,7 @@ func Logging() gin.HandlerFunc {
 		start := time.Now()
 		path := c.Request.URL.Path
 		raw := c.Request.URL.RawQuery
-		if strings.HasPrefix(path, "/callback/openid/") {
+		if strings.HasPrefix(path, "/callback/openid/") || strings.HasPrefix(path, "/api/v4/audit/archive/") {
 			raw = ""
 			c.Header("Referrer-Policy", "no-referrer")
 			c.Header("Cache-Control", "no-store")

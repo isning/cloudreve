@@ -327,6 +327,7 @@ type (
 		ProgressFunc
 		MaxArchiveSize  int64
 		DryRun          CreateArchiveDryRunFunc
+		ArchiveSource   func(File)
 		Policy          *ent.StoragePolicy
 		Node            StatelessUploadManager
 		StatelessUserID int
@@ -596,6 +597,13 @@ func WithMaxArchiveSize(s int64) Option {
 func WithDryRun(b CreateArchiveDryRunFunc) Option {
 	return OptionFunc(func(o *FsOption) {
 		o.DryRun = b
+	})
+}
+
+// WithArchiveSource observes each resolved top-level source before it is archived.
+func WithArchiveSource(observe func(File)) Option {
+	return OptionFunc(func(o *FsOption) {
+		o.ArchiveSource = observe
 	})
 }
 

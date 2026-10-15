@@ -15,6 +15,9 @@ import (
 	"entgo.io/ent/dialect"
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
+	"github.com/cloudreve/Cloudreve/v4/ent/auditarchive"
+	"github.com/cloudreve/Cloudreve/v4/ent/auditarchiveitem"
+	"github.com/cloudreve/Cloudreve/v4/ent/auditlog"
 	"github.com/cloudreve/Cloudreve/v4/ent/davaccount"
 	"github.com/cloudreve/Cloudreve/v4/ent/directlink"
 	"github.com/cloudreve/Cloudreve/v4/ent/entity"
@@ -50,6 +53,12 @@ type Client struct {
 	config
 	// Schema is the client for creating, migrating and dropping schema.
 	Schema *migrate.Schema
+	// AuditArchive is the client for interacting with the AuditArchive builders.
+	AuditArchive *AuditArchiveClient
+	// AuditArchiveItem is the client for interacting with the AuditArchiveItem builders.
+	AuditArchiveItem *AuditArchiveItemClient
+	// AuditLog is the client for interacting with the AuditLog builders.
+	AuditLog *AuditLogClient
 	// DavAccount is the client for interacting with the DavAccount builders.
 	DavAccount *DavAccountClient
 	// DirectLink is the client for interacting with the DirectLink builders.
@@ -113,6 +122,9 @@ func NewClient(opts ...Option) *Client {
 
 func (c *Client) init() {
 	c.Schema = migrate.NewSchema(c.driver)
+	c.AuditArchive = NewAuditArchiveClient(c.config)
+	c.AuditArchiveItem = NewAuditArchiveItemClient(c.config)
+	c.AuditLog = NewAuditLogClient(c.config)
 	c.DavAccount = NewDavAccountClient(c.config)
 	c.DirectLink = NewDirectLinkClient(c.config)
 	c.Entity = NewEntityClient(c.config)
@@ -231,6 +243,9 @@ func (c *Client) Tx(ctx context.Context) (*Tx, error) {
 	return &Tx{
 		ctx:                 ctx,
 		config:              cfg,
+		AuditArchive:        NewAuditArchiveClient(cfg),
+		AuditArchiveItem:    NewAuditArchiveItemClient(cfg),
+		AuditLog:            NewAuditLogClient(cfg),
 		DavAccount:          NewDavAccountClient(cfg),
 		DirectLink:          NewDirectLinkClient(cfg),
 		Entity:              NewEntityClient(cfg),
@@ -276,6 +291,9 @@ func (c *Client) BeginTx(ctx context.Context, opts *sql.TxOptions) (*Tx, error) 
 	return &Tx{
 		ctx:                 ctx,
 		config:              cfg,
+		AuditArchive:        NewAuditArchiveClient(cfg),
+		AuditArchiveItem:    NewAuditArchiveItemClient(cfg),
+		AuditLog:            NewAuditLogClient(cfg),
 		DavAccount:          NewDavAccountClient(cfg),
 		DirectLink:          NewDirectLinkClient(cfg),
 		Entity:              NewEntityClient(cfg),
@@ -308,7 +326,7 @@ func (c *Client) BeginTx(ctx context.Context, opts *sql.TxOptions) (*Tx, error) 
 // Debug returns a new debug-client. It's used to get verbose logging on specific operations.
 //
 //	client.Debug().
-//		DavAccount.
+//		AuditArchive.
 //		Query().
 //		Count(ctx)
 func (c *Client) Debug() *Client {
@@ -331,11 +349,12 @@ func (c *Client) Close() error {
 // In order to add hooks to a specific client, call: `client.Node.Use(...)`.
 func (c *Client) Use(hooks ...Hook) {
 	for _, n := range []interface{ Use(...Hook) }{
-		c.DavAccount, c.DirectLink, c.Entity, c.ExternalIdentity, c.File, c.FsEvent,
-		c.Group, c.GroupPolicy, c.Metadata, c.Node, c.OAuthClient, c.OAuthGrant,
-		c.OpenIDSession, c.OpenIDTransaction, c.Passkey, c.PolicyLoadBalance,
-		c.RelocationAttempt, c.RelocationItem, c.RelocationPlan, c.Setting, c.Share,
-		c.StorageObject, c.StorageObjectReader, c.StoragePolicy, c.Task, c.User,
+		c.AuditArchive, c.AuditArchiveItem, c.AuditLog, c.DavAccount, c.DirectLink,
+		c.Entity, c.ExternalIdentity, c.File, c.FsEvent, c.Group, c.GroupPolicy,
+		c.Metadata, c.Node, c.OAuthClient, c.OAuthGrant, c.OpenIDSession,
+		c.OpenIDTransaction, c.Passkey, c.PolicyLoadBalance, c.RelocationAttempt,
+		c.RelocationItem, c.RelocationPlan, c.Setting, c.Share, c.StorageObject,
+		c.StorageObjectReader, c.StoragePolicy, c.Task, c.User,
 	} {
 		n.Use(hooks...)
 	}
@@ -345,11 +364,12 @@ func (c *Client) Use(hooks ...Hook) {
 // In order to add interceptors to a specific client, call: `client.Node.Intercept(...)`.
 func (c *Client) Intercept(interceptors ...Interceptor) {
 	for _, n := range []interface{ Intercept(...Interceptor) }{
-		c.DavAccount, c.DirectLink, c.Entity, c.ExternalIdentity, c.File, c.FsEvent,
-		c.Group, c.GroupPolicy, c.Metadata, c.Node, c.OAuthClient, c.OAuthGrant,
-		c.OpenIDSession, c.OpenIDTransaction, c.Passkey, c.PolicyLoadBalance,
-		c.RelocationAttempt, c.RelocationItem, c.RelocationPlan, c.Setting, c.Share,
-		c.StorageObject, c.StorageObjectReader, c.StoragePolicy, c.Task, c.User,
+		c.AuditArchive, c.AuditArchiveItem, c.AuditLog, c.DavAccount, c.DirectLink,
+		c.Entity, c.ExternalIdentity, c.File, c.FsEvent, c.Group, c.GroupPolicy,
+		c.Metadata, c.Node, c.OAuthClient, c.OAuthGrant, c.OpenIDSession,
+		c.OpenIDTransaction, c.Passkey, c.PolicyLoadBalance, c.RelocationAttempt,
+		c.RelocationItem, c.RelocationPlan, c.Setting, c.Share, c.StorageObject,
+		c.StorageObjectReader, c.StoragePolicy, c.Task, c.User,
 	} {
 		n.Intercept(interceptors...)
 	}
@@ -358,6 +378,12 @@ func (c *Client) Intercept(interceptors ...Interceptor) {
 // Mutate implements the ent.Mutator interface.
 func (c *Client) Mutate(ctx context.Context, m Mutation) (Value, error) {
 	switch m := m.(type) {
+	case *AuditArchiveMutation:
+		return c.AuditArchive.mutate(ctx, m)
+	case *AuditArchiveItemMutation:
+		return c.AuditArchiveItem.mutate(ctx, m)
+	case *AuditLogMutation:
+		return c.AuditLog.mutate(ctx, m)
 	case *DavAccountMutation:
 		return c.DavAccount.mutate(ctx, m)
 	case *DirectLinkMutation:
@@ -412,6 +438,409 @@ func (c *Client) Mutate(ctx context.Context, m Mutation) (Value, error) {
 		return c.User.mutate(ctx, m)
 	default:
 		return nil, fmt.Errorf("ent: unknown mutation type %T", m)
+	}
+}
+
+// AuditArchiveClient is a client for the AuditArchive schema.
+type AuditArchiveClient struct {
+	config
+}
+
+// NewAuditArchiveClient returns a client for the AuditArchive from the given config.
+func NewAuditArchiveClient(c config) *AuditArchiveClient {
+	return &AuditArchiveClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `auditarchive.Hooks(f(g(h())))`.
+func (c *AuditArchiveClient) Use(hooks ...Hook) {
+	c.hooks.AuditArchive = append(c.hooks.AuditArchive, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `auditarchive.Intercept(f(g(h())))`.
+func (c *AuditArchiveClient) Intercept(interceptors ...Interceptor) {
+	c.inters.AuditArchive = append(c.inters.AuditArchive, interceptors...)
+}
+
+// Create returns a builder for creating a AuditArchive entity.
+func (c *AuditArchiveClient) Create() *AuditArchiveCreate {
+	mutation := newAuditArchiveMutation(c.config, OpCreate)
+	return &AuditArchiveCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of AuditArchive entities.
+func (c *AuditArchiveClient) CreateBulk(builders ...*AuditArchiveCreate) *AuditArchiveCreateBulk {
+	return &AuditArchiveCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *AuditArchiveClient) MapCreateBulk(slice any, setFunc func(*AuditArchiveCreate, int)) *AuditArchiveCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &AuditArchiveCreateBulk{err: fmt.Errorf("calling to AuditArchiveClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*AuditArchiveCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &AuditArchiveCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for AuditArchive.
+func (c *AuditArchiveClient) Update() *AuditArchiveUpdate {
+	mutation := newAuditArchiveMutation(c.config, OpUpdate)
+	return &AuditArchiveUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *AuditArchiveClient) UpdateOne(aa *AuditArchive) *AuditArchiveUpdateOne {
+	mutation := newAuditArchiveMutation(c.config, OpUpdateOne, withAuditArchive(aa))
+	return &AuditArchiveUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *AuditArchiveClient) UpdateOneID(id int) *AuditArchiveUpdateOne {
+	mutation := newAuditArchiveMutation(c.config, OpUpdateOne, withAuditArchiveID(id))
+	return &AuditArchiveUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for AuditArchive.
+func (c *AuditArchiveClient) Delete() *AuditArchiveDelete {
+	mutation := newAuditArchiveMutation(c.config, OpDelete)
+	return &AuditArchiveDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *AuditArchiveClient) DeleteOne(aa *AuditArchive) *AuditArchiveDeleteOne {
+	return c.DeleteOneID(aa.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *AuditArchiveClient) DeleteOneID(id int) *AuditArchiveDeleteOne {
+	builder := c.Delete().Where(auditarchive.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &AuditArchiveDeleteOne{builder}
+}
+
+// Query returns a query builder for AuditArchive.
+func (c *AuditArchiveClient) Query() *AuditArchiveQuery {
+	return &AuditArchiveQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeAuditArchive},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a AuditArchive entity by its id.
+func (c *AuditArchiveClient) Get(ctx context.Context, id int) (*AuditArchive, error) {
+	return c.Query().Where(auditarchive.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *AuditArchiveClient) GetX(ctx context.Context, id int) *AuditArchive {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// Hooks returns the client hooks.
+func (c *AuditArchiveClient) Hooks() []Hook {
+	hooks := c.hooks.AuditArchive
+	return append(hooks[:len(hooks):len(hooks)], auditarchive.Hooks[:]...)
+}
+
+// Interceptors returns the client interceptors.
+func (c *AuditArchiveClient) Interceptors() []Interceptor {
+	inters := c.inters.AuditArchive
+	return append(inters[:len(inters):len(inters)], auditarchive.Interceptors[:]...)
+}
+
+func (c *AuditArchiveClient) mutate(ctx context.Context, m *AuditArchiveMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&AuditArchiveCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&AuditArchiveUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&AuditArchiveUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&AuditArchiveDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown AuditArchive mutation op: %q", m.Op())
+	}
+}
+
+// AuditArchiveItemClient is a client for the AuditArchiveItem schema.
+type AuditArchiveItemClient struct {
+	config
+}
+
+// NewAuditArchiveItemClient returns a client for the AuditArchiveItem from the given config.
+func NewAuditArchiveItemClient(c config) *AuditArchiveItemClient {
+	return &AuditArchiveItemClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `auditarchiveitem.Hooks(f(g(h())))`.
+func (c *AuditArchiveItemClient) Use(hooks ...Hook) {
+	c.hooks.AuditArchiveItem = append(c.hooks.AuditArchiveItem, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `auditarchiveitem.Intercept(f(g(h())))`.
+func (c *AuditArchiveItemClient) Intercept(interceptors ...Interceptor) {
+	c.inters.AuditArchiveItem = append(c.inters.AuditArchiveItem, interceptors...)
+}
+
+// Create returns a builder for creating a AuditArchiveItem entity.
+func (c *AuditArchiveItemClient) Create() *AuditArchiveItemCreate {
+	mutation := newAuditArchiveItemMutation(c.config, OpCreate)
+	return &AuditArchiveItemCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of AuditArchiveItem entities.
+func (c *AuditArchiveItemClient) CreateBulk(builders ...*AuditArchiveItemCreate) *AuditArchiveItemCreateBulk {
+	return &AuditArchiveItemCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *AuditArchiveItemClient) MapCreateBulk(slice any, setFunc func(*AuditArchiveItemCreate, int)) *AuditArchiveItemCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &AuditArchiveItemCreateBulk{err: fmt.Errorf("calling to AuditArchiveItemClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*AuditArchiveItemCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &AuditArchiveItemCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for AuditArchiveItem.
+func (c *AuditArchiveItemClient) Update() *AuditArchiveItemUpdate {
+	mutation := newAuditArchiveItemMutation(c.config, OpUpdate)
+	return &AuditArchiveItemUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *AuditArchiveItemClient) UpdateOne(aai *AuditArchiveItem) *AuditArchiveItemUpdateOne {
+	mutation := newAuditArchiveItemMutation(c.config, OpUpdateOne, withAuditArchiveItem(aai))
+	return &AuditArchiveItemUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *AuditArchiveItemClient) UpdateOneID(id int) *AuditArchiveItemUpdateOne {
+	mutation := newAuditArchiveItemMutation(c.config, OpUpdateOne, withAuditArchiveItemID(id))
+	return &AuditArchiveItemUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for AuditArchiveItem.
+func (c *AuditArchiveItemClient) Delete() *AuditArchiveItemDelete {
+	mutation := newAuditArchiveItemMutation(c.config, OpDelete)
+	return &AuditArchiveItemDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *AuditArchiveItemClient) DeleteOne(aai *AuditArchiveItem) *AuditArchiveItemDeleteOne {
+	return c.DeleteOneID(aai.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *AuditArchiveItemClient) DeleteOneID(id int) *AuditArchiveItemDeleteOne {
+	builder := c.Delete().Where(auditarchiveitem.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &AuditArchiveItemDeleteOne{builder}
+}
+
+// Query returns a query builder for AuditArchiveItem.
+func (c *AuditArchiveItemClient) Query() *AuditArchiveItemQuery {
+	return &AuditArchiveItemQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeAuditArchiveItem},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a AuditArchiveItem entity by its id.
+func (c *AuditArchiveItemClient) Get(ctx context.Context, id int) (*AuditArchiveItem, error) {
+	return c.Query().Where(auditarchiveitem.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *AuditArchiveItemClient) GetX(ctx context.Context, id int) *AuditArchiveItem {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// Hooks returns the client hooks.
+func (c *AuditArchiveItemClient) Hooks() []Hook {
+	return c.hooks.AuditArchiveItem
+}
+
+// Interceptors returns the client interceptors.
+func (c *AuditArchiveItemClient) Interceptors() []Interceptor {
+	return c.inters.AuditArchiveItem
+}
+
+func (c *AuditArchiveItemClient) mutate(ctx context.Context, m *AuditArchiveItemMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&AuditArchiveItemCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&AuditArchiveItemUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&AuditArchiveItemUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&AuditArchiveItemDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown AuditArchiveItem mutation op: %q", m.Op())
+	}
+}
+
+// AuditLogClient is a client for the AuditLog schema.
+type AuditLogClient struct {
+	config
+}
+
+// NewAuditLogClient returns a client for the AuditLog from the given config.
+func NewAuditLogClient(c config) *AuditLogClient {
+	return &AuditLogClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `auditlog.Hooks(f(g(h())))`.
+func (c *AuditLogClient) Use(hooks ...Hook) {
+	c.hooks.AuditLog = append(c.hooks.AuditLog, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `auditlog.Intercept(f(g(h())))`.
+func (c *AuditLogClient) Intercept(interceptors ...Interceptor) {
+	c.inters.AuditLog = append(c.inters.AuditLog, interceptors...)
+}
+
+// Create returns a builder for creating a AuditLog entity.
+func (c *AuditLogClient) Create() *AuditLogCreate {
+	mutation := newAuditLogMutation(c.config, OpCreate)
+	return &AuditLogCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of AuditLog entities.
+func (c *AuditLogClient) CreateBulk(builders ...*AuditLogCreate) *AuditLogCreateBulk {
+	return &AuditLogCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *AuditLogClient) MapCreateBulk(slice any, setFunc func(*AuditLogCreate, int)) *AuditLogCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &AuditLogCreateBulk{err: fmt.Errorf("calling to AuditLogClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*AuditLogCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &AuditLogCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for AuditLog.
+func (c *AuditLogClient) Update() *AuditLogUpdate {
+	mutation := newAuditLogMutation(c.config, OpUpdate)
+	return &AuditLogUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *AuditLogClient) UpdateOne(al *AuditLog) *AuditLogUpdateOne {
+	mutation := newAuditLogMutation(c.config, OpUpdateOne, withAuditLog(al))
+	return &AuditLogUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *AuditLogClient) UpdateOneID(id int) *AuditLogUpdateOne {
+	mutation := newAuditLogMutation(c.config, OpUpdateOne, withAuditLogID(id))
+	return &AuditLogUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for AuditLog.
+func (c *AuditLogClient) Delete() *AuditLogDelete {
+	mutation := newAuditLogMutation(c.config, OpDelete)
+	return &AuditLogDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *AuditLogClient) DeleteOne(al *AuditLog) *AuditLogDeleteOne {
+	return c.DeleteOneID(al.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *AuditLogClient) DeleteOneID(id int) *AuditLogDeleteOne {
+	builder := c.Delete().Where(auditlog.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &AuditLogDeleteOne{builder}
+}
+
+// Query returns a query builder for AuditLog.
+func (c *AuditLogClient) Query() *AuditLogQuery {
+	return &AuditLogQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeAuditLog},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a AuditLog entity by its id.
+func (c *AuditLogClient) Get(ctx context.Context, id int) (*AuditLog, error) {
+	return c.Query().Where(auditlog.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *AuditLogClient) GetX(ctx context.Context, id int) *AuditLog {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// Hooks returns the client hooks.
+func (c *AuditLogClient) Hooks() []Hook {
+	hooks := c.hooks.AuditLog
+	return append(hooks[:len(hooks):len(hooks)], auditlog.Hooks[:]...)
+}
+
+// Interceptors returns the client interceptors.
+func (c *AuditLogClient) Interceptors() []Interceptor {
+	inters := c.inters.AuditLog
+	return append(inters[:len(inters):len(inters)], auditlog.Interceptors[:]...)
+}
+
+func (c *AuditLogClient) mutate(ctx context.Context, m *AuditLogMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&AuditLogCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&AuditLogUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&AuditLogUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&AuditLogDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown AuditLog mutation op: %q", m.Op())
 	}
 }
 
@@ -4771,18 +5200,19 @@ func (c *UserClient) mutate(ctx context.Context, m *UserMutation) (Value, error)
 // hooks and interceptors per client, for fast access.
 type (
 	hooks struct {
-		DavAccount, DirectLink, Entity, ExternalIdentity, File, FsEvent, Group,
-		GroupPolicy, Metadata, Node, OAuthClient, OAuthGrant, OpenIDSession,
-		OpenIDTransaction, Passkey, PolicyLoadBalance, RelocationAttempt,
-		RelocationItem, RelocationPlan, Setting, Share, StorageObject,
-		StorageObjectReader, StoragePolicy, Task, User []ent.Hook
+		AuditArchive, AuditArchiveItem, AuditLog, DavAccount, DirectLink, Entity,
+		ExternalIdentity, File, FsEvent, Group, GroupPolicy, Metadata, Node,
+		OAuthClient, OAuthGrant, OpenIDSession, OpenIDTransaction, Passkey,
+		PolicyLoadBalance, RelocationAttempt, RelocationItem, RelocationPlan, Setting,
+		Share, StorageObject, StorageObjectReader, StoragePolicy, Task, User []ent.Hook
 	}
 	inters struct {
-		DavAccount, DirectLink, Entity, ExternalIdentity, File, FsEvent, Group,
-		GroupPolicy, Metadata, Node, OAuthClient, OAuthGrant, OpenIDSession,
-		OpenIDTransaction, Passkey, PolicyLoadBalance, RelocationAttempt,
-		RelocationItem, RelocationPlan, Setting, Share, StorageObject,
-		StorageObjectReader, StoragePolicy, Task, User []ent.Interceptor
+		AuditArchive, AuditArchiveItem, AuditLog, DavAccount, DirectLink, Entity,
+		ExternalIdentity, File, FsEvent, Group, GroupPolicy, Metadata, Node,
+		OAuthClient, OAuthGrant, OpenIDSession, OpenIDTransaction, Passkey,
+		PolicyLoadBalance, RelocationAttempt, RelocationItem, RelocationPlan, Setting,
+		Share, StorageObject, StorageObjectReader, StoragePolicy, Task,
+		User []ent.Interceptor
 	}
 )
 

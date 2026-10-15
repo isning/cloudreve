@@ -2,6 +2,7 @@ package inventory
 
 import (
 	"context"
+	"github.com/cloudreve/Cloudreve/v4/inventory/types"
 
 	"github.com/cloudreve/Cloudreve/v4/ent"
 	"github.com/cloudreve/Cloudreve/v4/ent/directlink"
@@ -64,8 +65,14 @@ func (d *directLinkClient) GetByNameID(ctx context.Context, id int, name string)
 }
 
 func (d *directLinkClient) Delete(ctx context.Context, id int) error {
-	ctx = schema.SkipSoftDelete(ctx)
-	_, err := d.client.DirectLink.Delete().Where(directlink.ID(id)).Exec(ctx)
+	_, err := auditMutation(ctx, d, func(ctx context.Context, d *directLinkClient) (bool, []AuditEvent, error) {
+		link, err := d.client.DirectLink.Get(ctx, id)
+		if err != nil {
+			return false, nil, err
+		}
+		_, err = d.client.DirectLink.Delete().Where(directlink.ID(id)).Exec(schema.SkipSoftDelete(ctx))
+		return true, []AuditEvent{{Type: types.AuditDeleteDirectLink, FileID: link.FileID, Content: types.LogEntry{DirectLinkID: hashid.EncodeSourceLinkID(d.hasher, id)}}}, err
+	})
 	return err
 }
 

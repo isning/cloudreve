@@ -66,7 +66,7 @@ func (c *davAccountClient) GetClient() *ent.Client {
 	return c.client
 }
 
-func (c *davAccountClient) Create(ctx context.Context, params *CreateDavAccountParams) (*ent.DavAccount, error) {
+func (c *davAccountClient) create(ctx context.Context, params *CreateDavAccountParams) (*ent.DavAccount, error) {
 	account := c.client.DavAccount.Create().
 		SetOwnerID(params.UserID).
 		SetName(params.Name).
@@ -83,7 +83,7 @@ func (c *davAccountClient) GetByIDAndUserID(ctx context.Context, id, userID int)
 		First(ctx)
 }
 
-func (c *davAccountClient) Update(ctx context.Context, id int, params *CreateDavAccountParams) (*ent.DavAccount, error) {
+func (c *davAccountClient) update(ctx context.Context, id int, params *CreateDavAccountParams) (*ent.DavAccount, error) {
 	account := c.client.DavAccount.UpdateOneID(id).
 		SetName(params.Name).
 		SetURI(params.URI).
@@ -92,7 +92,7 @@ func (c *davAccountClient) Update(ctx context.Context, id int, params *CreateDav
 	return account.Save(ctx)
 }
 
-func (c *davAccountClient) Delete(ctx context.Context, id int) error {
+func (c *davAccountClient) delete(ctx context.Context, id int) error {
 	return c.client.DavAccount.DeleteOneID(id).Exec(ctx)
 }
 

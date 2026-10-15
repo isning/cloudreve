@@ -8,8 +8,8 @@ import (
 	"github.com/cloudreve/Cloudreve/v4/ent/task"
 )
 
-// Atomic terminal-state protection for journal-backed tasks advanced by a
-// replacement worker. Completed metadata belongs to the winner; ordinary
+// Atomic terminal-state protection for journal-backed and audited tasks advanced
+// by a replacement worker. Completed metadata belongs to the winner; other
 // native tasks retain their existing update behavior.
 func (c *taskClient) updatePreservingCompleted(ctx context.Context, model *ent.Task, args *TaskArgs) (*ent.Task, error) {
 	stm := c.client.Task.Update().Where(task.ID(model.ID), task.StatusNEQ(task.StatusCompleted)).SetPublicState(args.PublicState)

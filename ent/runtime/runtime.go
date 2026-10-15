@@ -5,6 +5,9 @@ package runtime
 import (
 	"time"
 
+	"github.com/cloudreve/Cloudreve/v4/ent/auditarchive"
+	"github.com/cloudreve/Cloudreve/v4/ent/auditarchiveitem"
+	"github.com/cloudreve/Cloudreve/v4/ent/auditlog"
 	"github.com/cloudreve/Cloudreve/v4/ent/davaccount"
 	"github.com/cloudreve/Cloudreve/v4/ent/directlink"
 	"github.com/cloudreve/Cloudreve/v4/ent/entity"
@@ -39,6 +42,128 @@ import (
 // (default values, validators, hooks and policies) and stitches it
 // to their package variables.
 func init() {
+	auditarchiveMixin := schema.AuditArchive{}.Mixin()
+	auditarchiveMixinHooks0 := auditarchiveMixin[0].Hooks()
+	auditarchive.Hooks[0] = auditarchiveMixinHooks0[0]
+	auditarchiveMixinInters0 := auditarchiveMixin[0].Interceptors()
+	auditarchive.Interceptors[0] = auditarchiveMixinInters0[0]
+	auditarchiveMixinFields0 := auditarchiveMixin[0].Fields()
+	_ = auditarchiveMixinFields0
+	auditarchiveFields := schema.AuditArchive{}.Fields()
+	_ = auditarchiveFields
+	// auditarchiveDescCreatedAt is the schema descriptor for created_at field.
+	auditarchiveDescCreatedAt := auditarchiveMixinFields0[0].Descriptor()
+	// auditarchive.DefaultCreatedAt holds the default value on creation for the created_at field.
+	auditarchive.DefaultCreatedAt = auditarchiveDescCreatedAt.Default.(func() time.Time)
+	// auditarchiveDescUpdatedAt is the schema descriptor for updated_at field.
+	auditarchiveDescUpdatedAt := auditarchiveMixinFields0[1].Descriptor()
+	// auditarchive.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	auditarchive.DefaultUpdatedAt = auditarchiveDescUpdatedAt.Default.(func() time.Time)
+	// auditarchive.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	auditarchive.UpdateDefaultUpdatedAt = auditarchiveDescUpdatedAt.UpdateDefault.(func() time.Time)
+	// auditarchiveDescArchiveKey is the schema descriptor for archive_key field.
+	auditarchiveDescArchiveKey := auditarchiveFields[0].Descriptor()
+	// auditarchive.ArchiveKeyValidator is a validator for the "archive_key" field. It is called by the builders before save.
+	auditarchive.ArchiveKeyValidator = auditarchiveDescArchiveKey.Validators[0].(func(string) error)
+	// auditarchiveDescOwnerID is the schema descriptor for owner_id field.
+	auditarchiveDescOwnerID := auditarchiveFields[1].Descriptor()
+	// auditarchive.OwnerIDValidator is a validator for the "owner_id" field. It is called by the builders before save.
+	auditarchive.OwnerIDValidator = auditarchiveDescOwnerID.Validators[0].(func(int) error)
+	// auditarchiveDescTokenHash is the schema descriptor for token_hash field.
+	auditarchiveDescTokenHash := auditarchiveFields[2].Descriptor()
+	// auditarchive.TokenHashValidator is a validator for the "token_hash" field. It is called by the builders before save.
+	auditarchive.TokenHashValidator = auditarchiveDescTokenHash.Validators[0].(func(string) error)
+	// auditarchiveDescHighID is the schema descriptor for high_id field.
+	auditarchiveDescHighID := auditarchiveFields[6].Descriptor()
+	// auditarchive.HighIDValidator is a validator for the "high_id" field. It is called by the builders before save.
+	auditarchive.HighIDValidator = auditarchiveDescHighID.Validators[0].(func(int) error)
+	// auditarchiveDescStatus is the schema descriptor for status field.
+	auditarchiveDescStatus := auditarchiveFields[7].Descriptor()
+	// auditarchive.DefaultStatus holds the default value on creation for the status field.
+	auditarchive.DefaultStatus = auditarchiveDescStatus.Default.(string)
+	auditarchiveitemFields := schema.AuditArchiveItem{}.Fields()
+	_ = auditarchiveitemFields
+	// auditarchiveitemDescArchiveID is the schema descriptor for archive_id field.
+	auditarchiveitemDescArchiveID := auditarchiveitemFields[0].Descriptor()
+	// auditarchiveitem.ArchiveIDValidator is a validator for the "archive_id" field. It is called by the builders before save.
+	auditarchiveitem.ArchiveIDValidator = auditarchiveitemDescArchiveID.Validators[0].(func(string) error)
+	// auditarchiveitemDescLogID is the schema descriptor for log_id field.
+	auditarchiveitemDescLogID := auditarchiveitemFields[1].Descriptor()
+	// auditarchiveitem.LogIDValidator is a validator for the "log_id" field. It is called by the builders before save.
+	auditarchiveitem.LogIDValidator = auditarchiveitemDescLogID.Validators[0].(func(int) error)
+	auditlogMixin := schema.AuditLog{}.Mixin()
+	auditlogMixinHooks0 := auditlogMixin[0].Hooks()
+	auditlog.Hooks[0] = auditlogMixinHooks0[0]
+	auditlogMixinInters0 := auditlogMixin[0].Interceptors()
+	auditlog.Interceptors[0] = auditlogMixinInters0[0]
+	auditlogMixinFields0 := auditlogMixin[0].Fields()
+	_ = auditlogMixinFields0
+	auditlogFields := schema.AuditLog{}.Fields()
+	_ = auditlogFields
+	// auditlogDescCreatedAt is the schema descriptor for created_at field.
+	auditlogDescCreatedAt := auditlogMixinFields0[0].Descriptor()
+	// auditlog.DefaultCreatedAt holds the default value on creation for the created_at field.
+	auditlog.DefaultCreatedAt = auditlogDescCreatedAt.Default.(func() time.Time)
+	// auditlogDescUpdatedAt is the schema descriptor for updated_at field.
+	auditlogDescUpdatedAt := auditlogMixinFields0[1].Descriptor()
+	// auditlog.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	auditlog.DefaultUpdatedAt = auditlogDescUpdatedAt.Default.(func() time.Time)
+	// auditlog.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	auditlog.UpdateDefaultUpdatedAt = auditlogDescUpdatedAt.UpdateDefault.(func() time.Time)
+	// auditlogDescType is the schema descriptor for type field.
+	auditlogDescType := auditlogFields[0].Descriptor()
+	// auditlog.TypeValidator is a validator for the "type" field. It is called by the builders before save.
+	auditlog.TypeValidator = func() func(int) error {
+		validators := auditlogDescType.Validators
+		fns := [...]func(int) error{
+			validators[0].(func(int) error),
+			validators[1].(func(int) error),
+		}
+		return func(_type int) error {
+			for _, fn := range fns {
+				if err := fn(_type); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// auditlogDescCorrelationID is the schema descriptor for correlation_id field.
+	auditlogDescCorrelationID := auditlogFields[1].Descriptor()
+	// auditlog.DefaultCorrelationID holds the default value on creation for the correlation_id field.
+	auditlog.DefaultCorrelationID = auditlogDescCorrelationID.Default.(string)
+	// auditlog.CorrelationIDValidator is a validator for the "correlation_id" field. It is called by the builders before save.
+	auditlog.CorrelationIDValidator = auditlogDescCorrelationID.Validators[0].(func(string) error)
+	// auditlogDescIP is the schema descriptor for ip field.
+	auditlogDescIP := auditlogFields[2].Descriptor()
+	// auditlog.DefaultIP holds the default value on creation for the ip field.
+	auditlog.DefaultIP = auditlogDescIP.Default.(string)
+	// auditlog.IPValidator is a validator for the "ip" field. It is called by the builders before save.
+	auditlog.IPValidator = auditlogDescIP.Validators[0].(func(string) error)
+	// auditlogDescUserID is the schema descriptor for user_id field.
+	auditlogDescUserID := auditlogFields[3].Descriptor()
+	// auditlog.DefaultUserID holds the default value on creation for the user_id field.
+	auditlog.DefaultUserID = auditlogDescUserID.Default.(int)
+	// auditlog.UserIDValidator is a validator for the "user_id" field. It is called by the builders before save.
+	auditlog.UserIDValidator = auditlogDescUserID.Validators[0].(func(int) error)
+	// auditlogDescFileID is the schema descriptor for file_id field.
+	auditlogDescFileID := auditlogFields[4].Descriptor()
+	// auditlog.DefaultFileID holds the default value on creation for the file_id field.
+	auditlog.DefaultFileID = auditlogDescFileID.Default.(int)
+	// auditlog.FileIDValidator is a validator for the "file_id" field. It is called by the builders before save.
+	auditlog.FileIDValidator = auditlogDescFileID.Validators[0].(func(int) error)
+	// auditlogDescEntityID is the schema descriptor for entity_id field.
+	auditlogDescEntityID := auditlogFields[5].Descriptor()
+	// auditlog.DefaultEntityID holds the default value on creation for the entity_id field.
+	auditlog.DefaultEntityID = auditlogDescEntityID.Default.(int)
+	// auditlog.EntityIDValidator is a validator for the "entity_id" field. It is called by the builders before save.
+	auditlog.EntityIDValidator = auditlogDescEntityID.Validators[0].(func(int) error)
+	// auditlogDescShareID is the schema descriptor for share_id field.
+	auditlogDescShareID := auditlogFields[6].Descriptor()
+	// auditlog.DefaultShareID holds the default value on creation for the share_id field.
+	auditlog.DefaultShareID = auditlogDescShareID.Default.(int)
+	// auditlog.ShareIDValidator is a validator for the "share_id" field. It is called by the builders before save.
+	auditlog.ShareIDValidator = auditlogDescShareID.Validators[0].(func(int) error)
 	davaccountMixin := schema.DavAccount{}.Mixin()
 	davaccountMixinHooks0 := davaccountMixin[0].Hooks()
 	davaccount.Hooks[0] = davaccountMixinHooks0[0]

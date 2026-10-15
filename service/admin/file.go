@@ -295,12 +295,39 @@ func (s *UpsertFileService) Update(c *gin.Context) (*GetFileResponse, error) {
 		return nil, serializer.NewError(serializer.CodeDBError, "Failed to start transaction", err)
 	}
 
+	previous, err := fc.GetByID(ctx, s.File.ID)
+	if err != nil {
+		_ = inventory.Rollback(tx)
+		return nil, err
+	}
 	newFile, err := fc.Update(ctx, s.File)
 	if err != nil {
 		_ = inventory.Rollback(tx)
 		return nil, serializer.NewError(serializer.CodeDBError, "Failed to update file", err)
 	}
 
+	events := []inventory.AuditEvent{{Type: types.AuditUpdateMetadata, FileID: newFile.ID, Content: types.LogEntry{Name: newFile.Name, Reason: "admin_update"}}}
+	if previous.Name != newFile.Name {
+		events = append(events, inventory.AuditEvent{Type: types.AuditFileRename, FileID: newFile.ID, Content: types.LogEntry{OriginalName: previous.Name, NewName: newFile.Name}})
+	}
+	if previous.StoragePolicyFiles != newFile.StoragePolicyFiles {
+		content := types.LogEntry{StoragePolicyID: hashid.EncodePolicyID(dep.HashIDEncoder(), newFile.StoragePolicyFiles)}
+		if newFile.StoragePolicyFiles > 0 {
+			policy, err := fc.GetClient().StoragePolicy.Get(ctx, newFile.StoragePolicyFiles)
+			if err != nil {
+				_ = inventory.Rollback(tx)
+				return nil, err
+			}
+			content.StoragePolicy = policy.Name
+		}
+		events = append(events, inventory.AuditEvent{Type: types.AuditMount, FileID: newFile.ID, Content: content})
+	}
+	for _, event := range events {
+		if err := inventory.RecordAudit(ctx, fc.GetClient(), event); err != nil {
+			_ = inventory.Rollback(tx)
+			return nil, err
+		}
+	}
 	if err := inventory.Commit(tx); err != nil {
 		return nil, serializer.NewError(serializer.CodeDBError, "Failed to commit transaction", err)
 	}
@@ -355,6 +382,9 @@ func (s *SingleFileService) Url(c *gin.Context) (string, error) {
 		return "", serializer.NewError(serializer.CodeInternalSetting, "Failed to get url", err)
 	}
 
+	if err := inventory.RecordAudit(ctx, dep.DBClient(), inventory.AuditEvent{Type: types.AuditEntityDownloaded, FileID: file.ID, EntityID: primaryEntity.ID, Content: types.LogEntry{Name: file.Name}}); err != nil {
+		return "", err
+	}
 	return url.Url, nil
 }
 
@@ -386,6 +416,12 @@ func (s *BatchFileService) Delete(c *gin.Context) error {
 		return serializer.NewError(serializer.CodeDBError, "Failed to delete files", err)
 	}
 
+	for _, file := range files {
+		if err := inventory.RecordAudit(ctx, fc.GetClient(), inventory.AuditEvent{Type: types.AuditDeleteFile, FileID: file.ID, Content: types.LogEntry{Name: file.Name, Reason: "admin_delete"}}); err != nil {
+			_ = inventory.Rollback(tx)
+			return err
+		}
+	}
 	tx.AppendStorageDiff(diff)
 	if err := inventory.CommitWithStorageDiff(ctx, tx, dep.Logger(), dep.UserClient()); err != nil {
 		return serializer.NewError(serializer.CodeDBError, "Failed to commit transaction", err)
@@ -555,5 +591,8 @@ func (s *SingleEntityService) Url(c *gin.Context) (string, error) {
 		return "", serializer.NewError(serializer.CodeInternalSetting, "Failed to get url", err)
 	}
 
+	if err := inventory.RecordAudit(c, dep.DBClient(), inventory.AuditEvent{Type: types.AuditEntityDownloaded, EntityID: entity.ID}); err != nil {
+		return "", err
+	}
 	return url.Url, nil
 }

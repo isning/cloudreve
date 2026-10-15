@@ -314,6 +314,9 @@ func (service *WopiService) GetFile(c *gin.Context) error {
 	}
 
 	defer entitySource.Close()
+	if err := inventory.RecordAudit(c, dep.DBClient(), inventory.AuditEvent{Type: types.AuditEntityDownloaded, FileID: file.ID(), EntityID: targetEntity.ID()}); err != nil {
+		return err
+	}
 
 	entitySource.Serve(c.Writer, c.Request,
 		entitysource.WithContext(c),

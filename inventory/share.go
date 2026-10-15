@@ -112,7 +112,7 @@ func (c *shareClient) CountByTimeRange(ctx context.Context, start, end *time.Tim
 	return c.client.Share.Query().Where(share.CreatedAtGTE(*start), share.CreatedAtLT(*end)).Count(ctx)
 }
 
-func (c *shareClient) Upsert(ctx context.Context, params *CreateShareParams) (*ent.Share, error) {
+func (c *shareClient) upsert(ctx context.Context, params *CreateShareParams) (*ent.Share, error) {
 	if params.Existed != nil {
 		createQuery := c.client.Share.
 			UpdateOne(params.Existed)
@@ -192,22 +192,13 @@ func (c *shareClient) GetByIDs(ctx context.Context, ids []int) ([]*ent.Share, er
 	return s, nil
 }
 
-func (c *shareClient) DeleteBatch(ctx context.Context, shareIds []int) error {
+func (c *shareClient) deleteBatch(ctx context.Context, shareIds []int) error {
 	_, err := c.client.Share.Delete().Where(share.IDIn(shareIds...)).Exec(ctx)
 	return err
 }
 
-func (c *shareClient) DeleteBatchByUserID(ctx context.Context, uid int, shareIds []int) error {
-	_, err := c.client.Share.Delete().Where(share.IDIn(shareIds...)).Where(share.HasUserWith(user.ID(uid))).Exec(ctx)
-	return err
-}
-
-func (c *shareClient) Delete(ctx context.Context, shareId int) error {
-	return c.client.Share.DeleteOneID(shareId).Exec(ctx)
-}
-
 // Viewed increments the view count of the share.
-func (c *shareClient) Viewed(ctx context.Context, share *ent.Share) error {
+func (c *shareClient) viewed(ctx context.Context, share *ent.Share) error {
 	_, err := c.client.Share.UpdateOneID(share.ID).AddViews(1).Save(ctx)
 	return err
 }
