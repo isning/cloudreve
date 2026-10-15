@@ -344,7 +344,7 @@ func withFileEagerLoading(ctx context.Context, q *ent.FileQuery) *ent.FileQuery 
 		})
 	}
 	if v, ok := ctx.Value(LoadFileShare{}).(bool); ok && v {
-		q.WithShares()
+		q.WithShares(func(q *ent.ShareQuery) { q.WithUser().WithFile() })
 	}
 	if v, ok := ctx.Value(LoadFileUser{}).(bool); ok && v {
 		q.WithOwner(func(query *ent.UserQuery) {

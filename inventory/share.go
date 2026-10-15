@@ -134,6 +134,12 @@ func (c *shareClient) upsert(ctx context.Context, params *CreateShareParams) (*e
 		return createQuery.Save(ctx)
 	}
 
+	// Serialize link creation against creator deletion. The same creator-row
+	// update is held by account deletion, including on PostgreSQL where the
+	// share foreign key alone does not conflict with a non-key row update.
+	if err := c.client.User.UpdateOneID(params.OwnerID).Where(user.StatusEQ(user.StatusActive)).AddStorage(0).Exec(ctx); err != nil {
+		return nil, fmt.Errorf("share creator is unavailable: %w", err)
+	}
 	query := c.client.Share.
 		Create().
 		SetUserID(params.OwnerID).
@@ -230,8 +236,11 @@ func IsValidShare(share *ent.Share) error {
 
 	// Check source file status
 	file, err := share.Edges.FileOrErr()
-	if err != nil || file.FileChildren == 0 || file.OwnerID != owner.ID {
+	if err != nil || file.FileChildren == 0 {
 		// Source file already deleted
+		return ErrSourceFileInvalid
+	}
+	if file.Edges.Owner == nil || file.Edges.Owner.Status != user.StatusActive {
 		return ErrSourceFileInvalid
 	}
 
@@ -412,7 +421,7 @@ func getShareOrderOption(args *ListShareArgs) []share.OrderOption {
 func withShareEagerLoading(ctx context.Context, q *ent.ShareQuery) *ent.ShareQuery {
 	if v, ok := ctx.Value(LoadShareFile{}).(bool); ok && v {
 		q.WithFile(func(q *ent.FileQuery) {
-			withFileEagerLoading(ctx, q)
+			withFileEagerLoading(context.WithValue(ctx, LoadFileUser{}, true), q)
 		})
 	}
 	if v, ok := ctx.Value(LoadShareUser{}).(bool); ok && v {

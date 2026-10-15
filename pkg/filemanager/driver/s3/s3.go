@@ -466,11 +466,18 @@ func (handler *Driver) CORS() error {
 
 // 取消上传凭证
 func (handler *Driver) CancelToken(ctx context.Context, uploadSession *fs.UploadSession) error {
+	if uploadSession.UploadID == "" {
+		return nil
+	}
 	_, err := handler.svc.AbortMultipartUploadWithContext(ctx, &s3.AbortMultipartUploadInput{
 		UploadId: &uploadSession.UploadID,
 		Bucket:   &handler.policy.BucketName,
 		Key:      &uploadSession.Props.SavePath,
 	})
+	var apiError awserr.Error
+	if errors.As(err, &apiError) && apiError.Code() == "NoSuchUpload" {
+		return nil
+	}
 	return err
 }
 

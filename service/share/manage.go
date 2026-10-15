@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/cloudreve/Cloudreve/v4/application/dependency"
-	"github.com/cloudreve/Cloudreve/v4/ent"
 	"github.com/cloudreve/Cloudreve/v4/inventory"
 	"github.com/cloudreve/Cloudreve/v4/inventory/types"
 	"github.com/cloudreve/Cloudreve/v4/pkg/filemanager/fs"
@@ -20,13 +19,14 @@ import (
 type (
 	// ShareCreateService 创建新分享服务
 	ShareCreateService struct {
-		Uri             string `json:"uri" binding:"required"`
-		IsPrivate       bool   `json:"is_private"`
-		Password        string `json:"password" binding:"omitempty,max=32,alphanum"`
-		RemainDownloads int    `json:"downloads"`
-		Expire          int    `json:"expire"`
-		ShareView       bool   `json:"share_view"`
-		ShowReadMe      bool   `json:"show_readme"`
+		Permissions     *types.PermissionSetting `json:"permissions"`
+		Uri             string                   `json:"uri" binding:"required"`
+		IsPrivate       bool                     `json:"is_private"`
+		Password        string                   `json:"password" binding:"omitempty,max=32,alphanum"`
+		RemainDownloads int                      `json:"downloads"`
+		Expire          int                      `json:"expire"`
+		ShareView       bool                     `json:"share_view"`
+		ShowReadMe      bool                     `json:"show_readme"`
 	}
 	ShareCreateParamCtx struct{}
 
@@ -38,7 +38,6 @@ type (
 
 func (service *BatchDeleteShareService) Delete(c *gin.Context) error {
 	dep := dependency.FromContext(c)
-	uid := inventory.UserIDFromContext(c)
 	shareClient := dep.ShareClient()
 
 	var ids []int
@@ -52,7 +51,18 @@ func (service *BatchDeleteShareService) Delete(c *gin.Context) error {
 		ids = append(ids, id)
 	}
 
-	if err := shareClient.DeleteBatchByUserID(c, uid, ids); err != nil {
+	ctx := context.WithValue(c, inventory.LoadShareFile{}, true)
+	ctx = context.WithValue(ctx, inventory.LoadShareUser{}, true)
+	shares, err := shareClient.GetByIDs(ctx, ids)
+	if err != nil {
+		return serializer.NewError(serializer.CodeDBError, "Failed to get shares", err)
+	}
+	for _, share := range shares {
+		if !inventory.CanManageShare(share, inventory.UserFromContext(c)) {
+			return serializer.NewError(serializer.CodeNotFound, "Share not found", nil)
+		}
+	}
+	if err := shareClient.DeleteBatch(c, ids); err != nil {
 		return serializer.NewError(serializer.CodeDBError, "Failed to delete shares", err)
 	}
 
@@ -83,6 +93,7 @@ func (service *ShareCreateService) Upsert(c *gin.Context, existed int) (string, 
 	}
 
 	share, err := m.CreateOrUpdateShare(c, uri, &manager.CreateShareArgs{
+		Permissions:     service.Permissions,
 		IsPrivate:       service.IsPrivate,
 		Password:        service.Password,
 		RemainDownloads: service.RemainDownloads,
@@ -105,16 +116,9 @@ func DeleteShare(c *gin.Context, shareId int) error {
 	shareClient := dep.ShareClient()
 
 	ctx := context.WithValue(c, inventory.LoadShareFile{}, true)
-	var (
-		share *ent.Share
-		err   error
-	)
-	if user.Edges.Group.Permissions.Enabled(int(types.GroupPermissionIsAdmin)) {
-		share, err = shareClient.GetByID(ctx, shareId)
-	} else {
-		share, err = shareClient.GetByIDUser(ctx, shareId, user.ID)
-	}
-	if err != nil {
+	ctx = context.WithValue(ctx, inventory.LoadShareUser{}, true)
+	share, err := shareClient.GetByID(ctx, shareId)
+	if err != nil || !inventory.CanManageShare(share, user) {
 		return serializer.NewError(serializer.CodeNotFound, "share not found", err)
 	}
 

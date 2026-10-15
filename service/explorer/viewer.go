@@ -3,7 +3,6 @@ package explorer
 import (
 	"errors"
 	"fmt"
-	"github.com/cloudreve/Cloudreve/v4/application/constants"
 	"net/http"
 	"path/filepath"
 	"strings"
@@ -355,7 +354,7 @@ func (service *WopiService) FileInfo(c *gin.Context) (*WopiFileInfo, error) {
 		return nil, serializer.NewError(serializer.CodeNotFound, "version not found", nil)
 	}
 
-	canEdit := file.PrimaryEntityID() == targetEntity.ID() && file.OwnerID() == user.ID && uri.FileSystem() == constants.FileSystemMy
+	canEdit := file.PrimaryEntityID() == targetEntity.ID() && file.Capabilities().Enabled(int(dbfs.NavigatorCapabilityRenameFile))
 	cantPutRelative := !canEdit
 	siteUrl := settings.SiteURL(c)
 	info := &WopiFileInfo{

@@ -49,6 +49,7 @@ type (
 		OwnerModel        *ent.User
 		IsUserRoot        bool
 		CapabilitiesBs    *boolset.BooleanSet
+		PermissionBs      *boolset.BooleanSet
 		FileExtendedInfo  *fs.FileExtendedInfo
 		FileFolderSummary *fs.FolderSummary
 
@@ -255,6 +256,8 @@ func (f *File) Replace(model *ent.File) *File {
 
 	defer f.Recycle()
 	replaced := newFile(f.Parent, model)
+	replaced.PermissionBs = f.PermissionBs
+	replaced.CapabilitiesBs = f.CapabilitiesBs
 	if f.IsRootFile() {
 		// If target is a root file, the user path should remain the same.
 		replaced.Path[pathIndexUser] = f.Path[pathIndexUser]
@@ -343,6 +346,7 @@ func newFile(parent *File, model *ent.File) *File {
 		}
 
 		f.CapabilitiesBs = parent.CapabilitiesBs
+		f.PermissionBs = parent.PermissionBs
 		f.mu = parent.mu
 		parent.mu.Unlock()
 	} else {
@@ -373,6 +377,7 @@ func (f *File) Recycle() {
 	f.OwnerModel = nil
 	f.IsUserRoot = false
 	f.CapabilitiesBs = nil
+	f.PermissionBs = nil
 	f.FileExtendedInfo = nil
 	f.FileFolderSummary = nil
 	f.disableView = false

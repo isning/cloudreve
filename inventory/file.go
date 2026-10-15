@@ -661,10 +661,17 @@ func (f *fileClient) Copy(ctx context.Context, args *CopyParameter) (map[int][]*
 			SetType(file.Type).
 			SetParent(dstMap[file.FileChildren][0]).
 			SetIsSymbolic(file.IsSymbolic)
-		if file.StoragePolicyFiles > 0 {
+		if file.StoragePolicyFiles > 0 && dstMap[file.FileChildren][0].OwnerID == file.OwnerID {
 			stm.SetStoragePolicyFiles(file.StoragePolicyFiles)
 		}
-		if file.PrimaryEntity > 0 {
+		if dstMap[file.FileChildren][0].OwnerID != file.OwnerID && dstMap[file.FileChildren][0].StoragePolicyFiles > 0 {
+			// Shared entities keep their physical policies. Future writes inherit
+			// the receiving owner's destination, not the source owner's grant.
+			stm.SetStoragePolicyFiles(dstMap[file.FileChildren][0].StoragePolicyFiles)
+		}
+		if file.PrimaryEntity > 0 && lo.ContainsBy(file.Edges.Entities, func(e *ent.Entity) bool {
+			return e.ID == file.PrimaryEntity && e.UploadSessionID == nil
+		}) {
 			stm.SetPrimaryEntity(file.PrimaryEntity)
 		}
 
@@ -792,9 +799,9 @@ func (f *fileClient) RemoveMetadata(ctx context.Context, file *ent.File, keys ..
 	return nil
 }
 
-func (f *fileClient) UpgradePlaceholder(ctx context.Context, file *ent.File, modifiedAt *time.Time, entityId int,
+func (f *fileClient) UpgradePlaceholder(ctx context.Context, target *ent.File, modifiedAt *time.Time, entityId int,
 	entityType types.EntityType) error {
-	entities, err := file.Edges.EntitiesOrErr()
+	entities, err := target.Edges.EntitiesOrErr()
 	if err != nil {
 		return err
 	}
@@ -803,11 +810,15 @@ func (f *fileClient) UpgradePlaceholder(ctx context.Context, file *ent.File, mod
 		return e.ID == entityId
 	})
 	if !found {
-		return fmt.Errorf("no identity with id %d entity for file %d", entityId, file.ID)
+		return fmt.Errorf("no identity with id %d entity for file %d", entityId, target.ID)
+	}
+	if placeholder.UploadSessionID == nil {
+		return fmt.Errorf("entity %d is not a pending upload", entityId)
 	}
 
 	stm := f.client.Entity.
 		UpdateOne(placeholder).
+		Where(entity.UploadSessionID(*placeholder.UploadSessionID), entity.HasFileWith(file.ID(target.ID))).
 		ClearUploadSessionID()
 	if modifiedAt != nil {
 		stm.SetUpdatedAt(*modifiedAt)
@@ -818,7 +829,7 @@ func (f *fileClient) UpgradePlaceholder(ctx context.Context, file *ent.File, mod
 	}
 
 	if entityType == types.EntityTypeVersion {
-		stm := f.client.File.UpdateOne(file).
+		stm := f.client.File.UpdateOne(target).
 			SetSize(placeholder.Size).
 			SetPrimaryEntity(placeholder.ID)
 

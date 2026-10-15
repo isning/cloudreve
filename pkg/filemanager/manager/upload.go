@@ -156,7 +156,15 @@ func (m *manager) CreateUploadSession(ctx context.Context, req *fs.UploadRequest
 
 	// If upload sentinel check is required, queue a check task
 	if d.Capabilities().StaticFeatures.Enabled(int(driver.HandlerCapabilityUploadSentinelRequired)) {
-		t, err := newUploadSentinelCheckTask(ctx, uploadSession)
+		owner := inventory.UserFromContext(ctx)
+		if !m.stateless && uploadSession.FileOwnerID > 0 && (owner == nil || owner.ID != uploadSession.FileOwnerID) {
+			owner, err = m.dep.UserClient().GetByID(context.WithValue(ctx, inventory.LoadUserGroup{}, true), uploadSession.FileOwnerID)
+			if err != nil {
+				m.OnUploadFailed(ctx, uploadSession)
+				return nil, err
+			}
+		}
+		t, err := newUploadSentinelCheckTask(ctx, uploadSession, owner)
 		if err != nil {
 			m.OnUploadFailed(ctx, uploadSession)
 			return nil, fmt.Errorf("failed to create upload sentinel check task: %w", err)
@@ -185,7 +193,7 @@ func (m *manager) CreateUploadSession(ctx context.Context, req *fs.UploadRequest
 
 func (m *manager) ConfirmUploadSession(ctx context.Context, session *fs.UploadSession, chunkIndex int) (fs.File, error) {
 	// Get placeholder file
-	file, err := m.fs.Get(ctx, session.Props.Uri)
+	file, err := m.fs.ValidateUploadSession(ctx, session)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get placeholder file: %w", err)
 	}
@@ -318,6 +326,13 @@ func (m *manager) CancelUploadSession(ctx context.Context, path *fs.URI, session
 		sessionTyped := sessionRaw.(fs.UploadSession)
 		session = &sessionTyped
 	}
+	if !m.stateless && session != nil && session.UID == m.user.ID && path.String() == session.Props.Uri.String() {
+		return m.cleanupUploadSession(ctx, session)
+	}
+	return m.cancelUploadSession(ctx, path, sessionID, session)
+}
+
+func (m *manager) cancelUploadSession(ctx context.Context, path *fs.URI, sessionID string, session *fs.UploadSession) error {
 
 	var (
 		staleEntities []fs.Entity
@@ -326,33 +341,29 @@ func (m *manager) CancelUploadSession(ctx context.Context, path *fs.URI, session
 	)
 
 	if !m.stateless {
-		staleEntities, indexDiff, err = m.fs.CancelUploadSession(ctx, path, sessionID, session)
+		var cancellation *fs.UploadCancellation
+		cancellation, err = m.fs.CancelUploadSession(ctx, path, sessionID, session)
 		if err != nil {
 			return err
+		}
+		if cancellation == nil {
+			// Already completed/cancelled: never abort or overwrite the provider's
+			// committed object from a stale worker or cancellation request.
+			retry, err := m.canRetryUploadCancellation(ctx, session)
+			if err != nil || !retry {
+				return err
+			}
+		} else {
+			staleEntities, indexDiff = cancellation.StaleEntities, cancellation.IndexDiff
 		}
 
 		m.l.Debug("New stale entities: %v", staleEntities)
 	}
 
 	if session != nil {
-		ctx = context.WithValue(ctx, cluster.SlaveNodeIDCtx{}, strconv.Itoa(session.Policy.NodeID))
-		d, err := m.GetStorageDriver(ctx, m.CastStoragePolicyOnSlave(ctx, session.Policy))
-		if err != nil {
-			return fmt.Errorf("failed to get storage driver: %w", err)
+		if err := m.cancelUploadProvider(ctx, session); err != nil {
+			return err
 		}
-
-		if m.stateless {
-			if _, err = d.Delete(ctx, session.Props.SavePath); err != nil {
-				return fmt.Errorf("failed to delete file: %w", err)
-			}
-		} else {
-			if err = d.CancelToken(ctx, session); err != nil {
-				return fmt.Errorf("failed to cancel upload session: %w", err)
-			}
-		}
-
-		m.kv.Delete(UploadSessionCachePrefix, session.Props.UploadSessionID)
-		releaseUploadSessionLock(session.Props.UploadSessionID)
 	}
 
 	// Delete stale entities
@@ -377,7 +388,47 @@ func (m *manager) CancelUploadSession(ctx context.Context, path *fs.URI, session
 	return nil
 }
 
+// A cancelled entity keeps its pending UUID after being unlinked. That durable
+// proof permits retrying a failed provider abort, including after a restart.
+// Completed entities clear the UUID and can never authorize this path.
+func (m *manager) canRetryUploadCancellation(ctx context.Context, session *fs.UploadSession) (bool, error) {
+	if session == nil {
+		return false, nil
+	}
+	entity, err := m.dep.FileClient().GetEntityByID(ctx, session.EntityID)
+	if ent.IsNotFound(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return entity.ReferenceCount == 0 && entity.UploadSessionID != nil && entity.UploadSessionID.String() == session.Props.UploadSessionID, nil
+}
+
+func (m *manager) cancelUploadProvider(ctx context.Context, session *fs.UploadSession) error {
+	ctx = context.WithValue(ctx, cluster.SlaveNodeIDCtx{}, strconv.Itoa(session.Policy.NodeID))
+	d, err := m.GetStorageDriver(ctx, m.CastStoragePolicyOnSlave(ctx, session.Policy))
+	if err != nil {
+		return fmt.Errorf("failed to get storage driver: %w", err)
+	}
+	if m.stateless {
+		if _, err := d.Delete(ctx, session.Props.SavePath); err != nil {
+			return fmt.Errorf("failed to delete file: %w", err)
+		}
+	} else if err := d.CancelToken(ctx, session); err != nil {
+		return fmt.Errorf("failed to cancel upload session: %w", err)
+	}
+	_ = m.kv.Delete(UploadSessionCachePrefix, session.Props.UploadSessionID)
+	releaseUploadSessionLock(session.Props.UploadSessionID)
+	return nil
+}
+
 func (m *manager) CompleteUpload(ctx context.Context, session *fs.UploadSession) (fs.File, error) {
+	if !m.stateless {
+		if _, err := m.fs.ValidateUploadSession(ctx, session); err != nil {
+			return nil, err
+		}
+	}
 	d, err := m.GetStorageDriver(ctx, m.CastStoragePolicyOnSlave(ctx, session.Policy))
 	if err != nil {
 		return nil, err
@@ -464,19 +515,9 @@ func (m *manager) OnUploadFailed(ctx context.Context, session *fs.UploadSession)
 		defer releaseUploadSessionLock(session.Props.UploadSessionID)
 	}
 	if !m.stateless {
-		if session.LockToken != "" {
-			if err := m.Unlock(ctx, session.LockToken); err != nil {
-				m.l.Warning("OnUploadFailed hook failed to unlock: %s", err)
-			}
-		}
-
-		if session.NewFileCreated {
-			if err := m.Delete(ctx, []*fs.URI{session.Props.Uri}, fs.WithSysSkipSoftDelete(true)); err != nil {
-				m.l.Warning("OnUploadFailed hook failed to delete file: %s", err)
-			}
-		} else if !session.Importing {
-			if _, err := m.fs.VersionControl(ctx, session.Props.Uri, session.EntityID, true); err != nil {
-				m.l.Warning("OnUploadFailed hook failed to version control: %s", err)
+		if !session.Importing {
+			if err := m.cleanupUploadSession(ctx, session); err != nil {
+				m.l.Warning("OnUploadFailed hook failed to cancel upload: %s", err)
 			}
 		}
 	} else {
@@ -489,6 +530,41 @@ func (m *manager) OnUploadFailed(ctx context.Context, session *fs.UploadSession)
 			m.l.Warning("OnUploadFailed hook failed to remove uploaded file: %s, failed file: %v", err, failed)
 		}
 	}
+}
+
+// Cleanup uses the durable file identity and the file owner's canonical path.
+// It does not depend on a share still existing or on its current permissions.
+// The original request context retains the actual audit actor.
+func (m *manager) cleanupUploadSession(ctx context.Context, session *fs.UploadSession) error {
+	file, err := m.dep.FileClient().GetByID(ctx, session.FileID)
+	if ent.IsNotFound(err) {
+		if session.LockToken != "" {
+			_ = m.Unlock(ctx, session.LockToken)
+		}
+		retry, err := m.canRetryUploadCancellation(ctx, session)
+		if err != nil || !retry {
+			return err
+		}
+		return m.cancelUploadProvider(ctx, session)
+	}
+	if err != nil {
+		return err
+	}
+	owner, err := m.dep.UserClient().GetByID(context.WithValue(ctx, inventory.LoadUserGroup{}, true), file.OwnerID)
+	if err != nil {
+		return err
+	}
+	cleanup := NewFileManager(m.dep, owner).(*manager)
+	defer cleanup.Recycle()
+	target, err := cleanup.TraverseFile(ctx, file.ID)
+	if err != nil {
+		return err
+	}
+	copy := *session
+	copy.UID = owner.ID
+	copy.Props = session.Props.Copy()
+	copy.Props.Uri = target.Uri(true)
+	return cleanup.cancelUploadSession(ctx, copy.Props.Uri, copy.Props.UploadSessionID, &copy)
 }
 
 // similar to Update, but expected to be executed on slave node.
@@ -532,10 +608,20 @@ func (m *manager) updateStateless(ctx context.Context, req *fs.UploadRequest, o 
 
 func (m *manager) onNewEntityUploaded(ctx context.Context, session *fs.UploadSession, d driver.Handler, owner int) {
 	if !m.stateless {
+		u, uri, err := m.backgroundFileTarget(ctx, session.FileID, owner)
+		if err != nil {
+			m.l.Warning("Failed to resolve background upload target: %s", err)
+			return
+		}
+		fm := NewFileManager(m.dep, u).(*manager)
+		defer fm.Recycle()
+		copy := *session
+		copy.Props = session.Props.Copy()
+		copy.Props.Uri = uri
 		// Submit media meta task for new entity
-		m.mediaMetaForNewEntity(ctx, session, d)
+		fm.mediaMetaForNewEntity(ctx, &copy, d)
 		// Submit full text index task for new entity
-		m.fullTextIndexForNewEntity(ctx, session, owner)
+		fm.fullTextIndexForNewEntity(ctx, &copy, owner)
 	}
 }
 
@@ -567,7 +653,7 @@ func NewUploadSentinelCheckTaskFromModel(task *ent.Task) queue.Task {
 	}
 }
 
-func newUploadSentinelCheckTask(ctx context.Context, uploadSession *fs.UploadSession) (*ExplicitEntityRecycleTask, error) {
+func newUploadSentinelCheckTask(ctx context.Context, uploadSession *fs.UploadSession, owner *ent.User) (*UploadSentinelCheckTask, error) {
 	state := &UploadSentinelCheckTaskState{
 		Session: uploadSession,
 	}
@@ -577,7 +663,7 @@ func newUploadSentinelCheckTask(ctx context.Context, uploadSession *fs.UploadSes
 	}
 
 	resumeAfter := uploadSession.Props.ExpireAt.Add(uploadSentinelCheckMargin)
-	t := &ExplicitEntityRecycleTask{
+	t := &UploadSentinelCheckTask{
 		DBTask: &queue.DBTask{
 			Task: &ent.Task{
 				Type:          queue.UploadSentinelCheckTaskType,
@@ -587,7 +673,7 @@ func newUploadSentinelCheckTask(ctx context.Context, uploadSession *fs.UploadSes
 					ResumeTime: resumeAfter.Unix(),
 				},
 			},
-			DirectOwner: inventory.UserFromContext(ctx),
+			DirectOwner: owner,
 		},
 	}
 	return t, nil
@@ -598,6 +684,7 @@ func (m *UploadSentinelCheckTask) Do(ctx context.Context) (task.Status, error) {
 	taskClient := dep.TaskClient()
 	l := dep.Logger()
 	fm := NewFileManager(dep, inventory.UserFromContext(ctx)).(*manager)
+	defer fm.Recycle()
 
 	// Check if sentinel is canceled due to callback complete
 	t, err := taskClient.GetTaskByID(ctx, m.ID())
@@ -615,28 +702,15 @@ func (m *UploadSentinelCheckTask) Do(ctx context.Context) (task.Status, error) {
 	if err := json.Unmarshal([]byte(m.State()), state); err != nil {
 		return task.StatusError, fmt.Errorf("failed to unmarshal state: %w", err)
 	}
-
+	if state.Session == nil || state.Session.Props == nil {
+		return task.StatusError, fmt.Errorf("upload sentinel has no session")
+	}
 	l.Info("Upload sentinel check triggered, clean up stale place holder entity [%d].", state.Session.EntityID)
-	entity, err := fm.fs.GetEntity(ctx, state.Session.EntityID)
-	if err != nil {
-		l.Debug("Failed to get entity [%d]: %s, skip sentinel check.", state.Session.EntityID, err)
-		return task.StatusCompleted, nil
-	}
-
-	_, d, err := fm.getEntityPolicyDriver(ctx, entity, nil)
-	if err != nil {
-		l.Debug("Failed to get storage driver for entity [%d]: %s", state.Session.EntityID, err)
+	// Cancellation verifies the file/entity/session tuple under its file lock.
+	// A concurrently completed upload no longer has this placeholder UUID and
+	// must never be deleted by an old timeout task.
+	if err := fm.cleanupUploadSession(ctx, state.Session); err != nil {
 		return task.StatusError, err
-	}
-
-	_, err = d.Delete(ctx, entity.Source())
-	if err != nil {
-		l.Debug("Failed to delete entity source [%d]: %s", state.Session.EntityID, err)
-		return task.StatusError, err
-	}
-
-	if err := d.CancelToken(ctx, state.Session); err != nil {
-		l.Debug("Failed to cancel token [%d]: %s", state.Session.EntityID, err)
 	}
 
 	return task.StatusCompleted, nil

@@ -485,7 +485,12 @@ func (m *manager) processIndexDiff(ctx context.Context, diff *fs.IndexDiff) {
 	}
 
 	for _, update := range diff.IndexToUpdate {
-		t, err := NewFullTextIndexTask(ctx, &update.Uri, update.EntityID, update.FileID, update.OwnerID, m.user)
+		owner, uri, err := m.backgroundFileTarget(ctx, update.FileID, update.OwnerID)
+		if err != nil {
+			m.l.Warning("Failed to resolve full text update target: %s", err)
+			continue
+		}
+		t, err := NewFullTextIndexTask(ctx, uri, update.EntityID, update.FileID, update.OwnerID, owner)
 		if err != nil {
 			m.l.Warning("Failed to create full text update task: %s", err)
 			continue
@@ -496,7 +501,12 @@ func (m *manager) processIndexDiff(ctx context.Context, diff *fs.IndexDiff) {
 	}
 
 	for _, cp := range diff.IndexToCopy {
-		t, err := NewFullTextCopyTask(ctx, &cp.Uri, cp.OriginalFileID, cp.FileID, cp.OwnerID, cp.EntityID, m.user)
+		owner, uri, err := m.backgroundFileTarget(ctx, cp.FileID, cp.OwnerID)
+		if err != nil {
+			m.l.Warning("Failed to resolve full text copy target: %s", err)
+			continue
+		}
+		t, err := NewFullTextCopyTask(ctx, uri, cp.OriginalFileID, cp.FileID, cp.OwnerID, cp.EntityID, owner)
 		if err != nil {
 			m.l.Warning("Failed to create full text copy task: %s", err)
 			continue
@@ -507,7 +517,12 @@ func (m *manager) processIndexDiff(ctx context.Context, diff *fs.IndexDiff) {
 	}
 
 	for _, change := range diff.IndexToChangeOwner {
-		t, err := NewFullTextChangeOwnerTask(ctx, &change.Uri, change.EntityID, change.FileID, change.OriginalOwnerID, change.NewOwnerID, m.user)
+		owner, uri, err := m.backgroundFileTarget(ctx, change.FileID, change.NewOwnerID)
+		if err != nil {
+			m.l.Warning("Failed to resolve full text owner-change target: %s", err)
+			continue
+		}
+		t, err := NewFullTextChangeOwnerTask(ctx, uri, change.EntityID, change.FileID, change.OriginalOwnerID, change.NewOwnerID, owner)
 		if err != nil {
 			m.l.Warning("Failed to create full text change owner task: %s", err)
 			continue

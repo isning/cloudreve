@@ -82,7 +82,7 @@ func (n *myNavigator) To(ctx context.Context, path *fs.URI) (*File, error) {
 		if err != nil {
 			return nil, fs.ErrPathNotExist.WithError(fmt.Errorf("invalid user id"))
 		}
-		if fsUid != n.user.ID {
+		if fsUid != n.user.ID && !n.user.Edges.Group.Permissions.Enabled(int(types.GroupPermissionIsAdmin)) {
 			return nil, ErrPermissionDenied
 		}
 

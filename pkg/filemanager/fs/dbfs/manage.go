@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cloudreve/Cloudreve/v4/application/constants"
 	"github.com/cloudreve/Cloudreve/v4/ent"
 	"github.com/cloudreve/Cloudreve/v4/ent/user"
 	"github.com/cloudreve/Cloudreve/v4/inventory"
@@ -48,6 +49,11 @@ func (f *DBFS) Create(ctx context.Context, path *fs.URI, fileType types.FileType
 				return ancestor, fs.ErrFileExisted
 			}
 
+			// Idempotent create must not expose an existing private submission.
+			if !f.canAccess(ctx, ancestor, types.FilePermissionRead) &&
+				!(ancestor.CanList() && ancestor.Uri(false).FileSystem() == constants.FileSystemShare) {
+				return nil, ErrPermissionDenied
+			}
 			// Target file already exist, return it.
 			return ancestor, nil
 		}
@@ -57,7 +63,7 @@ func (f *DBFS) Create(ctx context.Context, path *fs.URI, fileType types.FileType
 			WithError(fmt.Errorf("object with the same name but different type %v already exist", ancestor.Type()))
 	}
 
-	if _, ok := ctx.Value(ByPassOwnerCheckCtxKey{}).(bool); !ok && ancestor.Owner().ID != f.user.ID {
+	if !f.canAccess(ctx, ancestor, types.FilePermissionCreate) {
 		return nil, fs.ErrOwnerOnly
 	}
 
@@ -174,7 +180,7 @@ func (f *DBFS) Rename(ctx context.Context, path *fs.URI, newName string) (fs.Fil
 	}
 	oldName := target.Name()
 
-	if _, ok := ctx.Value(ByPassOwnerCheckCtxKey{}).(bool); !ok && target.Owner().ID != f.user.ID {
+	if !f.canAccess(ctx, target, types.FilePermissionUpdate) {
 		return nil, nil, fs.ErrOwnerOnly
 	}
 
@@ -283,7 +289,7 @@ func (f *DBFS) SoftDelete(ctx context.Context, path ...*fs.URI) error {
 			continue
 		}
 
-		if _, ok := ctx.Value(ByPassOwnerCheckCtxKey{}).(bool); !ok && target.Owner().ID != f.user.ID {
+		if !f.canAccess(ctx, target, types.FilePermissionDelete) {
 			ae.Add(p.String(), fs.ErrOwnerOnly.WithError(fmt.Errorf("only file owner can delete file without trash bin")))
 			continue
 		}
@@ -317,6 +323,15 @@ func (f *DBFS) SoftDelete(ctx context.Context, path ...*fs.URI) error {
 	}
 
 	for _, target := range targets {
+		navigator, err := f.getNavigator(ctx, target.Uri(false))
+		if err != nil {
+			_ = inventory.Rollback(tx)
+			return err
+		}
+		if err := f.requireSubtreePermission(ctx, navigator, []*File{target}, types.FilePermissionDelete); err != nil {
+			_ = inventory.Rollback(tx)
+			return err
+		}
 		// Perform soft-delete
 		if err := fc.SoftDelete(ctx, target.Model); err != nil {
 			_ = inventory.Rollback(tx)
@@ -384,7 +399,7 @@ func (f *DBFS) Delete(ctx context.Context, path []*fs.URI, opts ...fs.Option) ([
 			continue
 		}
 
-		if _, ok := ctx.Value(ByPassOwnerCheckCtxKey{}).(bool); !o.SysSkipSoftDelete && !ok && target.Owner().ID != f.user.ID {
+		if !o.SysSkipSoftDelete && !f.canAccess(ctx, target, types.FilePermissionDelete) {
 			ae.Add(p.String(), fs.ErrOwnerOnly)
 			continue
 		}
@@ -461,7 +476,11 @@ func (f *DBFS) VersionControl(ctx context.Context, path *fs.URI, versionId int, 
 		return nil, fmt.Errorf("failed to get target file: %w", err)
 	}
 
-	if _, ok := ctx.Value(ByPassOwnerCheckCtxKey{}).(bool); !ok && target.Owner().ID != f.user.ID {
+	permission := types.FilePermissionUpdate
+	if delete {
+		permission = types.FilePermissionDelete
+	}
+	if !f.canAccess(ctx, target, permission) {
 		return nil, fs.ErrOwnerOnly
 	}
 
@@ -578,7 +597,7 @@ func (f *DBFS) MoveOrCopy(ctx context.Context, path []*fs.URI, dst *fs.URI, isCo
 		return nil, fmt.Errorf("faield to get destination folder: %w", err)
 	}
 
-	if _, ok := ctx.Value(ByPassOwnerCheckCtxKey{}).(bool); !ok && destination.Owner().ID != f.user.ID {
+	if !f.canAccess(ctx, destination, types.FilePermissionCreate) {
 		return nil, fs.ErrOwnerOnly
 	}
 
@@ -614,7 +633,11 @@ func (f *DBFS) MoveOrCopy(ctx context.Context, path []*fs.URI, dst *fs.URI, isCo
 			continue
 		}
 
-		if _, ok := ctx.Value(ByPassOwnerCheckCtxKey{}).(bool); !ok && target.Owner().ID != f.user.ID {
+		permission := types.FilePermissionDelete
+		if isCopy {
+			permission = types.FilePermissionRead
+		}
+		if !f.canAccess(ctx, target, permission) {
 			ae.Add(p.String(), fs.ErrOwnerOnly)
 			continue
 		}
@@ -633,12 +656,7 @@ func (f *DBFS) MoveOrCopy(ctx context.Context, path []*fs.URI, dst *fs.URI, isCo
 		}
 
 		targets = append(targets, target)
-		if isCopy {
-			if _, ok := fileNavGroup[navigator]; !ok {
-				fileNavGroup[navigator] = make([]*File, 0)
-			}
-			fileNavGroup[navigator] = append(fileNavGroup[navigator], target)
-		}
+		fileNavGroup[navigator] = append(fileNavGroup[navigator], target)
 	}
 
 	indexDiff := &fs.IndexDiff{}
@@ -684,9 +702,48 @@ func (f *DBFS) MoveOrCopy(ctx context.Context, path []*fs.URI, dst *fs.URI, isCo
 			indexDiffBatch      *fs.IndexDiff
 		)
 		if isCopy {
-			copiedNewTargetsMap, storageDiff, indexDiffBatch, err = f.copyFiles(ctx, fileNavGroup, destination, fc)
+			copiedNewTargetsMap, storageDiff, indexDiffBatch, err = f.copyFiles(ctx, fileNavGroup, destination, fc, types.FilePermissionRead)
 		} else {
-			storageDiff, indexDiffBatch, err = f.moveFiles(ctx, targets, destination, fc, dstNavigator)
+			for nav, files := range fileNavGroup {
+				if err := f.requireSubtreePermission(ctx, nav, files, types.FilePermissionDelete); err != nil {
+					_ = inventory.Rollback(tx)
+					return nil, err
+				}
+			}
+			transfers := make(map[Navigator][]*File)
+			moves := make([]*File, 0, len(targets))
+			for nav, files := range fileNavGroup {
+				for _, file := range files {
+					if file.OwnerID() == destination.OwnerID() {
+						moves = append(moves, file)
+					} else {
+						transfers[nav] = append(transfers[nav], file)
+					}
+				}
+			}
+			storageDiff = make(inventory.StorageDiff)
+			indexDiffBatch = &fs.IndexDiff{}
+			if len(transfers) > 0 {
+				var copiedDiff inventory.StorageDiff
+				var copiedIndex *fs.IndexDiff
+				copiedNewTargetsMap, copiedDiff, copiedIndex, err = f.copyFiles(ctx, transfers, destination, fc, types.FilePermissionDelete)
+				if err == nil {
+					storageDiff.Merge(copiedDiff)
+					indexDiffBatch.Merge(copiedIndex)
+					var deletedDiff inventory.StorageDiff
+					var deletedIndex []int
+					_, deletedDiff, deletedIndex, err = f.deleteFiles(ctx, transfers, fc, nil)
+					storageDiff.Merge(deletedDiff)
+					indexDiffBatch.IndexToDelete = append(indexDiffBatch.IndexToDelete, deletedIndex...)
+				}
+			}
+			if err == nil && len(moves) > 0 {
+				var movedDiff inventory.StorageDiff
+				var movedIndex *fs.IndexDiff
+				movedDiff, movedIndex, err = f.moveFiles(ctx, moves, destination, fc, dstNavigator)
+				storageDiff.Merge(movedDiff)
+				indexDiffBatch.Merge(movedIndex)
+			}
 		}
 
 		if err != nil {
@@ -719,6 +776,9 @@ func (f *DBFS) MoveOrCopy(ctx context.Context, path []*fs.URI, dst *fs.URI, isCo
 		for _, target := range targets {
 			if isCopy {
 				f.emitFileCreated(ctx, newFile(destination, copiedNewTargetsMap[target.ID()]))
+			} else if copied := copiedNewTargetsMap[target.ID()]; copied != nil {
+				f.emitFileDeleted(ctx, target)
+				f.emitFileCreated(ctx, newFile(destination, copied))
 			} else {
 				f.emitFileMoved(ctx, target, destination)
 			}
@@ -902,6 +962,11 @@ func (f *DBFS) deleteFiles(ctx context.Context, targets map[Navigator][]*File, f
 		// List all files to be deleted
 		toBeDeletedFiles := make([]*File, 0, len(files))
 		if err := n.Walk(ctx, files, intsets.MaxInt, intsets.MaxInt, func(targets []*File, level int) error {
+			for _, target := range targets {
+				if !f.canAccess(ctx, target, types.FilePermissionDelete) {
+					return inventory.PermissionDenied(types.FilePermissionDelete)
+				}
+			}
 			toBeDeletedFiles = append(toBeDeletedFiles, targets...)
 			indexToDelete = append(indexToDelete, lo.Map(targets, func(item *File, index int) int {
 				return item.ID()
@@ -927,7 +992,7 @@ func (f *DBFS) deleteFiles(ctx context.Context, targets map[Navigator][]*File, f
 	return allStaleEntities, storageDiff, indexToDelete, nil
 }
 
-func (f *DBFS) copyFiles(ctx context.Context, targets map[Navigator][]*File, destination *File, fc inventory.FileClient) (map[int]*ent.File, inventory.StorageDiff, *fs.IndexDiff, error) {
+func (f *DBFS) copyFiles(ctx context.Context, targets map[Navigator][]*File, destination *File, fc inventory.FileClient, required types.FilePermission) (map[int]*ent.File, inventory.StorageDiff, *fs.IndexDiff, error) {
 	if f.user.Edges.Group == nil {
 		return nil, nil, nil, fmt.Errorf("user group not loaded")
 	}
@@ -935,6 +1000,12 @@ func (f *DBFS) copyFiles(ctx context.Context, targets map[Navigator][]*File, des
 	capacity, err := f.Capacity(ctx, destination.Owner())
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("copy files: failed to destination owner capacity: %w", err)
+	}
+	// Lock the quota row before any file writes, even if the first copied layer
+	// contains only zero-size folders. Later layers may reserve bytes.
+	uc, _ := inventory.InheritTx(ctx, f.userClient)
+	if err := uc.GetClient().User.UpdateOneID(destination.OwnerID()).AddStorage(0).Exec(ctx); err != nil {
+		return nil, nil, nil, err
 	}
 
 	dstAncestors := lo.Map(destination.AncestorsChain(), func(item *File, index int) *ent.File {
@@ -965,11 +1036,18 @@ func (f *DBFS) copyFiles(ctx context.Context, targets map[Navigator][]*File, des
 			// check capacity for each file
 			sizeTotal := int64(0)
 			for _, file := range targets {
+				if !f.canAccess(ctx, file, required) {
+					return inventory.PermissionDenied(required)
+				}
 				sizeTotal += file.SizeUsed()
 			}
 
 			if err := f.validateUserCapacityRaw(ctx, sizeTotal, capacity); err != nil {
 				return fs.ErrInsufficientCapacity
+			}
+			tx := ctx.Value(inventory.TxCtx{}).(*inventory.Tx)
+			if err := tx.ReserveStorage(ctx, f.userClient, destination.OwnerID(), sizeTotal, capacity.Total); err != nil {
+				return err
 			}
 
 			limit -= len(targets)
@@ -977,7 +1055,7 @@ func (f *DBFS) copyFiles(ctx context.Context, targets map[Navigator][]*File, des
 				Files: lo.Map(targets, func(item *File, index int) *ent.File {
 					return item.Model
 				}),
-				ExcludedMetadataKeys: []string{FullTextIndexKey},
+				ExcludedMetadataKeys: []string{FullTextIndexKey, MetadataUploadSessionID},
 				DstMap:               initialDstMap,
 			})
 			if err != nil {
@@ -989,6 +1067,11 @@ func (f *DBFS) copyFiles(ctx context.Context, targets map[Navigator][]*File, des
 			}
 
 			storageDiff.Merge(diff)
+			if actual := diff[destination.OwnerID()]; actual > sizeTotal {
+				if err := tx.ReserveStorage(ctx, f.userClient, destination.OwnerID(), actual-sizeTotal, capacity.Total); err != nil {
+					return err
+				}
+			}
 			if firstLayer {
 				for k, v := range initialDstMap {
 					newTargetsMap[k] = v[0]
@@ -997,7 +1080,7 @@ func (f *DBFS) copyFiles(ctx context.Context, targets map[Navigator][]*File, des
 
 			for _, file := range targets {
 				if _, ok := file.Metadata()[FullTextIndexKey]; ok {
-					copiedFile := newTargetsMap[file.ID()]
+					copiedFile := initialDstMap[file.ID()][0]
 					indexToCopy = append(indexToCopy, fs.IndexDiffCopyDetails{
 						OriginalFileID: file.ID(),
 						FileID:         copiedFile.ID,

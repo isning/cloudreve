@@ -285,13 +285,16 @@ func (l *manager) Restore(ctx context.Context, path ...*fs.URI) error {
 }
 
 func (l *manager) CreateOrUpdateShare(ctx context.Context, path *fs.URI, args *CreateShareArgs) (*ent.Share, error) {
-	file, err := l.fs.Get(ctx, path, dbfs.WithRequiredCapabilities(dbfs.NavigatorCapabilityShare), dbfs.WithNotRoot())
+	opts := []fs.Option{dbfs.WithRequiredCapabilities(dbfs.NavigatorCapabilityShare)}
+	if path.FileSystem() != constants.FileSystemShare {
+		opts = append(opts, dbfs.WithNotRoot())
+	}
+	file, err := l.fs.Get(ctx, path, opts...)
 	if err != nil {
 		return nil, serializer.NewError(serializer.CodeNotFound, "src file not found", err)
 	}
 
-	// Only file owner can share file
-	if file.OwnerID() != l.user.ID {
+	if inventory.IsAnonymousUser(l.user) || file.OwnerID() != l.user.ID && !file.(*dbfs.File).HasPermission(types.FilePermissionShare) {
 		return nil, serializer.NewError(serializer.CodeNoPermissionErr, "permission denied", nil)
 	}
 
@@ -303,12 +306,13 @@ func (l *manager) CreateOrUpdateShare(ctx context.Context, path *fs.URI, args *C
 	shareClient := l.dep.ShareClient()
 	if args.ExistedShareID != 0 {
 		loadShareCtx := context.WithValue(ctx, inventory.LoadShareFile{}, true)
+		loadShareCtx = context.WithValue(loadShareCtx, inventory.LoadShareUser{}, true)
 		existed, err = shareClient.GetByID(loadShareCtx, args.ExistedShareID)
 		if err != nil {
 			return nil, serializer.NewError(serializer.CodeNotFound, "failed to get existed share", err)
 		}
 
-		if existed.Edges.File.ID != file.ID() {
+		if existed.Edges.File == nil || existed.Edges.File.ID != file.ID() || !inventory.CanManageShare(existed, l.user) {
 			return nil, serializer.NewError(serializer.CodeNotFound, "share link not found", nil)
 		}
 	}
@@ -322,12 +326,23 @@ func (l *manager) CreateOrUpdateShare(ctx context.Context, path *fs.URI, args *C
 	}
 
 	props := &types.ShareProps{
-		ShareView:  args.ShareView,
-		ShowReadMe: args.ShowReadMe,
+		Permissions: args.Permissions,
+		ShareView:   args.ShareView,
+		ShowReadMe:  args.ShowReadMe,
+	}
+	if existed != nil && existed.Props != nil && args.Permissions == nil {
+		props.Permissions = existed.Props.Permissions
+	}
+	var previous *types.PermissionSetting
+	if existed != nil {
+		previous = inventory.SharePermissionSetting(existed)
+	}
+	if err := inventory.ValidatePermissionSetting(props.Permissions, l.user, l.dep.HashIDEncoder(), previous); err != nil {
+		return nil, err
 	}
 
 	share, err := shareClient.Upsert(ctx, &inventory.CreateShareParams{
-		OwnerID:         file.OwnerID(),
+		OwnerID:         l.user.ID,
 		FileID:          file.ID(),
 		Password:        password,
 		Expires:         args.Expire,
@@ -401,4 +416,8 @@ func expireTimeToTTL(expireAt *time.Time) int {
 
 func (m *manager) BindPolicy(ctx context.Context, uri *fs.URI, policyID int) error {
 	return m.fs.BindPolicy(ctx, uri, policyID)
+}
+
+func (m *manager) SetPermissions(ctx context.Context, uris []*fs.URI, setting *types.PermissionSetting) error {
+	return m.fs.SetPermissions(ctx, uris, setting)
 }

@@ -19,6 +19,7 @@ import (
 	"github.com/cloudreve/Cloudreve/v4/ent/oauthgrant"
 	"github.com/cloudreve/Cloudreve/v4/ent/passkey"
 	"github.com/cloudreve/Cloudreve/v4/ent/schema"
+	"github.com/cloudreve/Cloudreve/v4/ent/share"
 	"github.com/cloudreve/Cloudreve/v4/ent/task"
 	"github.com/cloudreve/Cloudreve/v4/ent/user"
 	"github.com/cloudreve/Cloudreve/v4/inventory/types"
@@ -264,6 +265,11 @@ func (c *userClient) deleteUser(ctx context.Context, uid int) error {
 	}
 	if err := detachExternalAuth(ctx, c.client, uid); err != nil {
 		return err
+	}
+	// Delegated links may point at files belonging to another account, so
+	// deleting this user's files alone does not remove all of their links.
+	if _, err := c.client.Share.Delete().Where(share.HasUserWith(user.ID(uid))).Exec(ctx); err != nil {
+		return fmt.Errorf("failed to delete shares: %w", err)
 	}
 
 	// Dav accounts

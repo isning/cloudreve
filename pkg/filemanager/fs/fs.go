@@ -100,18 +100,26 @@ type (
 		// PatchProps patches the props of a file.
 		PatchProps(ctx context.Context, uri *URI, props *types.FileProps, delete bool) error
 		BindPolicy(ctx context.Context, uri *URI, policyID int) error
+		SetPermissions(ctx context.Context, uris []*URI, setting *types.PermissionSetting) error
 	}
 
 	UploadManager interface {
+		ValidateUploadSession(ctx context.Context, session *UploadSession) (File, error)
 		// PrepareUpload prepares an upload session. It performs validation on upload request and returns a placeholder
 		// file if needed.
 		PrepareUpload(ctx context.Context, req *UploadRequest, opts ...Option) (*UploadSession, error)
 		// CompleteUpload completes an upload session.
 		CompleteUpload(ctx context.Context, session *UploadSession) (File, error)
-		// CancelUploadSession cancels an upload session. Delete the placeholder file if no other entity is created.
-		CancelUploadSession(ctx context.Context, path *URI, sessionID string, session *UploadSession) ([]Entity, *IndexDiff, error)
+		// CancelUploadSession claims and removes a pending upload. A nil result
+		// means no pending tuple remains; provider cancellation must be skipped.
+		CancelUploadSession(ctx context.Context, path *URI, sessionID string, session *UploadSession) (*UploadCancellation, error)
 		// PreValidateUpload pre-validates an upload request.
 		PreValidateUpload(ctx context.Context, dst *URI, files ...PreValidateFile) error
+	}
+
+	UploadCancellation struct {
+		StaleEntities []Entity
+		IndexDiff     *IndexDiff
 	}
 
 	LockSystem interface {
@@ -263,6 +271,7 @@ type (
 	// UploadSession stores the information of an upload session, used in server side.
 	UploadSession struct {
 		UID             int // 发起者
+		FileOwnerID     int // Receiving account, independent from the uploader.
 		Policy          *ent.StoragePolicy
 		FileID          int    // ID of the placeholder file
 		EntityID        int    // ID of the new entity

@@ -39,6 +39,9 @@ func NewShareNavigator(u *ent.User, fileClient inventory.FileClient, shareClient
 		config:      config,
 	}
 	n.baseNavigator = newBaseNavigator(fileClient, defaultFilter, u, hasher, config)
+	n.baseNavigator.listFilter = func(ctx context.Context, file *File) (*File, bool) {
+		return file, file.CanList()
+	}
 	return n
 }
 
@@ -115,6 +118,7 @@ func (n *shareNavigator) Root(ctx context.Context, path *fs.URI) (*File, error) 
 	ctx = context.WithValue(ctx, inventory.LoadShareUser{}, true)
 	ctx = context.WithValue(ctx, inventory.LoadUserGroup{}, true)
 	ctx = context.WithValue(ctx, inventory.LoadShareFile{}, true)
+	ctx = context.WithValue(ctx, inventory.LoadFileUser{}, true)
 	share, err := n.shareClient.GetByHashID(ctx, path.ID(hashid.EncodeUserID(n.hasher, n.user.ID)))
 	if err != nil {
 		return nil, ErrShareNotFound.WithError(err)
@@ -124,7 +128,10 @@ func (n *shareNavigator) Root(ctx context.Context, path *fs.URI) (*File, error) 
 		return nil, ErrShareNotFound.WithError(err)
 	}
 
-	n.owner = share.Edges.User
+	n.owner = share.Edges.File.Edges.Owner
+	if n.owner == nil {
+		return nil, ErrShareNotFound
+	}
 
 	// Check password
 	if share.Password != "" && share.Password != path.Password() {
@@ -149,14 +156,28 @@ func (n *shareNavigator) Root(ctx context.Context, path *fs.URI) (*File, error) 
 	n.shareRoot.OwnerModel = n.owner
 	n.shareRoot.IsUserRoot = true
 	n.shareRoot.disableView = (share.Props == nil || !share.Props.ShareView) && n.user.ID != n.owner.ID
-	n.shareRoot.CapabilitiesBs = n.Capabilities(false).Capability
+	n.shareRoot.PermissionBs = inventory.ResolvePermission(inventory.SharePermissionSetting(share), n.user, n.owner, n.hasher)
+	if n.user.ID == share.Edges.User.ID {
+		n.shareRoot.PermissionBs = types.AllFilePermissions()
+	}
+	if n.singleFileShare {
+		// This is an artificial navigational parent, not the linked file's
+		// actual directory. It must never authorize writes or delegation.
+		grant := &boolset.BooleanSet{}
+		boolset.Set(types.FilePermissionRead, n.shareRoot.PermissionBs.Enabled(int(types.FilePermissionRead)), grant)
+		boolset.Set(types.FilePermissionList, n.shareRoot.PermissionBs.Enabled(int(types.FilePermissionList)), grant)
+		n.shareRoot.PermissionBs = grant
+	}
+	n.shareRoot.CapabilitiesBs = shareFileCapabilities(n.shareRoot.PermissionBs)
 
 	// Check if any ancestors is deleted
 	if ownerRoot.Name() != inventory.RootFolderName {
 		return nil, ErrShareNotFound
 	}
 
-	if n.user.ID != n.owner.ID && !n.user.Edges.Group.Permissions.Enabled(int(types.GroupPermissionShareDownload)) {
+	if n.user.ID != n.owner.ID && n.user.ID != share.Edges.User.ID &&
+		!n.user.Edges.Group.Permissions.Enabled(int(types.GroupPermissionIsAdmin)) &&
+		!n.user.Edges.Group.Permissions.Enabled(int(types.GroupPermissionShareDownload)) {
 		if inventory.IsAnonymousUser(n.user) {
 			return nil, serializer.NewError(
 				serializer.CodeAnonymouseAccessDenied,
@@ -191,15 +212,21 @@ func (n *shareNavigator) To(ctx context.Context, path *fs.URI) (*File, error) {
 	current, lastAncestor := n.shareRoot, n.shareRoot
 	elements := path.Elements()
 
-	// If target is root of single file share, the root itself is the target.
-	if len(elements) == 1 && n.singleFileShare {
+	if n.singleFileShare {
+		if len(elements) == 0 {
+			return n.shareRoot, nil
+		}
+		if len(elements) != 1 {
+			return nil, ErrPermissionDenied
+		}
 		file, err := n.latestSharedSingleFile(ctx)
 		if err != nil {
 			return nil, err
 		}
 
-		if len(elements) == 1 && file.Name() != elements[0] {
-			return nil, fs.ErrPathNotExist
+		if file.Name() != elements[0] {
+			// A not-found error would allow chained creation outside the share.
+			return nil, ErrPermissionDenied
 		}
 
 		return file, nil
@@ -227,6 +254,12 @@ func (n *shareNavigator) walkNext(ctx context.Context, root *File, next string, 
 }
 
 func (n *shareNavigator) Children(ctx context.Context, parent *File, args *ListArgs) (*ListResult, error) {
+	if !parent.CanList() {
+		if parent == n.shareRoot && parent.HasPermission(types.FilePermissionCreate) && !n.singleFileShare {
+			return &ListResult{Files: []*File{}, Pagination: &inventory.PaginationResults{}}, nil
+		}
+		return nil, ErrPermissionDenied
+	}
 	if n.singleFileShare {
 		file, err := n.latestSharedSingleFile(ctx)
 		if err != nil {
@@ -240,7 +273,11 @@ func (n *shareNavigator) Children(ctx context.Context, parent *File, args *ListA
 		}, nil
 	}
 
-	return n.baseNavigator.children(ctx, parent, args)
+	result, err := n.baseNavigator.children(ctx, parent, args)
+	if result != nil && result.Pagination != nil {
+		result.Pagination.TotalItems = 0
+	}
+	return result, err
 }
 
 func (n *shareNavigator) latestSharedSingleFile(ctx context.Context) (*File, error) {
@@ -252,6 +289,11 @@ func (n *shareNavigator) latestSharedSingleFile(ctx context.Context) (*File, err
 
 		f := newFile(n.shareRoot, file)
 		f.OwnerModel = n.shareRoot.OwnerModel
+		f.PermissionBs = inventory.ResolvePermission(inventory.SharePermissionSetting(n.share), n.user, n.owner, n.hasher)
+		if n.user.ID == n.share.Edges.User.ID {
+			f.PermissionBs = types.AllFilePermissions()
+		}
+		f.CapabilitiesBs = shareFileCapabilities(f.PermissionBs)
 
 		return f, nil
 	}
@@ -308,6 +350,18 @@ func (n *shareNavigator) ExecuteHook(ctx context.Context, hookType fs.HookType, 
 }
 
 func (n *shareNavigator) Walk(ctx context.Context, levelFiles []*File, limit, depth int, f WalkFunc) error {
+	if n.singleFileShare {
+		file, err := n.latestSharedSingleFile(ctx)
+		if err != nil {
+			return err
+		}
+		for i, target := range levelFiles {
+			if target.ID() != n.shareRoot.ID() && target.ID() != file.ID() {
+				return ErrPermissionDenied
+			}
+			levelFiles[i] = file
+		}
+	}
 	return n.baseNavigator.walk(ctx, levelFiles, limit, depth, f)
 }
 

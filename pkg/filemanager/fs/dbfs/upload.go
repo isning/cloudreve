@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/cloudreve/Cloudreve/v4/ent"
+	ententity "github.com/cloudreve/Cloudreve/v4/ent/entity"
+	entfile "github.com/cloudreve/Cloudreve/v4/ent/file"
 	entuser "github.com/cloudreve/Cloudreve/v4/ent/user"
 	"github.com/cloudreve/Cloudreve/v4/inventory"
 	"github.com/cloudreve/Cloudreve/v4/inventory/types"
@@ -36,8 +38,8 @@ func (f *DBFS) PreValidateUpload(ctx context.Context, dst *fs.URI, files ...fs.P
 	}
 
 	// check ownership
-	if f.user.ID != dstFile.OwnerID() {
-		return fmt.Errorf("failed to evaluate permission: %w", err)
+	if !f.canAccess(ctx, dstFile, types.FilePermissionCreate) {
+		return ErrPermissionDenied
 	}
 
 	total := int64(0)
@@ -107,8 +109,12 @@ func (f *DBFS) PrepareUpload(ctx context.Context, req *fs.UploadRequest, opts ..
 		return nil, fs.ErrPathNotExist
 	}
 
-	if _, ok := ctx.Value(ByPassOwnerCheckCtxKey{}).(bool); !ok && ancestor.OwnerID() != f.user.ID {
-		return nil, fs.ErrOwnerOnly
+	permission := types.FilePermissionCreate
+	if fileExisted {
+		permission = types.FilePermissionUpdate
+	}
+	if !f.canAccess(ctx, ancestor, permission) {
+		return nil, inventory.PermissionDenied(permission)
 	}
 
 	// Resolve once before locks, placeholders, quota reservation or provider I/O.
@@ -174,9 +180,12 @@ func (f *DBFS) PrepareUpload(ctx context.Context, req *fs.UploadRequest, opts ..
 		(req.Props.EntityType != nil && *req.Props.EntityType == types.EntityTypeThumbnail) &&
 		req.ImportFrom == nil
 	if req.Props.SavePath == "" || isThumbnailAndPolicyNotAvailable {
-		req.Props.SavePath = generateSavePath(policy, req, f.user)
+		physicalRequest := *req
+		physicalRequest.Props = req.Props.Copy()
+		physicalRequest.Props.Uri = ancestor.RootUri().JoinRaw(req.Props.Uri.PathTrimmed())
+		req.Props.SavePath = generateSavePath(policy, &physicalRequest, owner)
 		if isThumbnailAndPolicyNotAvailable {
-			req.Props.SavePath = path.Clean(util.ReplaceMagicVar(f.settingClient.ThumbEntitySuffix(ctx), fs.Separator, true, true, time.Now(), f.user.ID, req.Props.Uri.Name(), req.Props.Uri.Path(), req.Props.SavePath))
+			req.Props.SavePath = path.Clean(util.ReplaceMagicVar(f.settingClient.ThumbEntitySuffix(ctx), fs.Separator, true, true, time.Now(), owner.ID, physicalRequest.Props.Uri.Name(), physicalRequest.Props.Uri.Path(), req.Props.SavePath))
 		}
 	}
 
@@ -274,7 +283,7 @@ func (f *DBFS) PrepareUpload(ctx context.Context, req *fs.UploadRequest, opts ..
 		targetFile = ancestor.Model
 		// An empty file may still carry its inherited pool preference. Its
 		// first actual entity fixes the concrete policy for future versions.
-		if logicalPolicy != nil && logicalPolicy.Type == types.PolicyTypeLoadBalance && ancestor.Model.StoragePolicyFiles == logicalPolicy.ID {
+		if logicalPolicy != nil && logicalPolicy.Type == types.PolicyTypeLoadBalance && (ancestor.Model.StoragePolicyFiles == logicalPolicy.ID || ancestor.Model.StoragePolicyFiles == 0) {
 			targetFile, err = fc.SetStoragePreference(ctx, ancestor.Model, policy.ID)
 			if err != nil {
 				_ = inventory.Rollback(dbTx)
@@ -339,6 +348,7 @@ func (f *DBFS) PrepareUpload(ctx context.Context, req *fs.UploadRequest, opts ..
 		Importing:      req.ImportFrom != nil,
 		EntityID:       entityId,
 		UID:            f.user.ID,
+		FileOwnerID:    owner.ID,
 		Policy:         policy,
 		CallbackSecret: util.RandStringRunesCrypto(32),
 		LockToken:      lockToken, // Prevent lock being released.
@@ -352,9 +362,34 @@ func (f *DBFS) PrepareUpload(ctx context.Context, req *fs.UploadRequest, opts ..
 	return session, nil
 }
 
-func (f *DBFS) CompleteUpload(ctx context.Context, session *fs.UploadSession) (fs.File, error) {
-	// Get placeholder file
+func (f *DBFS) ValidateUploadSession(ctx context.Context, session *fs.UploadSession) (fs.File, error) {
+	if session == nil || session.Props == nil || session.UID != f.user.ID || !session.Props.ExpireAt.IsZero() && time.Now().After(session.Props.ExpireAt) {
+		return nil, ErrPermissionDenied
+	}
 	file, err := f.Get(ctx, session.Props.Uri, WithFileEntities(), WithNotRoot())
+	if err != nil {
+		return nil, err
+	}
+	if file.ID() != session.FileID {
+		return nil, fs.ErrModified
+	}
+	permission := types.FilePermissionUpdate
+	if session.NewFileCreated {
+		permission = types.FilePermissionCreate
+	}
+	if !f.canAccess(ctx, file.(*File), permission) {
+		return nil, inventory.PermissionDenied(permission)
+	}
+	for _, entity := range file.Entities() {
+		if entity.ID() == session.EntityID && entity.UploadSessionID() != nil && entity.UploadSessionID().String() == session.Props.UploadSessionID {
+			return file, nil
+		}
+	}
+	return nil, fs.ErrModified
+}
+
+func (f *DBFS) CompleteUpload(ctx context.Context, session *fs.UploadSession) (fs.File, error) {
+	file, err := f.ValidateUploadSession(ctx, session)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get placeholder file: %w", err)
 	}
@@ -473,18 +508,18 @@ func (f *DBFS) CompleteUpload(ctx context.Context, session *fs.UploadSession) (f
 // - File still locked by uplaod session
 // - File unlocked, upload session valid
 // - File unlocked, upload session not valid
-func (f *DBFS) CancelUploadSession(ctx context.Context, path *fs.URI, sessionID string, session *fs.UploadSession) ([]fs.Entity, *fs.IndexDiff, error) {
+func (f *DBFS) CancelUploadSession(ctx context.Context, path *fs.URI, sessionID string, session *fs.UploadSession) (*fs.UploadCancellation, error) {
 	// Get placeholder file
 	file, err := f.Get(ctx, path, WithFileEntities(), WithNotRoot())
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to get placeholder file: %w", err)
+		return nil, fmt.Errorf("failed to get placeholder file: %w", err)
 	}
 
 	filePrivate := file.(*File)
 
 	// Make sure presented upload session is valid
-	if session != nil && (session.UID != f.user.ID || session.FileID != file.ID()) {
-		return nil, nil, serializer.NewError(serializer.CodeNotFound, "Upload session not found", nil)
+	if session != nil && (session.FileID != file.ID() || session.UID != f.user.ID && file.OwnerID() != f.user.ID) {
+		return nil, serializer.NewError(serializer.CodeNotFound, "Upload session not found", nil)
 	}
 
 	// Confirm locks on placeholder file
@@ -496,8 +531,8 @@ func (f *DBFS) CancelUploadSession(ctx context.Context, path *fs.URI, sessionID 
 		}
 	}
 
-	if _, ok := ctx.Value(ByPassOwnerCheckCtxKey{}).(bool); !ok && filePrivate.OwnerID() != f.user.ID {
-		return nil, nil, fs.ErrOwnerOnly
+	if session == nil && filePrivate.OwnerID() != f.user.ID {
+		return nil, fs.ErrOwnerOnly
 	}
 
 	// Lock file
@@ -506,7 +541,7 @@ func (f *DBFS) CancelUploadSession(ctx context.Context, path *fs.URI, sessionID 
 	defer func() { _ = f.Release(ctx, ls) }()
 	ctx = fs.LockSessionToContext(ctx, ls)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	// Find placeholder entity
@@ -518,14 +553,49 @@ func (f *DBFS) CancelUploadSession(ctx context.Context, path *fs.URI, sessionID 
 		}
 	}
 
-	// Remove upload session metadata
-	if err := f.fileClient.RemoveMetadata(ctx, filePrivate.Model, MetadataUploadSessionID, ThumbDisabledKey); err != nil {
-		return nil, nil, serializer.NewError(serializer.CodeDBError, "Failed to remove upload session metadata", err)
-	}
-
 	if entity == nil {
 		// Given upload session does not exist
-		return nil, nil, nil
+		return nil, nil
+	}
+	if session != nil && entity.ID() != session.EntityID {
+		return nil, fs.ErrModified
+	}
+	fc, tx, ctx, err := inventory.WithTx(ctx, f.fileClient)
+	if err != nil {
+		return nil, err
+	}
+	defer inventory.Rollback(tx)
+	// Complete and cancel may both possess the upload lock token. Serialize
+	// their SQL mutations on the still-pending entity, rather than deleting a
+	// previously read placeholder after it has already become a real file.
+	_, err = fc.GetClient().Entity.UpdateOneID(entity.ID()).
+		Where(ententity.UploadSessionID(*entity.UploadSessionID()), ententity.HasFileWith(entfile.ID(file.ID()))).
+		SetUploadSessionID(*entity.UploadSessionID()).Save(ctx)
+	if ent.IsNotFound(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	navigator, err := f.getNavigator(ctx, path)
+	if err != nil {
+		return nil, err
+	}
+	revert, err := navigator.FollowTx(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer revert()
+	latest, err := fc.GetByID(context.WithValue(ctx, inventory.LoadFileEntity{}, true), file.ID())
+	if err != nil {
+		return nil, err
+	}
+	filePrivate.Model = latest
+	// The validated upload capability authorizes removing only this placeholder,
+	// even when the initiating visitor has no general delete permission.
+	ctx = WithBypassOwnerCheck(ctx)
+	if err := fc.RemoveMetadata(ctx, filePrivate.Model, MetadataUploadSessionID, ThumbDisabledKey); err != nil {
+		return nil, serializer.NewError(serializer.CodeDBError, "Failed to remove upload session metadata", err)
 	}
 
 	if session != nil && session.LockToken != "" {
@@ -539,18 +609,18 @@ func (f *DBFS) CancelUploadSession(ctx context.Context, path *fs.URI, sessionID 
 	if len(filePrivate.Entities()) == 1 {
 		// Only one placeholder entity, just delete this file
 		entities, indexDiff, err := f.Delete(ctx, []*fs.URI{path})
-		return entities, indexDiff, err
+		if err != nil {
+			return nil, err
+		}
+		return &fs.UploadCancellation{StaleEntities: entities, IndexDiff: indexDiff}, inventory.CommitWithStorageDiff(ctx, tx, f.l, f.userClient)
 	}
 
 	// Delete place holder entity
 	storageDiff, err := f.deleteEntity(ctx, filePrivate, entity.ID())
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to delete placeholder entity: %w", err)
+		return nil, fmt.Errorf("failed to delete placeholder entity: %w", err)
 	}
 
-	if err := f.userClient.ApplyStorageDiff(ctx, storageDiff); err != nil {
-		return nil, nil, fmt.Errorf("failed to apply storage diff: %w", err)
-	}
-
-	return nil, nil, nil
+	tx.AppendStorageDiff(storageDiff)
+	return &fs.UploadCancellation{}, inventory.CommitWithStorageDiff(ctx, tx, f.l, f.userClient)
 }

@@ -77,6 +77,7 @@ func BatchDeleteShare(c *gin.Context) {
 	err := service.Delete(c)
 	if err != nil {
 		c.JSON(200, serializer.Err(c, err))
+		return
 	}
 
 	c.JSON(200, serializer.Response{})

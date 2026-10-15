@@ -128,6 +128,13 @@ func init() {
 		NavigatorCapabilityRelocate:       true,
 	}, myNavigatorCapability)
 	boolset.Sets(map[NavigatorCapability]bool{
+		NavigatorCapabilityCreateFile:     true,
+		NavigatorCapabilityRenameFile:     true,
+		NavigatorCapabilityUploadFile:     true,
+		NavigatorCapabilityUpdateMetadata: true,
+		NavigatorCapabilityDeleteFile:     true,
+		NavigatorCapabilitySoftDelete:     true,
+		NavigatorCapabilityShare:          true,
 		NavigatorCapabilityDownloadFile:   true,
 		NavigatorCapabilityListChildren:   true,
 		NavigatorCapabilityGenerateThumb:  true,
@@ -201,7 +208,7 @@ func (b *baseNavigator) walkNext(ctx context.Context, root *File, next string, i
 		return nil, fmt.Errorf("faield to get child %q: %w", next, err)
 	}
 
-	return newFile(root, child), nil
+	return b.applyPermission(newFile(root, child)), nil
 }
 
 // findRoot finds the root folder of the given child.
@@ -261,7 +268,7 @@ func (b *baseNavigator) children(ctx context.Context, parent *File, args *ListAr
 
 	return &ListResult{
 		Files: lo.FilterMap(children.Files, func(model *ent.File, index int) (*File, bool) {
-			f := newFile(parent, model)
+			f := b.applyPermission(newFile(parent, model))
 			return b.listFilter(ctx, f)
 		}),
 		MixedType:  children.MixedType,
@@ -334,7 +341,7 @@ func (b *baseNavigator) walk(ctx context.Context, levelFiles []*File, limit, dep
 
 			levelFiles = append(levelFiles, lo.Map(res.Files, func(model *ent.File, index int) *File {
 				p := parents[model.FileChildren]
-				return newFile(p, model)
+				return b.applyPermission(newFile(p, model))
 			})...)
 
 			// All files listed
@@ -369,7 +376,7 @@ func (b *baseNavigator) search(ctx context.Context, parent *File, args *ListArgs
 
 		return &ListResult{
 			Files: lo.FilterMap(children.Files, func(model *ent.File, index int) (*File, bool) {
-				f := newFile(parent, model)
+				f := b.applyPermission(newFile(parent, model))
 				return b.listFilter(ctx, f)
 			}),
 			MixedType:  children.MixedType,
@@ -410,9 +417,9 @@ func (b *baseNavigator) search(ctx context.Context, parent *File, args *ListArgs
 			parents = append(parents, lo.SliceToMap(
 				lo.FilterMap(res.Files, func(model *ent.File, index int) (*File, bool) {
 					p := parents[level][model.FileChildren]
-					f := newFile(p, model)
+					f := b.applyPermission(newFile(p, model))
 					f.Path[pathIndexUser] = p.Uri(false).Join(model.Name)
-					return f, true
+					return b.listFilter(ctx, f)
 				}),
 				func(f *File) (int, *File) {
 					return f.Model.ID, f
@@ -471,7 +478,7 @@ func (b *baseNavigator) search(ctx context.Context, parent *File, args *ListArgs
 
 		newRes := lo.FilterMap(searchRes.Files, func(model *ent.File, index int) (*File, bool) {
 			p := parents[startLevel][model.FileChildren]
-			f := newFile(p, model)
+			f := b.applyPermission(newFile(p, model))
 			f.Path[pathIndexUser] = p.Uri(false).Join(model.Name)
 			return b.listFilter(ctx, f)
 		})

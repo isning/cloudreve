@@ -197,7 +197,8 @@ type (
 	PolicyType string
 
 	FileProps struct {
-		View *ExplorerView `json:"view,omitempty"`
+		View        *ExplorerView      `json:"view,omitempty"`
+		Permissions *PermissionSetting `json:"permissions,omitempty"`
 	}
 
 	ExplorerView struct {
@@ -222,6 +223,7 @@ type (
 	}
 
 	ShareProps struct {
+		Permissions *PermissionSetting `json:"permissions,omitempty"`
 		// Whether to share view setting from owner
 		ShareView bool `json:"share_view,omitempty"`
 		// Whether to automatically show readme file in share view
@@ -258,7 +260,7 @@ const (
 	GroupPermissionRedirectedSource // not used
 	GroupPermissionAdvanceDelete
 	GroupPermission_CommunityPlaceholder3
-	GroupPermission_CommunityPlaceholder4
+	GroupPermissionSetAnonymousPermission
 	GroupPermissionSetExplicitUser_placeholder
 	GroupPermissionIgnoreFileOwnership // not used
 	GroupPermissionUniqueRedirectDirectLink

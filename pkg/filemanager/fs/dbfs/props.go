@@ -80,7 +80,7 @@ func (f *DBFS) PatchMetadata(ctx context.Context, path []*fs.URI, metas ...fs.Me
 		}
 
 		// Require Update permission
-		if _, ok := ctx.Value(ByPassOwnerCheckCtxKey{}).(bool); !ok && target.OwnerID() != f.user.ID {
+		if !f.canAccess(ctx, target, types.FilePermissionUpdate) {
 			return fs.ErrOwnerOnly.WithError(fmt.Errorf("permission denied"))
 		}
 

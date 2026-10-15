@@ -611,9 +611,12 @@ func initMasterRouter(dep dependency.Dep) *gin.Engine {
 		}
 
 		// 文件
+		v4.GET("group/list", middleware.LoginRequired(), middleware.RequiredScopes(types.ScopeUserInfoRead), controllers.ListPermissionGroups)
 		file := v4.Group("file")
 		file.Use(middleware.RequiredScopes(types.ScopeFilesRead))
 		{
+			file.POST("permission", middleware.LoginRequired(), middleware.RequiredScopes(types.ScopeFilesWrite), controllers.FromJSON[explorer.FilePermissionService](explorer.FilePermissionParamCtx{}), middleware.ValidateBatchFileCount(dep, explorer.FilePermissionParamCtx{}), controllers.SetFilePermissions)
+			file.DELETE("permission", middleware.LoginRequired(), middleware.RequiredScopes(types.ScopeFilesWrite), controllers.FromJSON[explorer.FilePermissionService](explorer.FilePermissionParamCtx{}), middleware.ValidateBatchFileCount(dep, explorer.FilePermissionParamCtx{}), controllers.SetFilePermissions)
 			// List files
 			file.GET("",
 				controllers.FromQuery[explorer.ListFileService](explorer.ListFileParameterCtx{}),

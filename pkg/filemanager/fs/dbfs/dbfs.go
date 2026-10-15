@@ -159,6 +159,9 @@ func (f *DBFS) List(ctx context.Context, path *fs.URI, opts ...fs.Option) (fs.Fi
 
 	// Validate pagination args
 	props := navigator.Capabilities(isSearching)
+	if parent != nil && parent.PermissionBs != nil {
+		props.Capability = parent.Capabilities()
+	}
 	if pageSize > props.MaxPageSize {
 		pageSize = props.MaxPageSize
 	} else if pageSize == 0 {
@@ -244,7 +247,7 @@ func (f *DBFS) Capacity(ctx context.Context, u *ent.User) (*fs.Capacity, error) 
 		return nil, serializer.NewError(serializer.CodeDBError, "Failed to get user's group", err)
 	}
 
-	res.Used = f.user.Storage
+	res.Used = u.Storage
 	res.Total = requesterGroup.MaxStorage
 	return res, nil
 }
@@ -414,6 +417,9 @@ func (f *DBFS) Get(ctx context.Context, path *fs.URI, opts ...fs.Option) (fs.Fil
 	if err != nil {
 		return nil, fmt.Errorf("failed to get target file: %w", err)
 	}
+	if err := requireCapabilities(target, o.requiredCapabilities...); err != nil {
+		return nil, err
+	}
 
 	if o.notRoot && (target == nil || target.IsRootFolder()) {
 		return nil, fs.ErrNotSupportedAction.WithError(fmt.Errorf("cannot operate root file"))
@@ -556,8 +562,8 @@ func (f *DBFS) Walk(ctx context.Context, path *fs.URI, depth int, walk fs.WalkFu
 	}
 
 	// Require Read permission
-	if _, ok := ctx.Value(ByPassOwnerCheckCtxKey{}).(bool); !ok && target.OwnerID() != f.user.ID {
-		return fs.ErrOwnerOnly
+	if !f.canAccess(ctx, target, types.FilePermissionRead) {
+		return ErrPermissionDenied
 	}
 
 	// Walk
@@ -568,6 +574,9 @@ func (f *DBFS) Walk(ctx context.Context, path *fs.URI, depth int, walk fs.WalkFu
 
 	if err := navigator.Walk(ctx, []*File{target}, limit, depth, func(files []*File, l int) error {
 		for _, file := range files {
+			if !f.canAccess(ctx, file, types.FilePermissionRead) {
+				return ErrPermissionDenied
+			}
 			if err := walk(file, l); err != nil {
 				return err
 			}
@@ -754,7 +763,7 @@ func (f *DBFS) getNavigator(ctx context.Context, path *fs.URI, requiredCapabilit
 		}
 
 		// retrieve state if context hint is provided
-		if stateID, ok := ctx.Value(ContextHintCtxKey{}).(uuid.UUID); ok && stateID != uuid.Nil {
+		if stateID, ok := ctx.Value(ContextHintCtxKey{}).(uuid.UUID); ok && stateID != uuid.Nil && pathFs != constants.FileSystemShare {
 			cacheKey := NavigatorStateCachePrefix + stateID.String() + "_" + navigatorId
 			if stateRaw, ok := f.stateKv.Get(cacheKey); ok {
 				if err := n.RestoreState(stateRaw.(State)); err != nil {
@@ -770,6 +779,13 @@ func (f *DBFS) getNavigator(ctx context.Context, path *fs.URI, requiredCapabilit
 
 		f.navigators[navigatorId] = n
 		res = n
+	}
+	// Share access is revalidated for every request; a context hint cannot keep
+	// deleted links, old passwords, expired grants or stale child ACLs alive.
+	if share, ok := res.(*shareNavigator); ok && share.shareRoot == nil {
+		if _, err := share.Root(ctx, path.Root()); err != nil {
+			return nil, err
+		}
 	}
 
 	// Check fs capabilities
@@ -815,6 +831,10 @@ func generateSavePath(policy *ent.StoragePolicy, req *fs.UploadRequest, user *en
 }
 
 func canMoveOrCopyTo(src, dst *fs.URI, isCopy bool) bool {
+	if (src.FileSystem() == constants.FileSystemMy || src.FileSystem() == constants.FileSystemShare) &&
+		(dst.FileSystem() == constants.FileSystemMy || dst.FileSystem() == constants.FileSystemShare) {
+		return true
+	}
 	if isCopy {
 		return src.FileSystem() == dst.FileSystem() && src.FileSystem() == constants.FileSystemMy
 	} else {

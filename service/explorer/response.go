@@ -16,6 +16,7 @@ import (
 	"github.com/cloudreve/Cloudreve/v4/pkg/boolset"
 	"github.com/cloudreve/Cloudreve/v4/pkg/cluster/routes"
 	"github.com/cloudreve/Cloudreve/v4/pkg/filemanager/fs"
+	"github.com/cloudreve/Cloudreve/v4/pkg/filemanager/fs/dbfs"
 	"github.com/cloudreve/Cloudreve/v4/pkg/filemanager/manager"
 	"github.com/cloudreve/Cloudreve/v4/pkg/hashid"
 	"github.com/cloudreve/Cloudreve/v4/pkg/queue"
@@ -260,6 +261,7 @@ type ListResponse struct {
 }
 
 type FileResponse struct {
+	Permission    *boolset.BooleanSet `json:"permission,omitempty"`
 	Type          int                 `json:"type"`
 	ID            string              `json:"id"`
 	Name          string              `json:"name"`
@@ -278,12 +280,13 @@ type FileResponse struct {
 }
 
 type ExtendedInfo struct {
-	StoragePolicy *StoragePolicy      `json:"storage_policy,omitempty"`
-	StorageUsed   int64               `json:"storage_used"`
-	Shares        []Share             `json:"shares,omitempty"`
-	Entities      []Entity            `json:"entities,omitempty"`
-	View          *types.ExplorerView `json:"view,omitempty"`
-	DirectLinks   []DirectLink        `json:"direct_links,omitempty"`
+	Permissions   *types.PermissionSetting `json:"permissions,omitempty"`
+	StoragePolicy *StoragePolicy           `json:"storage_policy,omitempty"`
+	StorageUsed   int64                    `json:"storage_used"`
+	Shares        []Share                  `json:"shares,omitempty"`
+	Entities      []Entity                 `json:"entities,omitempty"`
+	View          *types.ExplorerView      `json:"view,omitempty"`
+	DirectLinks   []DirectLink             `json:"direct_links,omitempty"`
 }
 
 type DirectLink struct {
@@ -320,21 +323,23 @@ type Entity struct {
 }
 
 type Share struct {
-	ID                string          `json:"id"`
-	Name              string          `json:"name,omitempty"`
-	RemainDownloads   *int            `json:"remain_downloads,omitempty"`
-	Visited           int             `json:"visited"`
-	Downloaded        int             `json:"downloaded,omitempty"`
-	Expires           *time.Time      `json:"expires,omitempty"`
-	Unlocked          bool            `json:"unlocked"`
-	PasswordProtected bool            `json:"password_protected,omitempty"`
-	SourceType        *types.FileType `json:"source_type,omitempty"`
-	Owner             user.User       `json:"owner"`
-	CreatedAt         time.Time       `json:"created_at,omitempty"`
-	Expired           bool            `json:"expired"`
-	Url               string          `json:"url"`
-	ShowReadMe        bool            `json:"show_readme,omitempty"`
-	Size              int64           `json:"size"`
+	Permissions       *boolset.BooleanSet      `json:"permissions,omitempty"`
+	PermissionSetting *types.PermissionSetting `json:"permission_setting,omitempty"`
+	ID                string                   `json:"id"`
+	Name              string                   `json:"name,omitempty"`
+	RemainDownloads   *int                     `json:"remain_downloads,omitempty"`
+	Visited           int                      `json:"visited"`
+	Downloaded        int                      `json:"downloaded,omitempty"`
+	Expires           *time.Time               `json:"expires,omitempty"`
+	Unlocked          bool                     `json:"unlocked"`
+	PasswordProtected bool                     `json:"password_protected,omitempty"`
+	SourceType        *types.FileType          `json:"source_type,omitempty"`
+	Owner             user.User                `json:"owner"`
+	CreatedAt         time.Time                `json:"created_at,omitempty"`
+	Expired           bool                     `json:"expired"`
+	Url               string                   `json:"url"`
+	ShowReadMe        bool                     `json:"show_readme,omitempty"`
+	Size              int64                    `json:"size"`
 
 	// Only viewable by owner
 	IsPrivate bool   `json:"is_private,omitempty"`
@@ -345,8 +350,9 @@ type Share struct {
 	SourceUri string `json:"source_uri,omitempty"`
 }
 
-func BuildShare(ctx context.Context, s *ent.Share, base *url.URL, hasher hashid.Encoder, requester *ent.User, owner *ent.User,
+func BuildShare(ctx context.Context, s *ent.Share, base *url.URL, hasher hashid.Encoder, requester, fileOwner *ent.User,
 	name string, t types.FileType, unlocked bool, expired bool) *Share {
+	owner := s.Edges.User
 	redactLevel := user.RedactLevelAnonymous
 	if !inventory.IsAnonymousUser(requester) {
 		redactLevel = user.RedactLevelUser
@@ -365,6 +371,10 @@ func BuildShare(ctx context.Context, s *ent.Share, base *url.URL, hasher hashid.
 	}
 
 	if unlocked {
+		res.Permissions = inventory.ResolvePermission(inventory.SharePermissionSetting(s), requester, fileOwner, hasher)
+		if requester.ID == owner.ID {
+			res.Permissions = types.AllFilePermissions()
+		}
 		res.RemainDownloads = s.RemainDownloads
 		res.Downloaded = s.Downloads
 		res.Expires = s.Expires
@@ -376,7 +386,8 @@ func BuildShare(ctx context.Context, s *ent.Share, base *url.URL, hasher hashid.
 		}
 	}
 
-	if requester.ID == owner.ID {
+	if inventory.CanManageShare(s, requester) {
+		res.PermissionSetting = inventory.SharePermissionSetting(s)
 		res.IsPrivate = s.Password != ""
 		res.ShareView = s.Props != nil && s.Props.ShareView
 	}
@@ -412,7 +423,7 @@ func BuildFileResponse(ctx context.Context, u *ent.User, f fs.File, hasher hashi
 		owner = f.Owner()
 	}
 
-	if cap == nil {
+	if f.Capabilities() != nil {
 		cap = f.Capabilities()
 	}
 
@@ -431,6 +442,20 @@ func BuildFileResponse(ctx context.Context, u *ent.User, f fs.File, hasher hashi
 		FolderSummary: f.FolderSummary(),
 		ExtendedInfo:  BuildExtendedInfo(ctx, u, f, hasher),
 		PrimaryEntity: hashid.EncodeEntityID(hasher, f.PrimaryEntityID()),
+	}
+	if file, ok := f.(*dbfs.File); ok {
+		res.Permission = file.PermissionBs
+	}
+	// Session UUIDs are upload capabilities for anonymous clients, not public
+	// progress identifiers. Other share visitors must never receive them.
+	if !res.Owned && res.Metadata != nil {
+		redacted := make(map[string]string, len(res.Metadata))
+		for key, value := range res.Metadata {
+			if key != dbfs.MetadataUploadSessionID {
+				redacted[key] = value
+			}
+		}
+		res.Metadata = redacted
 	}
 	return res
 }
@@ -455,10 +480,18 @@ func BuildExtendedInfo(ctx context.Context, u *ent.User, f fs.File, hasher hashi
 		}),
 	}
 
-	if u.ID == f.OwnerID() {
-		// Only owner can see the shares settings.
-		ext.Shares = lo.Map(extendedInfo.Shares, func(s *ent.Share, index int) Share {
-			return *BuildShare(ctx, s, base, hasher, u, u, f.DisplayName(), f.Type(), true, false)
+	if u.ID == f.OwnerID() || u.Edges.Group.Permissions.Enabled(int(types.GroupPermissionIsAdmin)) {
+		if file, ok := f.(*dbfs.File); ok && file.Model.Props != nil {
+			ext.Permissions = file.Model.Props.Permissions
+		}
+		// File owners and administrators can manage all links to this file.
+		ext.Shares = lo.FilterMap(extendedInfo.Shares, func(s *ent.Share, index int) (Share, bool) {
+			// Eager loading uses multiple queries: a creator can disappear after
+			// the link query and before its user edge has been hydrated.
+			if s.Edges.User == nil {
+				return Share{}, false
+			}
+			return *BuildShare(ctx, s, base, hasher, u, f.Owner(), f.DisplayName(), f.Type(), true, false), true
 		})
 		ext.View = extendedInfo.View
 	}

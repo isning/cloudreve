@@ -43,8 +43,9 @@ recovery files for the native restart flow.
 
 The 0–61 catalog is shared with Pro. Existing fork operations emit the matching
 events, including native/OIDC login, security changes, files, shares, versions,
-storage migration, WebDAV, OAuth, mail and startup. Event numbers belonging to
-other Pro modules (payments, memberships, ACL and abuse reports) are reserved;
+storage migration, WebDAV, OAuth, mail and startup. [File ACL changes](writable-sharing.md)
+emit event 9. Event numbers belonging to
+other Pro modules (payments, memberships and abuse reports) are reserved;
 enabling a flag does not add those unrelated modules.
 
 ## Public interfaces

@@ -22,6 +22,9 @@ type ListShareResponse struct {
 func BuildListShareResponse(ctx context.Context, res *inventory.ListShareResult, hasher hashid.Encoder, base *url.URL, requester *ent.User, unlocked bool) *ListShareResponse {
 	var infos []explorer.Share
 	for _, share := range res.Shares {
+		if share.Edges.User == nil || share.Edges.File == nil || share.Edges.File.Edges.Owner == nil {
+			continue
+		}
 		expired := inventory.IsValidShare(share) != nil
 		shareName := share.Edges.File.Name
 		if share.Edges.File.FileChildren == 0 && len(share.Edges.File.Edges.Metadata) >= 0 {
@@ -37,7 +40,7 @@ func BuildListShareResponse(ctx context.Context, res *inventory.ListShareResult,
 			}
 		}
 
-		infos = append(infos, *explorer.BuildShare(ctx, share, base, hasher, requester, share.Edges.User, shareName,
+		infos = append(infos, *explorer.BuildShare(ctx, share, base, hasher, requester, share.Edges.File.Edges.Owner, shareName,
 			types.FileType(share.Edges.File.Type), unlocked, expired))
 	}
 

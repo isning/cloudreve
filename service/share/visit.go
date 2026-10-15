@@ -82,20 +82,20 @@ func (s *ShareInfoService) Get(c *gin.Context) (*explorer.Share, error) {
 
 	unlocked := true
 	// Share requires password
-	if share.Password != "" && s.Password != share.Password && share.Edges.User.ID != u.ID {
+	if share.Password != "" && s.Password != share.Password && !inventory.CanManageShare(share, u) {
 		unlocked = false
 	}
 
 	base := dep.SettingProvider().SiteURL(c)
-	res := explorer.BuildShare(c, share, base, dep.HashIDEncoder(), u, share.Edges.User, share.Edges.File.Name,
+	res := explorer.BuildShare(c, share, base, dep.HashIDEncoder(), u, share.Edges.File.Edges.Owner, share.Edges.File.Name,
 		types.FileType(share.Edges.File.Type), unlocked, false)
 
-	if s.OwnerExtended && share.Edges.User.ID == u.ID {
+	if s.OwnerExtended && inventory.CanManageShare(share, u) {
 		// Add more information about the shared file
 		m := manager.NewFileManager(dep, u)
 		defer m.Recycle()
 
-		shareUri, err := fs.NewUriFromString(fs.NewShareUri(res.ID, s.Password))
+		shareUri, err := fs.NewUriFromString(fs.NewShareUri(res.ID, share.Password))
 		if err != nil {
 			return nil, serializer.NewError(serializer.CodeInternalSetting, "Invalid share url", err)
 		}
@@ -106,6 +106,9 @@ func (s *ShareInfoService) Get(c *gin.Context) (*explorer.Share, error) {
 		}
 
 		res.SourceUri = root.Uri(true).String()
+		if root.OwnerID() != u.ID {
+			res.SourceUri = shareUri.String()
+		}
 	}
 
 	return res, nil
