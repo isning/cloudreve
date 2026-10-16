@@ -127,6 +127,9 @@ func (n *shareNavigator) Root(ctx context.Context, path *fs.URI) (*File, error) 
 	if err := inventory.IsValidShare(share); err != nil {
 		return nil, ErrShareNotFound.WithError(err)
 	}
+	if err := inventory.CheckShareAccess(share, n.user); err != nil {
+		return nil, err
+	}
 
 	n.owner = share.Edges.File.Edges.Owner
 	if n.owner == nil {
@@ -156,10 +159,8 @@ func (n *shareNavigator) Root(ctx context.Context, path *fs.URI) (*File, error) 
 	n.shareRoot.OwnerModel = n.owner
 	n.shareRoot.IsUserRoot = true
 	n.shareRoot.disableView = (share.Props == nil || !share.Props.ShareView) && n.user.ID != n.owner.ID
-	n.shareRoot.PermissionBs = inventory.ResolvePermission(inventory.SharePermissionSetting(share), n.user, n.owner, n.hasher)
-	if n.user.ID == share.Edges.User.ID {
-		n.shareRoot.PermissionBs = types.AllFilePermissions()
-	}
+	n.shareRoot.PermissionBs = inventory.ResolveSharePermission(share, n.user, n.owner, n.hasher)
+	n.shareRoot.LinkPermissionSetting = inventory.SharePermissionSetting(share)
 	if n.singleFileShare {
 		// This is an artificial navigational parent, not the linked file's
 		// actual directory. It must never authorize writes or delegation.
@@ -173,24 +174,6 @@ func (n *shareNavigator) Root(ctx context.Context, path *fs.URI) (*File, error) 
 	// Check if any ancestors is deleted
 	if ownerRoot.Name() != inventory.RootFolderName {
 		return nil, ErrShareNotFound
-	}
-
-	if n.user.ID != n.owner.ID && n.user.ID != share.Edges.User.ID &&
-		!n.user.Edges.Group.Permissions.Enabled(int(types.GroupPermissionIsAdmin)) &&
-		!n.user.Edges.Group.Permissions.Enabled(int(types.GroupPermissionShareDownload)) {
-		if inventory.IsAnonymousUser(n.user) {
-			return nil, serializer.NewError(
-				serializer.CodeAnonymouseAccessDenied,
-				fmt.Sprintf("You don't have permission to access share links"),
-				err,
-			)
-		}
-
-		return nil, serializer.NewError(
-			serializer.CodeNoPermissionErr,
-			fmt.Sprintf("You don't have permission to access share links"),
-			err,
-		)
 	}
 
 	n.ownerRoot = ownerRoot
@@ -289,10 +272,8 @@ func (n *shareNavigator) latestSharedSingleFile(ctx context.Context) (*File, err
 
 		f := newFile(n.shareRoot, file)
 		f.OwnerModel = n.shareRoot.OwnerModel
-		f.PermissionBs = inventory.ResolvePermission(inventory.SharePermissionSetting(n.share), n.user, n.owner, n.hasher)
-		if n.user.ID == n.share.Edges.User.ID {
-			f.PermissionBs = types.AllFilePermissions()
-		}
+		f.PermissionBs = inventory.ResolveSharePermission(n.share, n.user, n.owner, n.hasher)
+		f.LinkPermissionSetting = inventory.SharePermissionSetting(n.share)
 		f.CapabilitiesBs = shareFileCapabilities(f.PermissionBs)
 
 		return f, nil

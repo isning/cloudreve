@@ -29,23 +29,12 @@ func (f *DBFS) PatchProps(ctx context.Context, uri *fs.URI, props *types.FilePro
 
 	// Lock target
 	lr := &LockByPath{target.Uri(true), target, target.Type(), ""}
-	ls, err := f.acquireByPath(ctx, -1, f.user, true, fs.LockApp(fs.ApplicationUpdateMetadata), lr)
+	// Owner/admin-only view updates merge fresh properties under the owner fence
+	// below. An intervening ACL change is preserved, not an optimistic conflict.
+	ls, err := f.acquireByPathWithACLCheck(ctx, false, -1, f.user, true, fs.LockApp(fs.ApplicationUpdateMetadata), lr)
 	defer func() { _ = f.Release(ctx, ls) }()
 	if err != nil {
 		return err
-	}
-
-	currentProps := target.Model.Props
-	if currentProps == nil {
-		currentProps = &types.FileProps{}
-	}
-
-	if props.View != nil {
-		if delete {
-			currentProps.View = nil
-		} else {
-			currentProps.View = props.View
-		}
 	}
 
 	fc, tx, ctx, err := inventory.WithTx(ctx, f.fileClient)
@@ -53,7 +42,29 @@ func (f *DBFS) PatchProps(ctx context.Context, uri *fs.URI, props *types.FilePro
 		return err
 	}
 	defer inventory.Rollback(tx)
-	if _, err := fc.UpdateProps(ctx, target.Model, currentProps); err != nil {
+	setter, err := f.lockPermissionOwners(ctx, fc, target)
+	if err != nil {
+		return err
+	}
+	current, err := fc.GetByID(ctx, target.ID())
+	if err != nil {
+		return err
+	}
+	if current.OwnerID != setter.ID && !setter.Edges.Group.Permissions.Enabled(int(types.GroupPermissionIsAdmin)) {
+		return fs.ErrOwnerOnly
+	}
+	currentProps := types.FileProps{}
+	if current.Props != nil {
+		currentProps = *current.Props
+	}
+	if props.View != nil {
+		if delete {
+			currentProps.View = nil
+		} else {
+			currentProps.View = props.View
+		}
+	}
+	if _, err := fc.UpdateProps(ctx, current, &currentProps); err != nil {
 		return serializer.NewError(serializer.CodeDBError, "failed to update file props", err)
 	}
 
@@ -129,6 +140,13 @@ func (f *DBFS) PatchMetadata(ctx context.Context, path []*fs.URI, metas ...fs.Me
 		return serializer.NewError(serializer.CodeDBError, "Failed to start transaction", err)
 	}
 
+	checks := lo.Map(targets, func(target *File, _ int) permissionCheck {
+		return permissionCheck{target, types.FilePermissionUpdate, false}
+	})
+	if err := f.revalidatePermissions(ctx, fc, checks...); err != nil {
+		_ = inventory.Rollback(tx)
+		return err
+	}
 	for _, target := range targets {
 		if err := fc.UpsertMetadata(ctx, target.Model, metadataMap, privateMap); err != nil {
 			_ = inventory.Rollback(tx)

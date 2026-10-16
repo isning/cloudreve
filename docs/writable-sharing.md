@@ -17,6 +17,8 @@ The ordinary share dialog offers read-only access, authenticated collaboration,
 public collaboration, and private collection. Advanced permissions can select
 individual users and groups. File owners and administrators can change child
 permissions through **View details → Permissions**, or restore inheritance.
+See [file permissions and automatic discovery](file-permissions.md) for batch
+management, ACL-based Shared with me, and current-permission event handling.
 
 Public collaboration permits anonymous upload, rename, overwrite and deletion.
 Enable group permission 14, **Give anonymous visitors permissions beyond read**,

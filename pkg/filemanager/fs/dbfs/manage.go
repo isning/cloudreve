@@ -113,6 +113,10 @@ func (f *DBFS) Create(ctx context.Context, path *fs.URI, fileType types.FileType
 			if err != nil {
 				return nil, serializer.NewError(serializer.CodeDBError, "Failed to start transaction", err)
 			}
+			if err := f.revalidatePermissions(ctx, fc, permissionCheck{ancestor, types.FilePermissionCreate, false}); err != nil {
+				_ = inventory.Rollback(tx)
+				return nil, err
+			}
 
 			newFolder, err := fc.CreateFolder(ctx, ancestor.Model, args)
 			if err != nil {
@@ -223,6 +227,10 @@ func (f *DBFS) Rename(ctx context.Context, path *fs.URI, newName string) (fs.Fil
 	if err != nil {
 		return nil, nil, serializer.NewError(serializer.CodeDBError, "Failed to start transaction", err)
 	}
+	if err := f.revalidatePermissions(ctx, fc, permissionCheck{target, types.FilePermissionUpdate, false}); err != nil {
+		_ = inventory.Rollback(tx)
+		return nil, nil, err
+	}
 
 	updated, err := fc.Rename(ctx, target.Model, newName)
 	if err != nil {
@@ -320,6 +328,13 @@ func (f *DBFS) SoftDelete(ctx context.Context, path ...*fs.URI) error {
 	fc, tx, ctx, err := inventory.WithTx(ctx, f.fileClient)
 	if err != nil {
 		return serializer.NewError(serializer.CodeDBError, "Failed to start transaction", err)
+	}
+	checks := lo.Map(targets, func(target *File, _ int) permissionCheck {
+		return permissionCheck{target, types.FilePermissionDelete, true}
+	})
+	if err := f.revalidatePermissions(ctx, fc, checks...); err != nil {
+		_ = inventory.Rollback(tx)
+		return err
 	}
 
 	for _, target := range targets {
@@ -436,6 +451,15 @@ func (f *DBFS) Delete(ctx context.Context, path []*fs.URI, opts ...fs.Option) ([
 	}
 
 	// Delete targets
+	if !o.SysSkipSoftDelete {
+		checks := lo.Map(targets, func(target *File, _ int) permissionCheck {
+			return permissionCheck{target, types.FilePermissionDelete, true}
+		})
+		if err := f.revalidatePermissions(ctx, fc, checks...); err != nil {
+			_ = inventory.Rollback(tx)
+			return nil, nil, err
+		}
+	}
 	newStaleEntities, storageDiff, indexToDelete, err := f.deleteFiles(ctx, fileNavGroup, fc, opt)
 	if err != nil {
 		_ = inventory.Rollback(tx)
@@ -695,6 +719,18 @@ func (f *DBFS) MoveOrCopy(ctx context.Context, path []*fs.URI, dst *fs.URI, isCo
 		if err != nil {
 			return nil, serializer.NewError(serializer.CodeDBError, "Failed to start transaction", err)
 		}
+		permission := types.FilePermissionDelete
+		if isCopy {
+			permission = types.FilePermissionRead
+		}
+		checks := lo.Map(targets, func(target *File, _ int) permissionCheck {
+			return permissionCheck{target, permission, true}
+		})
+		checks = append(checks, permissionCheck{destination, types.FilePermissionCreate, false})
+		if err := f.revalidatePermissions(ctx, fc, checks...); err != nil {
+			_ = inventory.Rollback(tx)
+			return nil, err
+		}
 
 		var (
 			copiedNewTargetsMap map[int]*ent.File
@@ -879,6 +915,9 @@ func (f *DBFS) deleteEntity(ctx context.Context, target *File, entityId int) (in
 		return nil, err
 	}
 	defer inventory.Rollback(tx)
+	if err := f.revalidatePermissions(ctx, fc, permissionCheck{target, types.FilePermissionDelete, false}); err != nil {
+		return nil, err
+	}
 	diff, err := fc.UnlinkEntity(ctx, targetVersion.Model(), target.Model, target.Owner())
 	if err != nil {
 		return nil, serializer.NewError(serializer.CodeDBError, "Failed to unlink entity", err)
@@ -916,6 +955,10 @@ func (f *DBFS) setCurrentVersion(ctx context.Context, target *File, versionId in
 	fc, tx, ctx, err := inventory.WithTx(ctx, f.fileClient)
 	if err != nil {
 		return serializer.NewError(serializer.CodeDBError, "Failed to start transaction", err)
+	}
+	if err := f.revalidatePermissions(ctx, fc, permissionCheck{target, types.FilePermissionUpdate, false}); err != nil {
+		_ = inventory.Rollback(tx)
+		return err
 	}
 
 	if err := fc.SetPrimaryEntity(ctx, target.Model, targetVersion.Model()); err != nil {

@@ -100,7 +100,11 @@ type (
 		// PatchProps patches the props of a file.
 		PatchProps(ctx context.Context, uri *URI, props *types.FileProps, delete bool) error
 		BindPolicy(ctx context.Context, uri *URI, policyID int) error
-		SetPermissions(ctx context.Context, uris []*URI, setting *types.PermissionSetting) error
+		// Optional expectedIDs bind each input URI to its selected object identity.
+		SetPermissions(ctx context.Context, uris []*URI, setting *types.PermissionSetting, expectedIDs ...int) error
+		// ValidateSharePermission reopens the original entry inside the caller's
+		// owner-fenced transaction and returns the current actor.
+		ValidateSharePermission(ctx context.Context, target File) (*ent.User, error)
 	}
 
 	UploadManager interface {

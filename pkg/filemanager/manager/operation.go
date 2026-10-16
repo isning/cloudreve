@@ -96,7 +96,7 @@ func (m *manager) SharedAddressTranslation(ctx context.Context, path *fs.URI, op
 		opt.Apply(o)
 	}
 
-	return m.fs.SharedAddressTranslation(ctx, path)
+	return m.fs.SharedAddressTranslation(ctx, path, opts...)
 }
 
 func (m *manager) Create(ctx context.Context, path *fs.URI, fileType types.FileType, opts ...fs.Option) (fs.File, error) {
@@ -341,7 +341,7 @@ func (l *manager) CreateOrUpdateShare(ctx context.Context, path *fs.URI, args *C
 		return nil, err
 	}
 
-	share, err := shareClient.Upsert(ctx, &inventory.CreateShareParams{
+	params := &inventory.CreateShareParams{
 		OwnerID:         l.user.ID,
 		FileID:          file.ID(),
 		Password:        password,
@@ -349,7 +349,39 @@ func (l *manager) CreateOrUpdateShare(ctx context.Context, path *fs.URI, args *C
 		RemainDownloads: args.RemainDownloads,
 		Existed:         existed,
 		Props:           props,
-	})
+	}
+	params.Authorize = func(ctx context.Context) error {
+		actor, err := l.fs.ValidateSharePermission(ctx, file)
+		if err != nil {
+			return err
+		}
+		if inventory.IsAnonymousUser(actor) || !actor.Edges.Group.Permissions.Enabled(int(types.GroupPermissionShare)) {
+			return serializer.NewError(serializer.CodeGroupNotAllowed, "Group permission denied", nil)
+		}
+		var previous *types.PermissionSetting
+		if args.ExistedShareID != 0 {
+			sc, _ := inventory.InheritTx(ctx, shareClient)
+			loadCtx := context.WithValue(ctx, inventory.LoadShareFile{}, true)
+			loadCtx = context.WithValue(loadCtx, inventory.LoadShareUser{}, true)
+			current, err := sc.GetByID(loadCtx, args.ExistedShareID)
+			if err != nil {
+				return err
+			}
+			if current.Edges.File == nil || current.Edges.File.ID != file.ID() || !inventory.CanManageShare(current, actor) {
+				return serializer.NewError(serializer.CodeNotFound, "share link not found", nil)
+			}
+			params.Existed = current
+			previous = inventory.SharePermissionSetting(current)
+			if args.Permissions == nil {
+				params.Props.Permissions = nil
+				if current.Props != nil {
+					params.Props.Permissions = current.Props.Permissions
+				}
+			}
+		}
+		return inventory.ValidatePermissionSetting(params.Props.Permissions, actor, l.hasher, previous)
+	}
+	share, err := shareClient.Upsert(ctx, params)
 
 	if err != nil {
 		return nil, serializer.NewError(serializer.CodeDBError, "failed to create share", err)
@@ -418,6 +450,6 @@ func (m *manager) BindPolicy(ctx context.Context, uri *fs.URI, policyID int) err
 	return m.fs.BindPolicy(ctx, uri, policyID)
 }
 
-func (m *manager) SetPermissions(ctx context.Context, uris []*fs.URI, setting *types.PermissionSetting) error {
-	return m.fs.SetPermissions(ctx, uris, setting)
+func (m *manager) SetPermissions(ctx context.Context, uris []*fs.URI, setting *types.PermissionSetting, expectedIDs ...int) error {
+	return m.fs.SetPermissions(ctx, uris, setting, expectedIDs...)
 }

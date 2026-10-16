@@ -338,7 +338,7 @@ func handleGetHeadPost(c *gin.Context, user *ent.User, fm manager.FileManager) (
 		return status, err
 	}
 
-	target, _, err := fm.SharedAddressTranslation(c, reqPath)
+	target, _, err := fm.SharedAddressTranslation(c, reqPath, dbfs.WithFileEntities(), dbfs.WithRequiredCapabilities(dbfs.NavigatorCapabilityDownloadFile))
 	if err != nil {
 		return purposeStatusCodeFromError(err), err
 	}
@@ -347,7 +347,7 @@ func handleGetHeadPost(c *gin.Context, user *ent.User, fm manager.FileManager) (
 		return http.StatusMethodNotAllowed, nil
 	}
 
-	es, err := fm.GetEntitySource(c, target.PrimaryEntityID())
+	es, err := fm.GetEntitySource(c, target.PrimaryEntityID(), fs.WithEntity(target.PrimaryEntity()))
 	if err != nil {
 		return purposeStatusCodeFromError(err), err
 	}

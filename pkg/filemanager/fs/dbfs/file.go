@@ -42,16 +42,19 @@ func getDefaultView() *types.ExplorerView {
 
 type (
 	File struct {
-		Model             *ent.File
-		Children          map[string]*File
-		Parent            *File
-		Path              [2]*fs.URI
-		OwnerModel        *ent.User
-		IsUserRoot        bool
-		CapabilitiesBs    *boolset.BooleanSet
-		PermissionBs      *boolset.BooleanSet
-		FileExtendedInfo  *fs.FileExtendedInfo
-		FileFolderSummary *fs.FolderSummary
+		Model          *ent.File
+		Children       map[string]*File
+		Parent         *File
+		Path           [2]*fs.URI
+		OwnerModel     *ent.User
+		IsUserRoot     bool
+		CapabilitiesBs *boolset.BooleanSet
+		PermissionBs   *boolset.BooleanSet
+		// VirtualID is a catalog identity, never an inventory file identifier.
+		VirtualID             string
+		LinkPermissionSetting *types.PermissionSetting
+		FileExtendedInfo      *fs.FileExtendedInfo
+		FileFolderSummary     *fs.FolderSummary
 
 		disableView bool
 		mu          *sync.Mutex
@@ -378,6 +381,8 @@ func (f *File) Recycle() {
 	f.IsUserRoot = false
 	f.CapabilitiesBs = nil
 	f.PermissionBs = nil
+	f.VirtualID = ""
+	f.LinkPermissionSetting = nil
 	f.FileExtendedInfo = nil
 	f.FileFolderSummary = nil
 	f.disableView = false

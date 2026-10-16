@@ -2,6 +2,7 @@ package eventhub
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"time"
 
@@ -28,8 +29,9 @@ type (
 )
 
 const (
-	bufSize       = 16
-	cleanupPeriod = 1 * time.Hour
+	bufSize         = 16
+	cleanupPeriod   = 1 * time.Hour
+	maxUserContexts = 64
 )
 
 type eventHub struct {
@@ -52,8 +54,9 @@ func NewEventHub(userClient inventory.UserClient, fsEventClient inventory.FsEven
 		closeCh:       make(chan struct{}),
 	}
 
-	// Remove all existing FsEvents
-	fsEventClient.DeleteAll(context.Background())
+	// A restart keeps recent, context-bound histories; replay is authorized at
+	// delivery. Legacy IDs cannot match the credential-bound subscription key.
+	_ = fsEventClient.DeleteExpired(context.Background(), time.Now().Add(-settings.EventHubMaxOfflineDuration(context.Background())))
 
 	// Start background cleanup goroutine
 	e.wg.Add(1)
@@ -91,7 +94,7 @@ func (e *eventHub) cleanupExpiredSubscribers() {
 	for topic, subs := range e.topics {
 		for id, sub := range subs {
 			if sub.shouldExpire() {
-				sub.close()
+				sub.close(false)
 				delete(subs, id)
 			}
 		}
@@ -99,6 +102,7 @@ func (e *eventHub) cleanupExpiredSubscribers() {
 			delete(e.topics, topic)
 		}
 	}
+	_ = e.fsEventClient.DeleteExpired(context.Background(), time.Now().Add(-e.settings.EventHubMaxOfflineDuration(context.Background())))
 }
 
 func (e *eventHub) GetSubscribers(ctx context.Context, topic int) []Subscriber {
@@ -126,7 +130,6 @@ func (e *eventHub) Subscribe(ctx context.Context, topic int, id string) (chan *E
 	subs, ok := e.topics[topic]
 	if !ok {
 		subs = make(map[string]*subscriber)
-		e.topics[topic] = subs
 	}
 
 	// Check if subscriber already exists
@@ -135,11 +138,43 @@ func (e *eventHub) Subscribe(ctx context.Context, topic int, id string) (chan *E
 			// Subscriber was closed, create a new one
 			delete(subs, id)
 		} else {
+			user := inventory.UserFromContext(ctx)
+			if user == nil || user.ID != existingSub.uid {
+				return nil, false, errors.New("subscriber context mismatch")
+			}
+			if existingSub.Online() {
+				return nil, false, ErrSubscriberBusy
+			}
 			// Reactivate the offline subscriber
 			l.Info("Reactivating offline subscriber %s for topic %d", id, topic)
 			existingSub.setOnline(ctx)
 			return existingSub.ch, true, nil
 		}
+	}
+	user := inventory.UserFromContext(ctx)
+	if user == nil {
+		return nil, false, errors.New("user not found")
+	}
+	count := 0
+	var oldest *subscriber
+	var oldestTopic int
+	for candidateTopic, candidates := range e.topics {
+		for _, candidate := range candidates {
+			if candidate.uid != user.ID {
+				continue
+			}
+			count++
+			if !candidate.Online() && (oldest == nil || candidate.OfflineSince().Before(oldest.OfflineSince())) {
+				oldest, oldestTopic = candidate, candidateTopic
+			}
+		}
+	}
+	if count >= maxUserContexts {
+		if oldest == nil {
+			return nil, false, ErrSubscriberBusy
+		}
+		oldest.close(false)
+		delete(e.topics[oldestTopic], oldest.id)
 	}
 
 	sub, err := newSubscriber(ctx, id, e.userClient, e.fsEventClient, e.settings.EventHubMaxOfflineDuration(ctx), e.settings.EventHubDebounceDelay(ctx))
@@ -147,8 +182,10 @@ func (e *eventHub) Subscribe(ctx context.Context, topic int, id string) (chan *E
 		return nil, false, err
 	}
 
-	e.topics[topic][id] = sub
-	return sub.ch, false, nil
+	subs[id] = sub
+	e.topics[topic] = subs
+	resumed := sub.restore(ctx)
+	return sub.ch, resumed, nil
 }
 
 func (e *eventHub) Unsubscribe(ctx context.Context, topic int, id string) {
@@ -190,7 +227,7 @@ func (e *eventHub) Close() {
 	// Close all subscribers
 	for _, subs := range e.topics {
 		for _, sub := range subs {
-			sub.close()
+			sub.close(true)
 		}
 	}
 	e.topics = nil

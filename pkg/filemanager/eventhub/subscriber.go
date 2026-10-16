@@ -17,6 +17,7 @@ import (
 
 type Subscriber interface {
 	ID() string
+	IsClient(uid int, id string) bool
 	Ch() chan *Event
 	Publish(evt Event)
 	Stop()
@@ -38,10 +39,12 @@ type subscriber struct {
 	mu            sync.Mutex
 	userClient    inventory.UserClient
 	fsEventClient inventory.FsEventClient
+	l             logging.Logger
 
-	id  string
-	uid int
-	ch  chan *Event
+	access SubscriptionAccess
+	id     string
+	uid    int
+	ch     chan *Event
 
 	// Online status
 	online       bool
@@ -68,11 +71,17 @@ func newSubscriber(ctx context.Context, id string, userClient inventory.UserClie
 		return nil, errors.New("user not found")
 	}
 
+	access, _ := ctx.Value(subscriptionContextKey{}).(SubscriptionAccess)
+	if access.ClientID == "" {
+		access.ClientID = id
+	}
 	return &subscriber{
+		access:        access,
 		id:            id,
 		ch:            make(chan *Event, bufSize),
 		userClient:    userClient,
 		fsEventClient: fsEventClient,
+		l:             logging.FromContext(ctx),
 
 		ownerCached:   user,
 		uid:           user.ID,
@@ -86,6 +95,10 @@ func newSubscriber(ctx context.Context, id string, userClient inventory.UserClie
 
 func (s *subscriber) ID() string {
 	return s.id
+}
+
+func (s *subscriber) IsClient(uid int, id string) bool {
+	return s.uid == uid && s.access.ClientID == id
 }
 
 func (s *subscriber) Ch() chan *Event {
@@ -129,6 +142,13 @@ func (s *subscriber) ownerLocked() (*ent.User, error) {
 // Events will be flushed to the channel after the debounce delay.
 // If the subscriber is offline, events are kept in the buffer only.
 func (s *subscriber) Publish(evt Event) {
+	if s.access.Filter != nil {
+		filtered := s.access.Filter(&evt)
+		if filtered == nil {
+			return
+		}
+		evt = *filtered
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -143,7 +163,11 @@ func (s *subscriber) Publish(evt Event) {
 // Caller must hold s.mu.
 func (s *subscriber) publishLocked(evt Event) {
 	// Add event to buffer
-	s.buffer = append(s.buffer, &evt)
+	if len(s.buffer) >= inventory.FsEventHistoryLimit || evt.Type == EventTypeRefresh {
+		s.buffer = []*Event{{Type: EventTypeRefresh}}
+	} else if len(s.buffer) == 0 || s.buffer[0].Type != EventTypeRefresh {
+		s.buffer = append(s.buffer, &evt)
+	}
 
 	// Reset or start the debounce timer
 	if s.timer != nil {
@@ -173,10 +197,12 @@ func (s *subscriber) flushLocked(ctx context.Context) {
 		if err != nil {
 			return
 		}
-		_ = s.fsEventClient.Create(ctx, owner.ID, uuid.FromStringOrNil(s.id), lo.Map(s.buffer, func(item *Event, index int) string {
+		if err := s.fsEventClient.Create(ctx, owner.ID, uuid.FromStringOrNil(s.id), lo.Map(s.buffer, func(item *Event, index int) string {
 			res, _ := json.Marshal(item)
 			return string(res)
-		})...)
+		})...); err != nil {
+			s.l.Warning("Failed to persist file events; directory reconciliation is required")
+		}
 	} else {
 		// TODO: implement event merging logic here
 		// For now, send all buffered events individually
@@ -185,7 +211,13 @@ func (s *subscriber) flushLocked(ctx context.Context) {
 			select {
 			case s.ch <- evt:
 			default:
-				// Non-blocking send; drop if subscriber is slow
+				// A slow reader gets a data-free reconciliation request, never a
+				// silently incomplete sequence of identifying events.
+				_ = drainEvents(s.ch)
+				s.ch <- &Event{Type: EventTypeRefresh}
+				s.buffer = nil
+				s.timer = nil
+				return
 			}
 		}
 	}
@@ -212,7 +244,6 @@ func (s *subscriber) Stop() {
 
 // setOnline marks the subscriber as online and flushes any buffered events.
 func (s *subscriber) setOnline(ctx context.Context) {
-	l := logging.FromContext(ctx)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -223,12 +254,24 @@ func (s *subscriber) setOnline(ctx context.Context) {
 	s.online = true
 	s.ownerCached = nil
 	s.offlineSince = time.Time{}
+	s.restoreLocked(ctx)
+}
+
+func (s *subscriber) restore(ctx context.Context) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.restoreLocked(ctx)
+}
+
+func (s *subscriber) restoreLocked(ctx context.Context) bool {
+	l := logging.FromContext(ctx)
 
 	// Retrieve events from inventory
 	events, err := s.fsEventClient.TakeBySubscriber(ctx, uuid.FromStringOrNil(s.id), s.uid)
 	if err != nil {
-		l.Error("Failed to get events from inventory: %s", err)
-		return
+		l.Error("Failed to restore file event history; directory reconciliation is required")
+		s.publishLocked(Event{Type: EventTypeRefresh})
+		return false
 	}
 
 	// Append events to buffer
@@ -236,7 +279,8 @@ func (s *subscriber) setOnline(ctx context.Context) {
 		var eventParsed Event
 		err := json.Unmarshal([]byte(event.Event), &eventParsed)
 		if err != nil {
-			l.Error("Failed to unmarshal event: %s", err)
+			l.Error("Failed to decode buffered file event; directory reconciliation is required")
+			s.buffer = []*Event{{Type: EventTypeRefresh}}
 			continue
 		}
 		s.buffer = append(s.buffer, &eventParsed)
@@ -249,6 +293,7 @@ func (s *subscriber) setOnline(ctx context.Context) {
 		}
 		s.timer = time.AfterFunc(s.debounceDelay, s.flush)
 	}
+	return len(events) > 0
 }
 
 // setOffline marks the subscriber as offline.
@@ -262,6 +307,10 @@ func (s *subscriber) setOffline() {
 
 	s.online = false
 	s.offlineSince = time.Now()
+	s.buffer = append(s.buffer, drainEvents(s.ch)...)
+	if len(s.buffer) > inventory.FsEventHistoryLimit {
+		s.buffer = []*Event{{Type: EventTypeRefresh}}
+	}
 
 	// Stop the timer, events will be kept in buffer
 	if s.timer != nil {
@@ -274,7 +323,7 @@ func (s *subscriber) setOffline() {
 }
 
 // close permanently closes the subscriber.
-func (s *subscriber) close() {
+func (s *subscriber) close(preserve bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -282,14 +331,22 @@ func (s *subscriber) close() {
 		return
 	}
 
-	s.closed = true
 	if s.timer != nil {
 		s.timer.Stop()
 		s.timer = nil
 	}
 
-	// Delete the FsEvent
-	s.fsEventClient.DeleteBySubscriber(context.Background(), uuid.FromStringOrNil(s.id))
+	if preserve {
+		s.online = false
+		s.buffer = append(s.buffer, drainEvents(s.ch)...)
+		if len(s.buffer) > inventory.FsEventHistoryLimit {
+			s.buffer = []*Event{{Type: EventTypeRefresh}}
+		}
+		s.flushLocked(context.Background())
+	} else {
+		_ = s.fsEventClient.DeleteBySubscriber(context.Background(), uuid.FromStringOrNil(s.id))
+	}
+	s.closed = true
 
 	// Signal close and close the channel
 	close(s.closedCh)
@@ -325,4 +382,21 @@ func (s *subscriber) Buffer() []*Event {
 	buf := make([]*Event, len(s.buffer))
 	copy(buf, s.buffer)
 	return buf
+}
+
+// The stream consumes concurrently; a len-then-receive loop could block after
+// the reader takes the last event. Draining must itself be non-blocking.
+func drainEvents(ch chan *Event) []*Event {
+	var events []*Event
+	for {
+		select {
+		case event, ok := <-ch:
+			if !ok {
+				return events
+			}
+			events = append(events, event)
+		default:
+			return events
+		}
+	}
 }

@@ -76,6 +76,13 @@ func (s *ShareInfoService) Get(c *gin.Context) (*explorer.Share, error) {
 		return nil, serializer.NewError(serializer.CodeNotFound, "Share link expired", err)
 	}
 
+	if err := inventory.ValidateShareSource(c, shareClient.GetClient(), share.Edges.File, nil); err != nil {
+		return nil, serializer.NewError(serializer.CodeNotFound, "Share source unavailable", err)
+	}
+	if err := inventory.CheckShareAccess(share, u); err != nil {
+		return nil, err
+	}
+
 	if s.CountViews {
 		_ = shareClient.Viewed(c, share)
 	}

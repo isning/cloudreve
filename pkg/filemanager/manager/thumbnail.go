@@ -67,6 +67,11 @@ func (m *manager) Thumbnail(ctx context.Context, uri *fs.URI) (entitysource.Enti
 	if capabilities.ThumbSupportAllExts || util.IsInExtensionList(capabilities.ThumbSupportedExts, file.DisplayName()) &&
 		(capabilities.ThumbMaxSize == 0 || latest.Size() <= capabilities.ThumbMaxSize) &&
 		!latest.Encrypted() {
+		// Native transformations sign the original object. Some providers can
+		// fall back to its bytes, so list-only viewers need a separate entity.
+		if target, ok := file.(*dbfs.File); ok && !target.HasPermission(types.FilePermissionRead) {
+			return nil, fs.ErrEntityNotExist
+		}
 		thumbSource, err := m.GetEntitySource(ctx, 0, fs.WithEntity(latest), fs.WithUseThumb(true))
 		if err != nil {
 			return nil, fmt.Errorf("failed to get latest entity source: %w", err)

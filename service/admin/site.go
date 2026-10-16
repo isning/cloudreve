@@ -282,6 +282,9 @@ func (s *SetSettingService) SetSetting(c *gin.Context) (map[string]string, error
 	dep := dependency.FromContext(c)
 	kv := dep.KV()
 	settingClient := dep.SettingClient()
+	if raw, ok := s.Settings["shared_with_me_acl"]; ok && raw != "0" && raw != "1" {
+		return nil, serializer.NewError(serializer.CodeParamErr, "Invalid shared-with-me mode", nil)
+	}
 
 	if raw, ok := s.Settings["audit_enabled_flags"]; ok {
 		flags, err := base64.StdEncoding.DecodeString(raw)
@@ -359,6 +362,14 @@ func (s *SetSettingService) SetSetting(c *gin.Context) (map[string]string, error
 		if err = next.ValidateUpdate(*previous); err != nil {
 			_ = inventory.Rollback(tx)
 			return nil, serializer.NewError(serializer.CodeParamErr, err.Error(), nil)
+		}
+	}
+	// Existing installations need not have this additive setting row yet.
+	if raw, ok := s.Settings["shared_with_me_acl"]; ok {
+		if err := sc.GetClient().Setting.Create().SetName("shared_with_me_acl").SetValue(raw).
+			OnConflictColumns(entsetting.FieldName).UpdateNewValues().Exec(ctx); err != nil {
+			_ = inventory.Rollback(tx)
+			return nil, serializer.NewError(serializer.CodeDBError, "Failed to save discovery mode", err)
 		}
 	}
 	if err := sc.Set(ctx, s.Settings); err != nil {

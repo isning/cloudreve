@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -145,6 +146,22 @@ func Logging() gin.HandlerFunc {
 		start := time.Now()
 		path := c.Request.URL.Path
 		raw := c.Request.URL.RawQuery
+		// A share URI can carry its password in URL userinfo. Keep request
+		// correlation and the endpoint, without logging that credential.
+		query := c.Request.URL.Query()
+		if _, ok := query["password"]; ok {
+			raw = ""
+		}
+		if uri := query.Get("uri"); uri != "" {
+			parsed, err := url.Parse(uri)
+			if err != nil {
+				raw = ""
+			} else if parsed.User != nil {
+				if _, hasPassword := parsed.User.Password(); hasPassword {
+					raw = ""
+				}
+			}
+		}
 		if strings.HasPrefix(path, "/callback/openid/") || strings.HasPrefix(path, "/api/v4/audit/archive/") {
 			raw = ""
 			c.Header("Referrer-Policy", "no-referrer")

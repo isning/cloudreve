@@ -19,6 +19,8 @@ type (
 		parent      *Tx
 		inherited   bool
 		finished    bool
+		committed   bool
+		afterCommit []func()
 		storageDiff StorageDiff
 	}
 
@@ -116,6 +118,7 @@ func InheritTx[T TxOperator](ctx context.Context, c T) (T, *Tx) {
 func Rollback(tx *Tx) error {
 	if !tx.inherited {
 		tx.finished = true
+		tx.afterCommit = nil
 		return tx.tx.Rollback()
 	}
 
@@ -125,9 +128,37 @@ func Rollback(tx *Tx) error {
 func commit(tx *Tx) (bool, error) {
 	if !tx.inherited {
 		tx.finished = true
-		return true, tx.tx.Commit()
+		err := tx.tx.Commit()
+		tx.committed = err == nil
+		callbacks := tx.afterCommit
+		tx.afterCommit = nil
+		if err == nil {
+			for _, apply := range callbacks {
+				apply()
+			}
+		}
+		return true, err
 	}
 	return false, nil
+}
+
+// AfterCommit publishes observations only after the outermost write commits.
+// Inherited filesystem operations must not expose uncommitted events or query
+// their own pending writes through another database connection.
+func AfterCommit(ctx context.Context, apply func()) {
+	tx, _ := ctx.Value(TxCtx{}).(*Tx)
+	if tx == nil {
+		apply()
+		return
+	}
+	for tx.inherited {
+		tx = tx.parent
+	}
+	if !tx.finished {
+		tx.afterCommit = append(tx.afterCommit, apply)
+	} else if tx.committed {
+		apply()
+	}
 }
 
 func Commit(tx *Tx) error {

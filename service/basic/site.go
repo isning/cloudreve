@@ -47,6 +47,7 @@ type SiteConfig struct {
 
 	// Explorer section
 	Icons                string                     `json:"icons,omitempty"`
+	SharedWithMeACL      bool                       `json:"shared_with_me_acl"`
 	EmojiPreset          string                     `json:"emoji_preset,omitempty"`
 	MapProvider          setting.MapProvider        `json:"map_provider,omitempty"`
 	GoogleMapTileType    setting.MapGoogleTileType  `json:"google_map_tile_type,omitempty"`
@@ -124,6 +125,7 @@ func (s *GetSettingService) GetSiteConfig(c *gin.Context) (*SiteConfig, error) {
 			FileViewers:          fileViewers,
 			DefaultViewerMapping: settings.DefaultViewerMapping(c),
 			Icons:                explorerSettings.Icons,
+			SharedWithMeACL:      explorerSettings.SharedWithMeACL,
 			MapProvider:          mapSettings.Provider,
 			GoogleMapTileType:    mapSettings.GoogleTileType,
 			MapboxAK:             mapSettings.MapboxAK,

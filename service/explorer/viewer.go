@@ -31,11 +31,11 @@ func prepareFs(c *gin.Context) (*fs.URI, manager.FileManager, *ent.User, *manage
 	dep := dependency.FromContext(c)
 	user := inventory.UserFromContext(c)
 	m := manager.NewFileManager(dep, user)
-	defer m.Recycle()
 
 	viewerSession := manager.ViewerSessionFromContext(c)
 	uri, err := fs.NewUriFromString(viewerSession.Uri)
 	if err != nil {
+		m.Recycle()
 		return nil, nil, nil, nil, nil, serializer.NewError(serializer.CodeParamErr, "unknown uri", err)
 	}
 
@@ -47,6 +47,7 @@ func (service *WopiService) Unlock(c *gin.Context) error {
 	if err != nil {
 		return err
 	}
+	defer m.Recycle()
 
 	l := dep.Logger()
 
@@ -66,6 +67,7 @@ func (service *WopiService) RefreshLock(c *gin.Context) error {
 	if err != nil {
 		return err
 	}
+	defer m.Recycle()
 
 	l := dep.Logger()
 
@@ -103,6 +105,7 @@ func (service *WopiService) Lock(c *gin.Context) error {
 	if err != nil {
 		return err
 	}
+	defer m.Recycle()
 
 	l := dep.Logger()
 
@@ -159,6 +162,7 @@ func (service *WopiService) PutContent(c *gin.Context, isPutRelative bool) error
 	if err != nil {
 		return err
 	}
+	defer m.Recycle()
 
 	// Make sure file exists and readable
 	file, err := m.Get(c, uri, dbfs.WithRequiredCapabilities(dbfs.NavigatorCapabilityUploadFile), dbfs.WithNotRoot())
@@ -290,6 +294,7 @@ func (service *WopiService) GetFile(c *gin.Context) error {
 	if err != nil {
 		return err
 	}
+	defer m.Recycle()
 
 	// Make sure file exists and readable
 	file, err := m.Get(c, uri, dbfs.WithExtendedInfo(), dbfs.WithRequiredCapabilities(dbfs.NavigatorCapabilityDownloadFile), dbfs.WithNotRoot())
@@ -329,6 +334,7 @@ func (service *WopiService) FileInfo(c *gin.Context) (*WopiFileInfo, error) {
 	if err != nil {
 		return nil, err
 	}
+	defer m.Recycle()
 
 	hasher := dep.HashIDEncoder()
 	settings := dep.SettingProvider()

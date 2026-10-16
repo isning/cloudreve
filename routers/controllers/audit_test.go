@@ -22,6 +22,7 @@ import (
 	"github.com/cloudreve/Cloudreve/v4/pkg/boolset"
 	"github.com/cloudreve/Cloudreve/v4/pkg/filemanager/fs"
 	"github.com/cloudreve/Cloudreve/v4/pkg/hashid"
+	"github.com/cloudreve/Cloudreve/v4/pkg/serializer"
 	"github.com/cloudreve/Cloudreve/v4/routers"
 	"github.com/stretchr/testify/require"
 )
@@ -59,6 +60,12 @@ func TestAuditSharesAndUserChangesRecordActorsWithoutExposingHistoryToReaders(t 
 	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
 	id := parts[len(parts)-1]
 	f.token = ""
+	require.EqualValues(t, serializer.CodeAnonymouseAccessDenied, f.responseCode(t, http.MethodGet, "/api/v4/share/info/"+id+"?count_views=true", nil))
+	// This audit scenario needs an authorized anonymous reader. Keep the share
+	// group gate active, and verify a rejected info request records no view.
+	guest := f.db.Group.GetX(context.Background(), inventory.AnonymousGroupID)
+	boolset.Set(types.GroupPermissionShareDownload, true, guest.Permissions)
+	require.NoError(t, f.db.Group.UpdateOne(guest).SetPermissions(guest.Permissions).Exec(context.Background()))
 	f.request(t, http.MethodGet, "/api/v4/share/info/"+id+"?count_views=true", nil, nil)
 	require.NotZero(t, f.responseCode(t, http.MethodGet, "/api/v4/file/activities?uri="+url.QueryEscape(fs.NewShareUri(id, ""))+"&page_size=20", nil))
 	f.loginAs(t, "storage-admin@example.com", f.adminPassword)
@@ -78,8 +85,12 @@ func TestAuditSharesAndUserChangesRecordActorsWithoutExposingHistoryToReaders(t 
 	}
 	f.request(t, http.MethodPost, "/api/v4/admin/event", map[string]any{"page": 1, "page_size": 100, "conditions": map[string]string{"audit_log_category": "17,18,24,25,46"}}, &logs)
 	seen := map[int]bool{}
+	views := 0
 	for _, log := range logs.Logs {
 		seen[log.Type] = true
+		if log.Type == 18 {
+			views++
+		}
 		if log.Type == 46 {
 			require.Equal(t, map[string]any{"from": "storage", "to": "Audited nickname"}, log.Content["exts"], "the Pro nickname renderer consumes exts.from/to")
 		}
@@ -94,6 +105,7 @@ func TestAuditSharesAndUserChangesRecordActorsWithoutExposingHistoryToReaders(t 
 	for _, event := range []int{17, 18, 24, 25, 46} {
 		require.True(t, seen[event], "missing event %d", event)
 	}
+	require.Equal(t, 1, views, "only the authorized visit records a share view")
 	// Administrative file filters continue to use historical numeric or hash IDs.
 	var all struct {
 		Logs []map[string]any `json:"logs"`

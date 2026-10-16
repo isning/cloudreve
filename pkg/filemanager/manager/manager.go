@@ -57,7 +57,7 @@ type (
 		// UpsertMedata update or insert metadata of given file
 		PatchMedata(ctx context.Context, path []*fs.URI, data ...fs.MetadataPatch) error
 		BindPolicy(ctx context.Context, uri *fs.URI, policyID int) error
-		SetPermissions(ctx context.Context, uris []*fs.URI, setting *types.PermissionSetting) error
+		SetPermissions(ctx context.Context, uris []*fs.URI, setting *types.PermissionSetting, expectedIDs ...int) error
 		// CreateViewerSession creates a viewer session for given file
 		CreateViewerSession(ctx context.Context, uri *fs.URI, version string, viewer *types.Viewer) (*ViewerSession, error)
 		// TraverseFile traverses a file to its root file, return the file with linked root.

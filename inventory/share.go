@@ -67,6 +67,8 @@ type (
 		OwnerID         int
 		FileID          int
 		Props           *types.ShareProps
+		// Authorize runs after the owner fence, using the inherited transaction.
+		Authorize func(context.Context) error
 	}
 
 	ListShareArgs struct {
@@ -74,6 +76,8 @@ type (
 		UserID     int
 		FileID     int
 		PublicOnly bool
+		Discovery  bool
+		Search     *SearchFileParameters
 		ShareIDs   []int
 	}
 	ListShareResult struct {
@@ -257,6 +261,43 @@ func IsShareExpired(share *ent.Share) error {
 	return nil
 }
 
+// ValidateShareSource checks the complete current owner-side ancestor chain.
+// The optional request-local cache shares ancestor reads across catalog links.
+func ValidateShareSource(ctx context.Context, client *ent.Client, source *ent.File, ancestors map[int]*ent.File) error {
+	if source == nil {
+		return ErrSourceFileInvalid
+	}
+	seen := make(map[int]bool)
+	current := source
+	for {
+		if seen[current.ID] || current.OwnerID != source.OwnerID {
+			return ErrSourceFileInvalid
+		}
+		seen[current.ID] = true
+		if current.FileChildren == 0 {
+			if current.Name != RootFolderName || current.Type != int(types.FileTypeFolder) {
+				return ErrSourceFileInvalid
+			}
+			return nil
+		}
+		parent := ancestors[current.FileChildren]
+		if parent == nil {
+			var err error
+			parent, err = client.File.Get(ctx, current.FileChildren)
+			if ent.IsNotFound(err) {
+				return ErrSourceFileInvalid
+			}
+			if err != nil {
+				return err
+			}
+			if ancestors != nil {
+				ancestors[parent.ID] = parent
+			}
+		}
+		current = parent
+	}
+}
+
 func (c *shareClient) List(ctx context.Context, args *ListShareArgs) (*ListShareResult, error) {
 	rawQuery := c.listQuery(args)
 	query := withShareEagerLoading(ctx, rawQuery)
@@ -298,8 +339,13 @@ func (c *shareClient) cursorPagination(ctx context.Context, query *ent.ShareQuer
 	}
 	queryPaged := getShareCursorQuery(args, pageToken, query)
 
-	// Use page size + 1 to determine if there are more items to come
-	queryPaged.Limit(pageSize + 1)
+	// Catalog scans have a hard candidate budget. A full batch may advertise
+	// one final empty continuation instead of loading an extra candidate.
+	limit := pageSize + 1
+	if args.Discovery {
+		limit = pageSize
+	}
+	queryPaged.Limit(limit)
 
 	logs, err := queryPaged.
 		All(ctx)
@@ -309,8 +355,8 @@ func (c *shareClient) cursorPagination(ctx context.Context, query *ent.ShareQuer
 
 	// More items to come
 	nextTokenStr := ""
-	if len(logs) > pageSize {
-		lastItem := logs[len(logs)-2]
+	if len(logs) > pageSize || args.Discovery && len(logs) == pageSize {
+		lastItem := logs[min(len(logs), pageSize)-1]
 		nextToken, err := getShareNextPageToken(c.hasher, lastItem, args)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to generate next page token: %w", err)
@@ -349,6 +395,20 @@ func (c *shareClient) offsetPagination(ctx context.Context, query *ent.ShareQuer
 
 func (c *shareClient) listQuery(args *ListShareArgs) *ent.ShareQuery {
 	query := c.client.Share.Query()
+	if args.Discovery {
+		query.Where(share.HasUserWith(user.StatusEQ(user.StatusActive), user.DeletedAtIsNil()),
+			share.HasFileWith(file.FileChildrenNotNil(), file.HasOwnerWith(user.StatusEQ(user.StatusActive), user.DeletedAtIsNil())),
+			share.Or(share.ExpiresIsNil(), share.ExpiresGT(time.Now())),
+			share.Or(share.RemainDownloadsIsNil(), share.RemainDownloadsGT(0)))
+		if args.Search != nil {
+			if len(args.Search.Name) > 0 {
+				query.Where(share.HasFileWith(fileNameSearchPredicate(args.Search)))
+			}
+			if args.Search.Type != nil {
+				query.Where(share.HasFileWith(file.TypeEQ(int(*args.Search.Type))))
+			}
+		}
+	}
 	if args.UserID > 0 {
 		query.Where(share.HasUserWith(user.ID(args.UserID)))
 	}
@@ -370,6 +430,9 @@ func (c *shareClient) listQuery(args *ListShareArgs) *ent.ShareQuery {
 
 // getShareNextPageToken returns the next page token for the given last share.
 func getShareNextPageToken(hasher hashid.Encoder, last *ent.Share, args *ListShareArgs) (string, error) {
+	if args.Discovery {
+		return ShareDiscoveryPageToken(hasher, last, args.OrderBy)
+	}
 	token := &PageToken{
 		ID: last.ID,
 	}
@@ -378,6 +441,9 @@ func getShareNextPageToken(hasher hashid.Encoder, last *ent.Share, args *ListSha
 }
 
 func getShareCursorQuery(args *ListShareArgs, token *PageToken, query *ent.ShareQuery) *ent.ShareQuery {
+	if args.Discovery && token != nil {
+		return query.Where(discoveryShareCursor(args, token))
+	}
 	o := &sql.OrderTermOptions{}
 	getOrderTerm(args.Order)(o)
 
@@ -406,6 +472,12 @@ var shareCursorQuery = map[string]map[bool]func(token *PageToken) predicate.Shar
 
 func getShareOrderOption(args *ListShareArgs) []share.OrderOption {
 	orderTerm := getOrderTerm(args.Order)
+	if args.Discovery {
+		if args.OrderBy == "name" {
+			return []share.OrderOption{share.ByFileField(file.FieldName, orderTerm), share.ByID(orderTerm)}
+		}
+		return []share.OrderOption{share.ByCreatedAt(orderTerm), share.ByID(orderTerm)}
+	}
 	switch args.OrderBy {
 	case share.FieldViews:
 		return []share.OrderOption{share.ByViews(orderTerm), share.ByID(orderTerm)}
@@ -431,4 +503,29 @@ func withShareEagerLoading(ctx context.Context, q *ent.ShareQuery) *ent.ShareQue
 	}
 
 	return q
+}
+
+// ShareDiscoveryPageToken resumes after an inspected (possibly denied) link.
+func ShareDiscoveryPageToken(hasher hashid.Encoder, last *ent.Share, order string) (string, error) {
+	token := &PageToken{ID: last.ID}
+	if order == "name" {
+		if last.Edges.File != nil {
+			token.String = last.Edges.File.Name
+		}
+	} else {
+		token.Time = &last.CreatedAt
+	}
+	return token.Encode(hasher, hashid.EncodeShareID)
+}
+func discoveryShareCursor(args *ListShareArgs, token *PageToken) predicate.Share {
+	if args.OrderBy == "name" {
+		if args.Order == OrderDirectionDesc {
+			return share.Or(share.HasFileWith(file.NameLT(token.String)), share.And(share.HasFileWith(file.NameEQ(token.String)), share.IDLT(token.ID)))
+		}
+		return share.Or(share.HasFileWith(file.NameGT(token.String)), share.And(share.HasFileWith(file.NameEQ(token.String)), share.IDGT(token.ID)))
+	}
+	if args.Order == OrderDirectionDesc {
+		return share.Or(share.CreatedAtLT(*token.Time), share.And(share.CreatedAtEQ(*token.Time), share.IDLT(token.ID)))
+	}
+	return share.Or(share.CreatedAtGT(*token.Time), share.And(share.CreatedAtEQ(*token.Time), share.IDGT(token.ID)))
 }

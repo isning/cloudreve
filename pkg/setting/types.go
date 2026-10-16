@@ -73,6 +73,7 @@ type TokenAuth struct {
 }
 
 type DBFS struct {
+	SharedWithMeACL            bool
 	UseCursorPagination        bool
 	MaxPageSize                int
 	MaxRecursiveSearchedFolder int
@@ -152,7 +153,8 @@ type Captcha struct {
 }
 
 type ExplorerFrontendSettings struct {
-	Icons string
+	Icons           string
+	SharedWithMeACL bool
 }
 
 type MapProvider string

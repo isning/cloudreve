@@ -17,6 +17,8 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/cloudreve/Cloudreve/v4/ent/file"
 	"github.com/cloudreve/Cloudreve/v4/ent/setting"
+	"github.com/cloudreve/Cloudreve/v4/inventory/types"
+	"github.com/cloudreve/Cloudreve/v4/pkg/boolset"
 	"github.com/cloudreve/Cloudreve/v4/pkg/filemanager/fs"
 	"github.com/cloudreve/Cloudreve/v4/service/explorer"
 	"github.com/stretchr/testify/require"
@@ -113,6 +115,26 @@ func TestStorageRuntimeImageWorkflow(t *testing.T) {
 	require.NoError(t, err)
 	object.Body.Close()
 	require.Equal(t, content, raw)
+	// Exercise the packaged full router's permissions and discovery, not a
+	// test-only router or an application reconstructed inside this process.
+	g := f.db.Group.GetX(ctx, 2)
+	for _, permission := range []types.GroupPermission{types.GroupPermissionShare, types.GroupPermissionShareDownload, types.GroupPermissionSetAnonymousPermission} {
+		boolset.Set(int(permission), true, g.Permissions)
+	}
+	require.NoError(t, f.db.Group.UpdateOne(g).SetPermissions(g.Permissions).Exec(ctx))
+	f.login(t)
+	f.upload(t, "cloudreve://my/runtime-permissions/visible.txt", []byte("packaged permission bytes"), nil)
+	f.upload(t, "cloudreve://my/runtime-permissions/denied.txt", []byte("packaged private bytes"), nil)
+	f.request(t, http.MethodPost, "/api/v4/file/permission", map[string]any{"uris": []string{"cloudreve://my/runtime-permissions/denied.txt"}, "setting": map[string]string{"everyone": "AA=="}}, nil)
+	_, share := f.createWritableShare(t, "cloudreve://my/runtime-permissions", map[string]any{"everyone": "IQ=="})
+	visitor, password := f.createWritableVisitor(t, 2)
+	f.setPermissionDiscovery(t, true)
+	f.loginAs(t, visitor.Email, password)
+	discovered := f.discoverPermissionShares(t, "", 20)
+	require.Len(t, discovered.Files, 1)
+	require.Equal(t, share, discovered.Files[0].Metadata["sys:shared_redirect"])
+	require.Equal(t, []byte("packaged permission bytes"), f.readFile(t, share+"/visible.txt"))
+	require.NotZero(t, f.responseCode(t, http.MethodPost, "/api/v4/file/url", map[string]any{"uris": []string{share + "/denied.txt"}}))
 	// The image's embedded frontend has a real matching build manifest.
 	response, err = http.Get(base + "/version.json")
 	require.NoError(t, err)

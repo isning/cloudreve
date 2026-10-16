@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/bodgit/sevenzip"
+	"github.com/cloudreve/Cloudreve/v4/inventory"
 	"github.com/cloudreve/Cloudreve/v4/inventory/types"
 	"github.com/cloudreve/Cloudreve/v4/pkg/filemanager/fs"
 	"github.com/cloudreve/Cloudreve/v4/pkg/filemanager/fs/dbfs"
@@ -167,6 +168,12 @@ func (m *manager) CreateArchive(ctx context.Context, uris []*fs.URI, writer io.W
 		}
 
 		files = append(files, file)
+		// Refuse a protected descendant before creating any archive bytes.
+		if file.Type() == types.FileTypeFolder {
+			if err := m.Walk(ctx, uri, intsets.MaxInt, func(fs.File, int) error { return nil }); err != nil {
+				return 0, err
+			}
+		}
 	}
 
 	zipWriter := zip.NewWriter(writer)
@@ -225,10 +232,28 @@ func (m *manager) CreateArchive(ctx context.Context, uris []*fs.URI, writer io.W
 
 func (m *manager) compressFileToArchive(ctx context.Context, parent string, file fs.File, zipWriter *zip.Writer,
 	compression bool, dryrun fs.CreateArchiveDryRunFunc) error {
-	es, err := m.GetEntitySource(ctx, file.PrimaryEntityID())
+	// A long-running job must reopen its original entry with the current actor,
+	// rather than turn an old entity ID into an owner-side read capability.
+	actor, err := m.dep.UserClient().GetLoginUserByID(ctx, m.user.ID)
+	if err != nil {
+		return err
+	}
+	ctx = context.WithValue(ctx, inventory.UserCtx{}, actor)
+	current := NewFileManager(m.dep, actor)
+	defer current.Recycle()
+	fresh, err := current.Get(ctx, file.Uri(false), dbfs.WithFileEntities(), dbfs.WithRequiredCapabilities(dbfs.NavigatorCapabilityDownloadFile))
+	if err != nil {
+		return err
+	}
+	if fresh.ID() != file.ID() || fresh.OwnerID() != file.OwnerID() {
+		return fs.ErrModified
+	}
+	file = fresh
+	es, err := current.GetEntitySource(ctx, file.PrimaryEntityID(), fs.WithEntity(file.PrimaryEntity()))
 	if err != nil {
 		return fmt.Errorf("failed to get entity source for file %s: %w", file.Uri(false), err)
 	}
+	defer es.Close()
 
 	zipName := filepath.FromSlash(path.Join(parent, file.DisplayName()))
 	if dryrun != nil {

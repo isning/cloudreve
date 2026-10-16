@@ -240,6 +240,15 @@ func (service *ArchiveWorkflowService) CreateCompressTask(c *gin.Context) (*Task
 	if !user.Edges.Group.Permissions.Enabled(int(types.GroupPermissionArchiveTask)) {
 		return nil, serializer.NewError(serializer.CodeGroupNotAllowed, "Group not allowed to compress files", nil)
 	}
+	for _, source := range service.Src {
+		uri, err := fs.NewUriFromString(source)
+		if err != nil {
+			return nil, serializer.NewError(serializer.CodeParamErr, "Invalid source", err)
+		}
+		if err := m.Walk(c, uri, intsets.MaxInt, func(fs.File, int) error { return nil }); err != nil {
+			return nil, err
+		}
+	}
 
 	dst, err := fs.NewUriFromString(service.Dst)
 	if err != nil {

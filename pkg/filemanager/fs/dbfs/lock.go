@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -108,6 +109,11 @@ func (f *DBFS) Refresh(ctx context.Context, d time.Duration, token string) (lock
 
 func (f *DBFS) acquireByPath(ctx context.Context, duration time.Duration,
 	requester *ent.User, zeroDepth bool, application lock.Application, locks ...*LockByPath) (*LockSession, error) {
+	return f.acquireByPathWithACLCheck(ctx, true, duration, requester, zeroDepth, application, locks...)
+}
+
+func (f *DBFS) acquireByPathWithACLCheck(ctx context.Context, checkACL bool, duration time.Duration,
+	requester *ent.User, zeroDepth bool, application lock.Application, locks ...*LockByPath) (*LockSession, error) {
 	session := LockSessionFromCtx(ctx)
 
 	// Prepare lock details for each file
@@ -188,6 +194,7 @@ func (f *DBFS) acquireByPath(ctx context.Context, duration time.Duration,
 	// Check if any ancestor is modified during `getFileByPath` and `lock`.
 	if err := f.ensureConsistency(
 		ctx,
+		checkACL,
 		lo.Map(lockedRequest, func(item *LockByPath, index int) *File {
 			return item.ClosestAncestor
 		})...,
@@ -219,7 +226,7 @@ func (f *DBFS) Release(ctx context.Context, session *LockSession) error {
 
 // ensureConsistency queries database for all given files and its ancestors, make sure there's no modification in
 // between. This is to make sure there's no modification between navigator's first query and lock acquisition.
-func (f *DBFS) ensureConsistency(ctx context.Context, files ...*File) error {
+func (f *DBFS) ensureConsistency(ctx context.Context, checkACL bool, files ...*File) error {
 	if len(files) == 0 {
 		return nil
 	}
@@ -239,6 +246,7 @@ func (f *DBFS) ensureConsistency(ctx context.Context, files ...*File) error {
 
 	page := 0
 	fileIds := lo.Keys(uniqueFiles)
+	checked := 0
 	for page >= 0 {
 		files, next, err := f.fileClient.GetByIDs(ctx, fileIds, page)
 		if err != nil {
@@ -246,17 +254,21 @@ func (f *DBFS) ensureConsistency(ctx context.Context, files ...*File) error {
 		}
 
 		for _, file := range files {
+			checked++
 			latest := uniqueFiles[file.ID].Model
 			if file.Name != latest.Name ||
 				file.FileChildren != latest.FileChildren ||
 				file.OwnerID != latest.OwnerID ||
-				file.Type != latest.Type {
+				file.Type != latest.Type || (checkACL && !reflect.DeepEqual(permissionSettingOf(file.Props), permissionSettingOf(latest.Props))) {
 				return fs.ErrModified.
 					WithError(fmt.Errorf("file %s has been modified before lock acquisition", file.Name))
 			}
 		}
 
 		page = next
+	}
+	if checked != len(uniqueFiles) {
+		return fs.ErrModified
 	}
 
 	return nil
@@ -322,4 +334,11 @@ func lockTupleFromUri(uri *fs.URI, u *ent.User, hasher hashid.Encoder) (string, 
 	ns := id + "/" + string(uri.FileSystem())
 	root := uri.Path()
 	return ns, root, ns + "/" + root
+}
+
+func permissionSettingOf(props *types.FileProps) *types.PermissionSetting {
+	if props == nil {
+		return nil
+	}
+	return props.Permissions
 }

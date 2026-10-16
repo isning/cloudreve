@@ -28,6 +28,7 @@ import (
 	"github.com/cloudreve/Cloudreve/v4/pkg/conf"
 	"github.com/cloudreve/Cloudreve/v4/pkg/hashid"
 	"github.com/cloudreve/Cloudreve/v4/pkg/logging"
+	"github.com/cloudreve/Cloudreve/v4/routers"
 	"github.com/cloudreve/Cloudreve/v4/service/explorer"
 	usersvc "github.com/cloudreve/Cloudreve/v4/service/user"
 	"github.com/stretchr/testify/require"
@@ -66,7 +67,11 @@ func TestStorageStartupWorker(t *testing.T) {
 	}
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
-	server := &http.Server{Handler: storageRouter(d, l), ReadHeaderTimeout: 5 * time.Second}
+	var handler http.Handler = storageRouter(d, l)
+	if os.Getenv("CLOUDREVE_PERMISSION_FULL_ROUTER") == "1" {
+		handler = routers.InitRouter(d)
+	}
+	server := &http.Server{Handler: handler, ReadHeaderTimeout: 5 * time.Second}
 	stopped := make(chan os.Signal, 1)
 	signal.Notify(stopped, os.Interrupt)
 	defer signal.Stop(stopped)

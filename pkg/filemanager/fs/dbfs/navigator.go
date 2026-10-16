@@ -318,8 +318,8 @@ func (b *baseNavigator) walk(ctx context.Context, levelFiles []*File, limit, dep
 		parents := lo.SliceToMap(folders, func(file *File) (int, *File) {
 			return file.Model.ID, file
 		})
+		token := ""
 		for leftCredit > 0 {
-			token := ""
 			res, err := b.fileClient.GetChildFiles(ctx,
 				&inventory.ListFileParameters{
 					PaginationArgs: &inventory.PaginationArgs{

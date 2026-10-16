@@ -306,15 +306,8 @@ func (f *fileClient) Update(ctx context.Context, file *ent.File) (*ent.File, err
 	return q.Save(ctx)
 }
 
-func (f *fileClient) UpdateProps(ctx context.Context, file *ent.File, props *types.FileProps) (*ent.File, error) {
-	file, err := f.client.File.UpdateOne(file).
-		SetProps(props).
-		Save(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	return file, nil
+func (f *fileClient) UpdateProps(ctx context.Context, model *ent.File, props *types.FileProps) (*ent.File, error) {
+	return f.client.File.UpdateOne(model).Where(file.OwnerIDEQ(model.OwnerID)).SetProps(props).Save(ctx)
 }
 
 func (f *fileClient) CountByTimeRange(ctx context.Context, start, end *time.Time) (int, error) {

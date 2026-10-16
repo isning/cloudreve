@@ -280,13 +280,14 @@ type FileResponse struct {
 }
 
 type ExtendedInfo struct {
-	Permissions   *types.PermissionSetting `json:"permissions,omitempty"`
-	StoragePolicy *StoragePolicy           `json:"storage_policy,omitempty"`
-	StorageUsed   int64                    `json:"storage_used"`
-	Shares        []Share                  `json:"shares,omitempty"`
-	Entities      []Entity                 `json:"entities,omitempty"`
-	View          *types.ExplorerView      `json:"view,omitempty"`
-	DirectLinks   []DirectLink             `json:"direct_links,omitempty"`
+	PermissionContext *types.PermissionContext `json:"permission_context,omitempty"`
+	Permissions       *types.PermissionSetting `json:"permissions,omitempty"`
+	StoragePolicy     *StoragePolicy           `json:"storage_policy,omitempty"`
+	StorageUsed       int64                    `json:"storage_used"`
+	Shares            []Share                  `json:"shares,omitempty"`
+	Entities          []Entity                 `json:"entities,omitempty"`
+	View              *types.ExplorerView      `json:"view,omitempty"`
+	DirectLinks       []DirectLink             `json:"direct_links,omitempty"`
 }
 
 type DirectLink struct {
@@ -371,10 +372,7 @@ func BuildShare(ctx context.Context, s *ent.Share, base *url.URL, hasher hashid.
 	}
 
 	if unlocked {
-		res.Permissions = inventory.ResolvePermission(inventory.SharePermissionSetting(s), requester, fileOwner, hasher)
-		if requester.ID == owner.ID {
-			res.Permissions = types.AllFilePermissions()
-		}
+		res.Permissions = inventory.ResolveSharePermission(s, requester, fileOwner, hasher)
 		res.RemainDownloads = s.RemainDownloads
 		res.Downloaded = s.Downloads
 		res.Expires = s.Expires
@@ -445,6 +443,11 @@ func BuildFileResponse(ctx context.Context, u *ent.User, f fs.File, hasher hashi
 	}
 	if file, ok := f.(*dbfs.File); ok {
 		res.Permission = file.PermissionBs
+		if file.VirtualID != "" {
+			res.ID = file.VirtualID
+			res.Owned = false
+			res.PrimaryEntity = ""
+		}
 	}
 	// Session UUIDs are upload capabilities for anonymous clients, not public
 	// progress identifiers. Other share visitors must never receive them.
@@ -481,6 +484,9 @@ func BuildExtendedInfo(ctx context.Context, u *ent.User, f fs.File, hasher hashi
 	}
 
 	if u.ID == f.OwnerID() || u.Edges.Group.Permissions.Enabled(int(types.GroupPermissionIsAdmin)) {
+		if file, ok := f.(*dbfs.File); ok {
+			ext.PermissionContext = file.PermissionContext(u, hasher)
+		}
 		if file, ok := f.(*dbfs.File); ok && file.Model.Props != nil {
 			ext.Permissions = file.Model.Props.Permissions
 		}

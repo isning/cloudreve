@@ -607,6 +607,7 @@ var DefaultSettings = map[string]string{
 	"access_token_ttl":                           "3600",
 	"refresh_token_ttl":                          "1209600", // 2 weeks
 	"use_cursor_pagination":                      "1",
+	"shared_with_me_acl":                         "0",
 	"max_page_size":                              "2000",
 	"max_recursive_searched_folder":              "65535",
 	"max_batched_file":                           "3000",

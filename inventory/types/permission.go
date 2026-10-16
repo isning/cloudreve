@@ -21,5 +21,16 @@ type PermissionSetting struct {
 	Everyone      *boolset.BooleanSet            `json:"everyone,omitempty"`
 }
 
+// PermissionContext is a CCSN extension for managers viewing their own grant.
+// It does not represent a global permission preview for other users.
+type PermissionContext struct {
+	Extension        string              `json:"extension"`
+	Source           string              `json:"source"`
+	SourceURI        string              `json:"source_uri,omitempty"`
+	MatchedRule      string              `json:"matched_rule"`
+	Effective        *boolset.BooleanSet `json:"effective"`
+	ContextDependent bool                `json:"context_dependent,omitempty"`
+}
+
 func ReadOnlyPermissions() *boolset.BooleanSet { return &boolset.BooleanSet{0x21} }
 func AllFilePermissions() *boolset.BooleanSet  { return &boolset.BooleanSet{0x3f} }

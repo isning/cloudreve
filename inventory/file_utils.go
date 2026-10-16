@@ -35,37 +35,7 @@ func (f *fileClient) searchQuery(q *ent.FileQuery, args *SearchFileParameters, p
 	}
 
 	if len(args.Name) > 0 {
-		namePredicates := lo.Map(args.Name, func(item string, index int) predicate.File {
-			// If start and ends with quotes, treat as exact match
-			if strings.HasPrefix(item, "\"") && strings.HasSuffix(item, "\"") {
-				return file.NameContains(strings.Trim(item, "\""))
-			}
-
-			// if contain wildcard, use transform to sql like
-			if strings.Contains(item, SearchWildcard) {
-				pattern := strings.ReplaceAll(item, SearchWildcard, "%")
-				if pattern[0] != '%' && pattern[len(pattern)-1] != '%' {
-					// if not start with wildcard, add prefix wildcard
-					pattern = "%" + pattern + "%"
-				}
-
-				return func(s *sql.Selector) {
-					s.Where(sql.Like(file.FieldName, pattern))
-				}
-			}
-
-			if args.CaseFolding {
-				return file.NameContainsFold(item)
-			}
-
-			return file.NameContains(item)
-		})
-
-		if args.NameOperatorOr {
-			q = q.Where(file.Or(namePredicates...))
-		} else {
-			q = q.Where(file.And(namePredicates...))
-		}
+		q = q.Where(fileNameSearchPredicate(args))
 	}
 
 	if args.Type != nil {
@@ -519,4 +489,38 @@ func getFileNextPageToken(hasher hashid.Encoder, last *ent.File, args *ListFileP
 	}
 
 	return token.Encode(hasher, hashid.EncodeFileID)
+}
+
+func fileNameSearchPredicate(args *SearchFileParameters) predicate.File {
+	namePredicates := lo.Map(args.Name, func(item string, index int) predicate.File {
+		// If start and ends with quotes, treat as exact match
+		if strings.HasPrefix(item, "\"") && strings.HasSuffix(item, "\"") {
+			return file.NameContains(strings.Trim(item, "\""))
+		}
+
+		// if contain wildcard, use transform to sql like
+		if strings.Contains(item, SearchWildcard) {
+			pattern := strings.ReplaceAll(item, SearchWildcard, "%")
+			if pattern[0] != '%' && pattern[len(pattern)-1] != '%' {
+				// if not start with wildcard, add prefix wildcard
+				pattern = "%" + pattern + "%"
+			}
+
+			return func(s *sql.Selector) {
+				s.Where(sql.Like(file.FieldName, pattern))
+			}
+		}
+
+		if args.CaseFolding {
+			return file.NameContainsFold(item)
+		}
+
+		return file.NameContains(item)
+	})
+
+	if args.NameOperatorOr {
+		return file.Or(namePredicates...)
+	} else {
+		return file.And(namePredicates...)
+	}
 }

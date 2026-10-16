@@ -2,11 +2,13 @@ package inventory
 
 import (
 	"context"
+	"fmt"
 	"github.com/cloudreve/Cloudreve/v4/ent"
 	"github.com/cloudreve/Cloudreve/v4/ent/passkey"
 	"github.com/cloudreve/Cloudreve/v4/ent/share"
 	"github.com/cloudreve/Cloudreve/v4/ent/user"
 	"github.com/cloudreve/Cloudreve/v4/inventory/types"
+	"github.com/cloudreve/Cloudreve/v4/pkg/serializer"
 	"github.com/go-webauthn/webauthn/webauthn"
 )
 
@@ -32,7 +34,35 @@ func (c *userClient) RemovePasskey(ctx context.Context, uid int, keyID string) e
 }
 
 func (c *shareClient) Upsert(ctx context.Context, params *CreateShareParams) (*ent.Share, error) {
-	return auditMutation(ctx, c, func(ctx context.Context, c *shareClient) (*ent.Share, []AuditEvent, error) {
+	source, err := c.client.File.Get(ctx, params.FileID)
+	if err != nil {
+		return nil, err
+	}
+	client, tx, ctx, err := WithTx(ctx, c)
+	if err != nil {
+		return nil, err
+	}
+	defer Rollback(tx)
+	result, err := auditMutation(ctx, client, func(ctx context.Context, c *shareClient) (*ent.Share, []AuditEvent, error) {
+		ids := []int{source.OwnerID, params.OwnerID}
+		if actor := UserFromContext(ctx); actor != nil {
+			ids = append(ids, actor.ID)
+		}
+		if err := LockPermissionOwners(ctx, c.client, ids...); err != nil {
+			return nil, nil, err
+		}
+		current, err := c.client.File.Get(ctx, params.FileID)
+		if err != nil {
+			return nil, nil, err
+		}
+		if current.OwnerID != source.OwnerID {
+			return nil, nil, fmt.Errorf("share source ownership changed; retry")
+		}
+		if params.Authorize != nil {
+			if err := params.Authorize(ctx); err != nil {
+				return nil, nil, err
+			}
+		}
 		s, err := c.upsert(ctx, params)
 		if err != nil {
 			return nil, nil, err
@@ -43,6 +73,13 @@ func (c *shareClient) Upsert(ctx context.Context, params *CreateShareParams) (*e
 		}
 		return s, []AuditEvent{{Type: kind, FileID: params.FileID, ShareID: s.ID}}, nil
 	})
+	if err != nil {
+		return nil, err
+	}
+	if err := Commit(tx); err != nil {
+		return nil, err
+	}
+	return result, nil
 }
 func (c *shareClient) DeleteBatch(ctx context.Context, ids []int) error {
 	return c.deleteAuditedShares(ctx, 0, ids)
@@ -54,25 +91,68 @@ func (c *shareClient) Delete(ctx context.Context, id int) error {
 	return c.deleteAuditedShares(ctx, 0, []int{id})
 }
 func (c *shareClient) deleteAuditedShares(ctx context.Context, uid int, ids []int) error {
-	_, err := auditMutation(ctx, c, func(ctx context.Context, c *shareClient) (bool, []AuditEvent, error) {
+	before, err := c.client.Share.Query().Where(share.IDIn(ids...)).WithFile().WithUser().All(ctx)
+	if err != nil {
+		return err
+	}
+	owners := make([]int, 0, len(before)*2)
+	for _, s := range before {
+		if s.Edges.User != nil {
+			owners = append(owners, s.Edges.User.ID)
+		}
+		if s.Edges.File != nil {
+			owners = append(owners, s.Edges.File.OwnerID)
+		}
+	}
+	requester := UserFromContext(ctx)
+	if requester != nil {
+		owners = append(owners, requester.ID)
+	}
+	client, tx, ctx, err := WithTx(ctx, c)
+	if err != nil {
+		return err
+	}
+	defer Rollback(tx)
+	_, err = auditMutation(ctx, client, func(ctx context.Context, c *shareClient) (bool, []AuditEvent, error) {
+		if err := LockPermissionOwners(ctx, c.client, owners...); err != nil {
+			return false, nil, err
+		}
+		// Request middleware's user/group snapshot cannot authorize this commit.
+		// Context-free callers remain trusted inventory cleanup operations.
+		var actor *ent.User
+		if requester != nil {
+			actor, err = c.client.User.Query().Where(user.ID(requester.ID), user.StatusEQ(user.StatusActive)).WithGroup().Only(ctx)
+			if ent.IsNotFound(err) || err == nil && actor.Edges.Group == nil {
+				return false, nil, serializer.NewError(serializer.CodeNotFound, "Share not found", nil)
+			}
+			if err != nil {
+				return false, nil, err
+			}
+		}
 		q := c.client.Share.Query().Where(share.IDIn(ids...))
 		if uid > 0 {
 			q.Where(share.HasUserWith(user.ID(uid)))
 		}
-		rows, err := q.WithFile().All(ctx)
+		rows, err := q.WithFile().WithUser().All(ctx)
 		if err != nil {
 			return false, nil, err
 		}
 		events := make([]AuditEvent, 0, len(rows))
 		actual := make([]int, 0, len(rows))
 		for _, s := range rows {
+			if actor != nil && !CanManageShare(s, actor) {
+				return false, nil, serializer.NewError(serializer.CodeNotFound, "Share not found", nil)
+			}
 			actual = append(actual, s.ID)
 			events = append(events, AuditEvent{Type: types.AuditDeleteShare, FileID: auditShareFileID(s), ShareID: s.ID})
 		}
 		err = c.deleteBatch(ctx, actual)
 		return true, events, err
 	})
-	return err
+	if err != nil {
+		return err
+	}
+	return Commit(tx)
 }
 func (c *shareClient) Viewed(ctx context.Context, s *ent.Share) error {
 	_, err := auditMutation(ctx, c, func(ctx context.Context, c *shareClient) (bool, []AuditEvent, error) {

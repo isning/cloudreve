@@ -14,15 +14,17 @@ type (
 )
 
 const (
-	EventTypeCreate = "create"
-	EventTypeModify = "modify"
-	EventTypeRename = "rename"
-	EventTypeDelete = "delete"
+	EventTypeCreate  = "create"
+	EventTypeModify  = "modify"
+	EventTypeRename  = "rename"
+	EventTypeDelete  = "delete"
+	EventTypeRefresh = "refresh"
 )
 
 var (
 	// ErrEventHubClosed is returned when operations are attempted on a closed EventHub.
 	ErrEventHubClosed = errors.New("event hub is closed")
+	ErrSubscriberBusy = errors.New("subscriber already online or context limit reached")
 )
 
 // eventState tracks the accumulated state for each file
@@ -48,6 +50,11 @@ Delete + Create might be a valid case, e.g. user restore same file from trash bi
 func DebounceEvents(in []*Event) []*Event {
 	if len(in) == 0 {
 		return nil
+	}
+	for _, event := range in {
+		if event.Type == EventTypeRefresh {
+			return []*Event{{Type: EventTypeRefresh}}
+		}
 	}
 
 	states := make(map[string]*eventState) // keyed by FileID

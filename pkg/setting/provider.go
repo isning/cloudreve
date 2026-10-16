@@ -401,7 +401,8 @@ func (s *settingProvider) Logo(ctx context.Context) *Logo {
 
 func (s *settingProvider) ExplorerFrontendSettings(ctx context.Context) *ExplorerFrontendSettings {
 	return &ExplorerFrontendSettings{
-		Icons: s.getString(ctx, "explorer_icons", "[]"),
+		Icons:           s.getString(ctx, "explorer_icons", "[]"),
+		SharedWithMeACL: s.getBoolean(ctx, "shared_with_me_acl", false),
 	}
 }
 
@@ -710,6 +711,7 @@ func (s *settingProvider) MaxBatchedFile(ctx context.Context) int {
 
 func (s *settingProvider) DBFS(ctx context.Context) *DBFS {
 	return &DBFS{
+		SharedWithMeACL:            s.getBoolean(ctx, "shared_with_me_acl", false),
 		UseCursorPagination:        s.getBoolean(ctx, "use_cursor_pagination", true),
 		MaxPageSize:                s.getInt(ctx, "max_page_size", 2000),
 		MaxRecursiveSearchedFolder: s.getInt(ctx, "max_recursive_searched_folder", 65535),

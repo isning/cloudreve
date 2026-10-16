@@ -283,6 +283,10 @@ func (f *DBFS) CreateEntity(ctx context.Context, file fs.File, policy *ent.Stora
 	}
 
 	fileModel := file.(*File).Model
+	if err := f.revalidatePermissions(ctx, fc, permissionCheck{file.(*File), types.FilePermissionUpdate, false}); err != nil {
+		_ = inventory.Rollback(tx)
+		return nil, err
+	}
 	if o.removeStaleEntities {
 		storageDiff, err := fc.RemoveStaleEntities(ctx, fileModel)
 		if err != nil {
@@ -375,6 +379,9 @@ func (f *DBFS) SharedAddressTranslation(ctx context.Context, path *fs.URI, opts 
 
 	if target.IsSymbolic() {
 		return uriTranslation(target, false)
+	}
+	if err := requireCapabilities(target, o.requiredCapabilities...); err != nil {
+		return nil, nil, err
 	}
 
 	return target, path, nil
@@ -649,6 +656,10 @@ func (f *DBFS) createFile(ctx context.Context, parent *File, name string, fileTy
 		return nil, serializer.NewError(serializer.CodeDBError, "Failed to start transaction", err)
 	}
 
+	if err := f.revalidatePermissions(ctx, fc, permissionCheck{parent, types.FilePermissionCreate, false}); err != nil {
+		_ = inventory.Rollback(tx)
+		return nil, err
+	}
 	file, entity, storageDiff, err := fc.CreateFile(ctx, parent.Model, createFileArgs)
 	if err != nil {
 		_ = inventory.Rollback(tx)
@@ -757,7 +768,7 @@ func (f *DBFS) getNavigator(ctx context.Context, path *fs.URI, requiredCapabilit
 		case constants.FileSystemTrash:
 			n = NewTrashNavigator(f.user, f.fileClient, f.l, config, f.hasher)
 		case constants.FileSystemSharedWithMe:
-			n = NewSharedWithMeNavigator(f.user, f.fileClient, f.l, config, f.hasher)
+			n = NewSharedWithMeNavigator(f.user, f.fileClient, f.l, config, f.hasher, f.shareClient, f.settingClient.SecretKey(ctx))
 		default:
 			return nil, fmt.Errorf("unknown file system %q", pathFs)
 		}

@@ -1,45 +1,79 @@
 package inventory
 
 import (
+	"context"
 	"fmt"
+	"slices"
 
 	"github.com/cloudreve/Cloudreve/v4/ent"
+	"github.com/cloudreve/Cloudreve/v4/ent/user"
 	"github.com/cloudreve/Cloudreve/v4/inventory/types"
 	"github.com/cloudreve/Cloudreve/v4/pkg/boolset"
 	"github.com/cloudreve/Cloudreve/v4/pkg/hashid"
 	"github.com/cloudreve/Cloudreve/v4/pkg/serializer"
 )
 
+// LockPermissionOwners serializes permission-sensitive commits against file ACL
+// and link changes using the existing owner rows, in a stable lock order.
+func LockPermissionOwners(ctx context.Context, client *ent.Client, ids ...int) error {
+	slices.Sort(ids)
+	for i, id := range ids {
+		if id <= 0 || i > 0 && ids[i-1] == id {
+			continue
+		}
+		if err := client.User.Update().Where(user.ID(id)).AddStorage(0).Exec(ctx); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // ResolvePermission uses the most specific matching rule, then everyone.
 // A nil setting means an unrestricted personal file; legacy shares supply their
 // read-only default before calling this function.
 func ResolvePermission(setting *types.PermissionSetting, viewer, owner *ent.User, hasher hashid.Encoder) *boolset.BooleanSet {
+	return DecidePermission(setting, viewer, owner, hasher).Grant
+}
+
+// PermissionDecision describes the existing rule match without changing the wire ACL.
+type PermissionDecision struct {
+	Grant *boolset.BooleanSet
+	Rule  string
+}
+
+func DecidePermission(setting *types.PermissionSetting, viewer, owner *ent.User, hasher hashid.Encoder) PermissionDecision {
 	if viewer.ID == owner.ID || viewer.Edges.Group.Permissions.Enabled(int(types.GroupPermissionIsAdmin)) || setting == nil {
-		return types.AllFilePermissions()
+		return PermissionDecision{types.AllFilePermissions(), "owner_or_unrestricted"}
 	}
 	var grant *boolset.BooleanSet
+	rule := "anonymous"
 	if IsAnonymousUser(viewer) {
 		grant = setting.Anonymous
 	} else {
+		rule = "user_explicit"
 		grant = setting.UserExplicit[hashid.EncodeUserID(hasher, viewer.ID)]
 		if grant == nil {
+			rule = "group_explicit"
 			grant = setting.GroupExplicit[hashid.EncodeGroupID(hasher, viewer.GroupUsers)]
 		}
 		if grant == nil {
 			if viewer.GroupUsers == owner.GroupUsers {
+				rule = "same_group"
 				grant = setting.SameGroup
 			} else {
+				rule = "other"
 				grant = setting.Other
 			}
 		}
 	}
 	if grant == nil {
+		rule = "everyone"
 		grant = setting.Everyone
 	}
 	if grant == nil {
-		return types.AllFilePermissions()
+		return PermissionDecision{types.AllFilePermissions(), "default"}
 	}
-	return grant
+	return PermissionDecision{grant, rule}
 }
 
 func SharePermissionSetting(s *ent.Share) *types.PermissionSetting {
@@ -47,6 +81,32 @@ func SharePermissionSetting(s *ent.Share) *types.PermissionSetting {
 		return s.Props.Permissions
 	}
 	return &types.PermissionSetting{Everyone: types.ReadOnlyPermissions(), Anonymous: types.ReadOnlyPermissions()}
+}
+
+// ResolveSharePermission includes the link creator's existing management exception.
+func ResolveSharePermission(s *ent.Share, viewer, owner *ent.User, hasher hashid.Encoder) *boolset.BooleanSet {
+	if s.Edges.User != nil && viewer.ID == s.Edges.User.ID {
+		return types.AllFilePermissions()
+	}
+	return ResolvePermission(SharePermissionSetting(s), viewer, owner, hasher)
+}
+
+// CheckShareAccess checks current link/account and group gates. Passwords are
+// checked separately by the entrypoint, so discovery can project locked links.
+func CheckShareAccess(s *ent.Share, viewer *ent.User) error {
+	if err := IsValidShare(s); err != nil {
+		return err
+	}
+	if viewer.ID == s.Edges.File.OwnerID || viewer.ID == s.Edges.User.ID ||
+		viewer.Edges.Group.Permissions.Enabled(int(types.GroupPermissionIsAdmin)) ||
+		viewer.Edges.Group.Permissions.Enabled(int(types.GroupPermissionShareDownload)) {
+		return nil
+	}
+	code := serializer.CodeNoPermissionErr
+	if IsAnonymousUser(viewer) {
+		code = serializer.CodeAnonymouseAccessDenied
+	}
+	return serializer.NewError(code, "You don't have permission to access share links", nil)
 }
 
 // CanManageShare includes the underlying file owner so delegated links remain

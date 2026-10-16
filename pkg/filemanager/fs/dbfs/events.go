@@ -5,6 +5,7 @@ import (
 	"path"
 	"strings"
 
+	"github.com/cloudreve/Cloudreve/v4/inventory"
 	"github.com/cloudreve/Cloudreve/v4/pkg/auth/requestinfo"
 	"github.com/cloudreve/Cloudreve/v4/pkg/filemanager/eventhub"
 	"github.com/cloudreve/Cloudreve/v4/pkg/filemanager/fs"
@@ -15,7 +16,7 @@ import (
 func (f *DBFS) emitFileCreated(ctx context.Context, file *File) {
 	subscribers := f.getEligibleSubscriber(ctx, file, true)
 	for _, subscriber := range subscribers {
-		subscriber.Publish(eventhub.Event{
+		f.publishEvent(ctx, subscriber, eventhub.Event{
 			Type:   eventhub.EventTypeCreate,
 			FileID: hashid.EncodeFileID(f.hasher, file.Model.ID),
 			From:   subscriber.relativePath(file),
@@ -26,7 +27,7 @@ func (f *DBFS) emitFileCreated(ctx context.Context, file *File) {
 func (f *DBFS) emitFileModified(ctx context.Context, file *File) {
 	subscribers := f.getEligibleSubscriber(ctx, file, true)
 	for _, subscriber := range subscribers {
-		subscriber.Publish(eventhub.Event{
+		f.publishEvent(ctx, subscriber, eventhub.Event{
 			Type:   eventhub.EventTypeModify,
 			FileID: hashid.EncodeFileID(f.hasher, file.Model.ID),
 			From:   subscriber.relativePath(file),
@@ -39,7 +40,7 @@ func (f *DBFS) emitFileRenamed(ctx context.Context, file *File, newName string) 
 	for _, subscriber := range subscribers {
 		from := subscriber.relativePath(file)
 		to := strings.TrimSuffix(from, file.Name()) + newName
-		subscriber.Publish(eventhub.Event{
+		f.publishEvent(ctx, subscriber, eventhub.Event{
 			Type:   eventhub.EventTypeRename,
 			FileID: hashid.EncodeFileID(f.hasher, file.Model.ID),
 			From:   subscriber.relativePath(file),
@@ -52,7 +53,7 @@ func (f *DBFS) emitFileDeleted(ctx context.Context, files ...*File) {
 	for _, file := range files {
 		subscribers := f.getEligibleSubscriber(ctx, file, true)
 		for _, subscriber := range subscribers {
-			subscriber.Publish(eventhub.Event{
+			f.publishEvent(ctx, subscriber, eventhub.Event{
 				Type:   eventhub.EventTypeDelete,
 				FileID: hashid.EncodeFileID(f.hasher, file.Model.ID),
 				From:   subscriber.relativePath(file),
@@ -73,7 +74,7 @@ func (f *DBFS) emitFileMoved(ctx context.Context, src, dst *File) {
 		subId := subscriber.ID()
 		if dstSub, ok := dstSubMap[subId]; ok {
 			// Src and Dst subscribed by the same subscriber
-			subscriber.Publish(eventhub.Event{
+			f.publishEvent(ctx, subscriber, eventhub.Event{
 				Type:   eventhub.EventTypeRename,
 				FileID: hashid.EncodeFileID(f.hasher, src.Model.ID),
 				From:   subscriber.relativePath(src),
@@ -82,7 +83,7 @@ func (f *DBFS) emitFileMoved(ctx context.Context, src, dst *File) {
 			delete(dstSubMap, subId)
 		} else {
 			// Only Src is subscribed by the subscriber
-			subscriber.Publish(eventhub.Event{
+			f.publishEvent(ctx, subscriber, eventhub.Event{
 				Type:   eventhub.EventTypeDelete,
 				FileID: hashid.EncodeFileID(f.hasher, src.Model.ID),
 				From:   subscriber.relativePath(src),
@@ -92,7 +93,7 @@ func (f *DBFS) emitFileMoved(ctx context.Context, src, dst *File) {
 
 	for _, subscriber := range dstSubMap {
 		// Only Dst is subscribed by the subscriber
-		subscriber.Publish(eventhub.Event{
+		f.publishEvent(ctx, subscriber, eventhub.Event{
 			Type:   eventhub.EventTypeCreate,
 			FileID: hashid.EncodeFileID(f.hasher, src.Model.ID),
 			From:   path.Join(subscriber.relativePath(dst), src.Name()),
@@ -114,7 +115,7 @@ func (f *DBFS) getEligibleSubscriber(ctx context.Context, file *File, checkParen
 		subscribers := f.eventHub.GetSubscribers(ctx, root.Model.ID)
 		subscribers = lo.Filter(subscribers, func(subscriber eventhub.Subscriber, index int) bool {
 			// Exlucde self from subscribers
-			if requestInfo != nil && subscriber.ID() == requestInfo.ClientID {
+			if requestInfo != nil && subscriber.IsClient(f.user.ID, requestInfo.ClientID) {
 				return false
 			}
 			return true
@@ -147,4 +148,8 @@ func (s *foundSubscriber) relativePath(file *File) string {
 	}
 
 	return res
+}
+
+func (f *DBFS) publishEvent(ctx context.Context, subscriber eventhub.Subscriber, event eventhub.Event) {
+	inventory.AfterCommit(ctx, func() { subscriber.Publish(event) })
 }

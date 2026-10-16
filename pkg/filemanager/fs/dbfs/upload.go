@@ -201,6 +201,10 @@ func (f *DBFS) PrepareUpload(ctx context.Context, req *fs.UploadRequest, opts ..
 		return nil, serializer.NewError(serializer.CodeDBError, "Failed to start transaction", err)
 	}
 
+	if err := f.revalidatePermissions(ctx, fc, permissionCheck{ancestor, permission, false}); err != nil {
+		_ = inventory.Rollback(dbTx)
+		return nil, err
+	}
 	if err := dbTx.ReserveStorage(ctx, f.userClient, owner.ID, req.Props.Size, capacity.Total); err != nil {
 		_ = inventory.Rollback(dbTx)
 		if errors.Is(err, inventory.ErrInsufficientCapacity) {
@@ -370,7 +374,7 @@ func (f *DBFS) ValidateUploadSession(ctx context.Context, session *fs.UploadSess
 	if err != nil {
 		return nil, err
 	}
-	if file.ID() != session.FileID {
+	if file.ID() != session.FileID || (session.FileOwnerID != 0 && file.OwnerID() != session.FileOwnerID) {
 		return nil, fs.ErrModified
 	}
 	permission := types.FilePermissionUpdate
@@ -434,6 +438,14 @@ func (f *DBFS) CompleteUpload(ctx context.Context, session *fs.UploadSession) (f
 		return nil, serializer.NewError(serializer.CodeDBError, "Failed to start transaction", err)
 	}
 
+	permission := types.FilePermissionUpdate
+	if session.NewFileCreated {
+		permission = types.FilePermissionCreate
+	}
+	if err := f.revalidatePermissions(ctx, fc, permissionCheck{filePrivate, permission, false}); err != nil {
+		_ = inventory.Rollback(tx)
+		return nil, err
+	}
 	err = fc.UpgradePlaceholder(ctx, filePrivate.Model, session.Props.LastModified, session.EntityID, entityType)
 	if err != nil {
 		_ = inventory.Rollback(tx)

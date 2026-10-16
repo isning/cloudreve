@@ -21,31 +21,41 @@ var sharedWithMeNavigatorCapability = &boolset.BooleanSet{}
 
 // NewSharedWithMeNavigator creates a navigator for user's "shared with me" file system.
 func NewSharedWithMeNavigator(u *ent.User, fileClient inventory.FileClient, l logging.Logger,
-	config *setting.DBFS, hasher hashid.Encoder) Navigator {
+	config *setting.DBFS, hasher hashid.Encoder, shareClient inventory.ShareClient, cursorKey string) Navigator {
 	n := &sharedWithMeNavigator{
-		user:       u,
-		l:          l,
-		fileClient: fileClient,
-		config:     config,
-		hasher:     hasher,
+		user:        u,
+		l:           l,
+		fileClient:  fileClient,
+		config:      config,
+		hasher:      hasher,
+		shareClient: shareClient,
+		cursorKey:   cursorKey,
 	}
 	n.baseNavigator = newBaseNavigator(fileClient, defaultFilter, u, hasher, config)
 	return n
 }
 
 type sharedWithMeNavigator struct {
-	l          logging.Logger
-	user       *ent.User
-	fileClient inventory.FileClient
-	config     *setting.DBFS
-	hasher     hashid.Encoder
+	l            logging.Logger
+	user         *ent.User
+	fileClient   inventory.FileClient
+	config       *setting.DBFS
+	hasher       hashid.Encoder
+	shareClient  inventory.ShareClient
+	cursorKey    string
+	virtualFiles []*File
 
 	root *File
 	*baseNavigator
 }
 
 func (t *sharedWithMeNavigator) Recycle() {
-
+	for _, file := range t.virtualFiles {
+		file.Recycle()
+	}
+	if t.root != nil {
+		t.root.Recycle()
+	}
 }
 
 func (n *sharedWithMeNavigator) PersistState(kv cache.Driver, key string) {
@@ -86,6 +96,9 @@ func (t *sharedWithMeNavigator) To(ctx context.Context, path *fs.URI) (*File, er
 }
 
 func (t *sharedWithMeNavigator) Children(ctx context.Context, parent *File, args *ListArgs) (*ListResult, error) {
+	if t.config.SharedWithMeACL {
+		return t.discoverShares(ctx, args)
+	}
 	args.SharedWithMe = true
 	res, err := t.baseNavigator.children(ctx, nil, args)
 	if err != nil {
@@ -110,6 +123,9 @@ func (t *sharedWithMeNavigator) Capabilities(isSearching bool) *fs.NavigatorProp
 
 	if isSearching {
 		res.OrderByOptions = searchLimitedOrderByOption
+	}
+	if t.config.SharedWithMeACL {
+		res.OrderByOptions = []string{"name", "created_at"}
 	}
 
 	return res
@@ -144,8 +160,17 @@ func (n *sharedWithMeNavigator) ExecuteHook(ctx context.Context, hookType fs.Hoo
 }
 
 func (n *sharedWithMeNavigator) GetView(ctx context.Context, file *File) *types.ExplorerView {
-	if view, ok := n.user.Settings.FsViewMap[string(constants.FileSystemSharedWithMe)]; ok {
-		return &view
+	view := getDefaultView()
+	if saved, ok := n.user.Settings.FsViewMap[string(constants.FileSystemSharedWithMe)]; ok {
+		view = &saved
 	}
-	return getDefaultView()
+	if n.config.SharedWithMeACL {
+		if view.Order != "name" && view.Order != "created_at" {
+			view.Order = "created_at"
+		}
+		if view.OrderDirection != "asc" && view.OrderDirection != "desc" {
+			view.OrderDirection = "asc"
+		}
+	}
+	return view
 }
