@@ -1,11 +1,12 @@
 # Storage build and release checks
 
 Use the existing upstream build entrypoint and GoReleaser configuration, as
-described in `oidc-release.md`. The frontend is pinned by the `assets` submodule.
+described in `oidc-release.md`, including the `<upstream-version>-ccsn.<revision>`
+release tag convention. The frontend is pinned by the `assets` submodule.
 
 ```sh
 git submodule update --init --recursive
-bash .build/build-assets.sh 4.14.0-multi-storage.2
+bash .build/build-assets.sh 4.19.1-ccsn.1
 go build ./...
 go generate ./ent
 git diff --exit-code -- ent
