@@ -86,7 +86,7 @@ func (f *DBFS) PrepareUpload(ctx context.Context, req *fs.UploadRequest, opts ..
 	// Get most recent ancestor or target file
 	ctx = context.WithValue(ctx, inventory.LoadFileEntity{}, true)
 	ancestor, err := f.getFileByPath(ctx, navigator, req.Props.Uri)
-	if err != nil && !ent.IsNotFound(err) {
+	if err != nil && (ancestor == nil || !ent.IsNotFound(err)) {
 		return nil, fmt.Errorf("failed to get ancestor: %w", err)
 	}
 

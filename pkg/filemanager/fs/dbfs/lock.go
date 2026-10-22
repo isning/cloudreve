@@ -68,7 +68,7 @@ func (f *DBFS) Lock(ctx context.Context, d time.Duration, requester *ent.User, z
 	}
 
 	ancestor, err := f.getFileByPath(ctx, navigator, uri)
-	if err != nil && !ent.IsNotFound(err) {
+	if err != nil && (ancestor == nil || !ent.IsNotFound(err)) {
 		return nil, fmt.Errorf("failed to get ancestor: %w", err)
 	}
 

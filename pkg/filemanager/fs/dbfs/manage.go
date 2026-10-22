@@ -38,7 +38,7 @@ func (f *DBFS) Create(ctx context.Context, path *fs.URI, fileType types.FileType
 		ancestor = o.ancestor
 	} else {
 		ancestor, err = f.getFileByPath(ctx, navigator, path)
-		if err != nil && !ent.IsNotFound(err) {
+		if err != nil && (ancestor == nil || !ent.IsNotFound(err)) {
 			return nil, fmt.Errorf("failed to get ancestor: %w", err)
 		}
 	}
