@@ -430,9 +430,21 @@ func (c *userClient) SetStatus(ctx context.Context, u *ent.User, status user.Sta
 }
 
 func (c *userClient) Create(ctx context.Context, args *NewUserArgs) (*ent.User, error) {
-	return c.mutateWithAudit(ctx, nil, types.AuditUserSignup, types.LogEntry{}, func(ctx context.Context, client *ent.Client) (*ent.User, error) {
+	uc, tx, ctx, err := WithTx(ctx, c)
+	if err != nil {
+		return nil, err
+	}
+	defer Rollback(tx)
+	result, err := uc.mutateWithAudit(ctx, nil, types.AuditUserSignup, types.LogEntry{}, func(ctx context.Context, client *ent.Client) (*ent.User, error) {
 		return (&userClient{client: client}).create(ctx, args)
 	})
+	if err != nil {
+		return result, err
+	}
+	if err = Commit(tx); err != nil {
+		return nil, err
+	}
+	return result, nil
 }
 
 func (c *userClient) create(ctx context.Context, args *NewUserArgs) (*ent.User, error) {
@@ -450,6 +462,9 @@ func (c *userClient) create(ctx context.Context, args *NewUserArgs) (*ent.User, 
 	}
 
 	userSetting := &types.UserSetting{VersionRetention: true, VersionRetentionMax: 10}
+	if err := captureDefaultShares(ctx, c.client, userSetting); err != nil {
+		return nil, err
+	}
 	query := c.client.User.Create().
 		SetEmail(args.Email).
 		SetNick(nick).
@@ -547,7 +562,28 @@ func (c *userClient) SearchActive(ctx context.Context, limit int, keyword string
 }
 
 func (c *userClient) SaveSettings(ctx context.Context, u *ent.User) error {
-	return c.client.User.UpdateOne(u).SetSettings(u.Settings).Exec(ctx)
+	uc, tx, ctx, err := WithTx(ctx, c)
+	if err != nil {
+		return err
+	}
+	defer Rollback(tx)
+	if err = LockPermissionOwners(ctx, uc.client, u.ID); err != nil {
+		return err
+	}
+	fresh, err := uc.client.User.Get(ctx, u.ID)
+	if err != nil {
+		return err
+	}
+	settings := *u.Settings
+	if fresh.Settings != nil {
+		settings.DefaultShares = fresh.Settings.DefaultShares
+	} else {
+		settings.DefaultShares = nil
+	}
+	if err = uc.client.User.UpdateOneID(u.ID).SetSettings(&settings).Exec(ctx); err != nil {
+		return err
+	}
+	return Commit(tx)
 }
 
 // UserFromContext get user from context
@@ -634,13 +670,29 @@ func (c *userClient) Upsert(ctx context.Context, u *ent.User, password, twoFa st
 	if u.ID == 0 {
 		kind = types.AuditUserSignup
 	}
-	return c.mutateWithAudit(ctx, previous, kind, types.LogEntry{}, func(ctx context.Context, client *ent.Client) (*ent.User, error) {
+	uc, tx, ctx, err := WithTx(ctx, c)
+	if err != nil {
+		return nil, err
+	}
+	defer Rollback(tx)
+	result, err := uc.mutateWithAudit(ctx, previous, kind, types.LogEntry{}, func(ctx context.Context, client *ent.Client) (*ent.User, error) {
 		return (&userClient{client: client}).upsert(ctx, u, password, twoFa)
 	})
+	if err != nil {
+		return nil, err
+	}
+	if err = Commit(tx); err != nil {
+		return nil, err
+	}
+	return result, nil
 }
 
 func (c *userClient) upsert(ctx context.Context, u *ent.User, password, twoFa string) (*ent.User, error) {
 	if u.ID == 0 {
+		settings := &types.UserSetting{}
+		if err := captureDefaultShares(ctx, c.client, settings); err != nil {
+			return nil, err
+		}
 		q := c.client.User.Create().
 			SetEmail(u.Email).
 			SetNick(u.Nick).
@@ -648,7 +700,7 @@ func (c *userClient) upsert(ctx context.Context, u *ent.User, password, twoFa st
 			SetStatus(u.Status).
 			SetGroupID(u.GroupUsers).
 			SetPassword(u.Password).
-			SetSettings(&types.UserSetting{})
+			SetSettings(settings)
 
 		if password != "" {
 			pwdDigest, err := digestPassword(password)

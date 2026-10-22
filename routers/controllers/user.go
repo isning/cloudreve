@@ -406,3 +406,13 @@ func ListPublicShare(c *gin.Context) {
 		})
 	}
 }
+
+// AddDefaultShares installs only the current account's public default entries.
+func AddDefaultShares(c *gin.Context) {
+	result, err := user.AddDefaultShares(c)
+	if err != nil {
+		c.JSON(200, serializer.Err(c, err))
+		return
+	}
+	c.JSON(200, serializer.Response{Data: result})
+}

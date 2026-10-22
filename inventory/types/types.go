@@ -6,7 +6,18 @@ import (
 
 // UserSetting 用户其他配置
 type (
+	DefaultShareRef struct {
+		ID        int       `json:"id"`
+		CreatedAt time.Time `json:"created_at"`
+	}
+
+	DefaultShareState struct {
+		Shares []DefaultShareRef `json:"shares"`
+		Done   bool              `json:"done"`
+	}
+
 	UserSetting struct {
+		DefaultShares       *DefaultShareState       `json:"default_shares,omitempty"`
 		ProfileOff          bool                     `json:"profile_off,omitempty"`
 		PreferredTheme      string                   `json:"preferred_theme,omitempty"`
 		VersionRetention    bool                     `json:"version_retention,omitempty"`

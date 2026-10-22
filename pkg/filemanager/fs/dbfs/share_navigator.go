@@ -124,6 +124,9 @@ func (n *shareNavigator) Root(ctx context.Context, path *fs.URI) (*File, error) 
 		return nil, ErrShareNotFound.WithError(err)
 	}
 
+	if identity := path.U.Query().Get("default_share_identity"); identity != "" && identity != inventory.DefaultShareIdentity(share) {
+		return nil, ErrShareNotFound
+	}
 	if err := inventory.IsValidShare(share); err != nil {
 		return nil, ErrShareNotFound.WithError(err)
 	}
@@ -155,7 +158,13 @@ func (n *shareNavigator) Root(ctx context.Context, path *fs.URI) (*File, error) 
 		n.shareRoot = n.shareRoot.Parent
 	}
 
-	n.shareRoot.Path[pathIndexUser] = path.Root()
+	rootURI := path.Root()
+	if identity := path.U.Query().Get("default_share_identity"); identity != "" {
+		query := rootURI.U.Query()
+		query.Set("default_share_identity", identity)
+		rootURI.U.RawQuery = query.Encode()
+	}
+	n.shareRoot.Path[pathIndexUser] = rootURI
 	n.shareRoot.OwnerModel = n.owner
 	n.shareRoot.IsUserRoot = true
 	n.shareRoot.disableView = (share.Props == nil || !share.Props.ShareView) && n.user.ID != n.owner.ID

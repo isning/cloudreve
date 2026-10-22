@@ -1309,6 +1309,7 @@ func initMasterRouter(dep dependency.Dep) *gin.Engine {
 					// 获取当前用户设定
 					setting.GET("", controllers.UserSetting)
 					setting.GET("policies", controllers.UserAvailableStoragePolicies)
+					setting.POST("default-shares", middleware.RequiredScopes(types.ScopeUserInfoWrite, types.ScopeFilesWrite), controllers.AddDefaultShares)
 					// 从文件上传头像
 					setting.PUT("avatar", middleware.RequiredScopes(types.ScopeUserInfoWrite), controllers.UploadAvatar)
 					// 更改用户设定

@@ -364,6 +364,14 @@ func (s *SetSettingService) SetSetting(c *gin.Context) (map[string]string, error
 			return nil, serializer.NewError(serializer.CodeParamErr, err.Error(), nil)
 		}
 	}
+	if raw, ok := s.Settings[inventory.DefaultSharesSetting]; ok {
+		normalized, saveErr := inventory.SaveDefaultShares(ctx, sc.GetClient(), raw)
+		if saveErr != nil {
+			_ = inventory.Rollback(tx)
+			return nil, saveErr
+		}
+		s.Settings[inventory.DefaultSharesSetting] = normalized
+	}
 	// Existing installations need not have this additive setting row yet.
 	if raw, ok := s.Settings["shared_with_me_acl"]; ok {
 		if err := sc.GetClient().Setting.Create().SetName("shared_with_me_acl").SetValue(raw).

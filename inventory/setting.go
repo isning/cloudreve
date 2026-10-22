@@ -512,6 +512,7 @@ var DefaultSettings = map[string]string{
 	"pwa_background_color":                       "#ffffff",
 	"register_enabled":                           `1`,
 	"default_group":                              `2`,
+	"default_symbolics":                          `[]`,
 	"fromName":                                   `Cloudreve`,
 	"mail_keepalive":                             `30`,
 	"fromAdress":                                 `no-reply@cloudreve.org`,

@@ -352,6 +352,20 @@ func (f *DBFS) SharedAddressTranslation(ctx context.Context, path *fs.URI, opts 
 			return nil, nil, fmt.Errorf("missing metadata %s in symbolic folder %s", MetadataSharedRedirect, path)
 		}
 
+		if identity := metadata[inventory.DefaultShareIdentityMetadata]; identity != "" {
+			parsed, parseErr := fs.NewUriFromString(redirect)
+			if parseErr != nil {
+				return nil, nil, ErrPermissionDenied
+			}
+			id, decodeErr := f.hasher.Decode(parsed.ID(""), hashid.ShareID)
+			if decodeErr != nil {
+				return nil, nil, ErrPermissionDenied
+			}
+			live, liveErr := f.fileClient.GetClient().Share.Get(ctx, id)
+			if liveErr != nil || inventory.DefaultShareIdentity(live) != identity {
+				return nil, nil, ErrPermissionDenied
+			}
+		}
 		redirectUri, err := fs.NewUriFromString(redirect)
 		if err != nil {
 			return nil, nil, fmt.Errorf("invalid redirect uri %s in symbolic folder %s", redirect, path)
@@ -714,6 +728,12 @@ func (f *DBFS) getPreferredPolicy(ctx context.Context, file *File) (*ent.Storage
 }
 
 func (f *DBFS) getFileByPath(ctx context.Context, navigator Navigator, path *fs.URI) (*File, error) {
+	if path.FileSystem() == constants.FileSystemMy && path.ID(hashid.EncodeUserID(f.hasher, f.user.ID)) == hashid.EncodeUserID(f.hasher, f.user.ID) && f.user.Settings != nil && f.user.Settings.DefaultShares != nil && !f.user.Settings.DefaultShares.Done {
+		if err := f.initFs(ctx, f.user.ID); err != nil {
+			return nil, err
+		}
+	}
+
 	file, err := navigator.To(ctx, path)
 	if err != nil && errors.Is(err, ErrFsNotInitialized) {
 		// Initialize file system for user if root folder does not exist.
@@ -734,16 +754,13 @@ func (f *DBFS) getFileByPath(ctx context.Context, navigator Navigator, path *fs.
 
 // initFs initializes the file system for the user.
 func (f *DBFS) initFs(ctx context.Context, uid int) error {
-	f.l.Info("Initialize database file system for user %q", f.user.Email)
-	_, err := f.fileClient.CreateFolder(ctx, nil,
-		&inventory.CreateFolderParameters{
-			Owner: uid,
-			Name:  inventory.RootFolderName,
-		})
+	root, result, err := inventory.InstallDefaultShares(ctx, f.userClient, uid, f.hasher, false)
 	if err != nil {
-		return fmt.Errorf("failed to create root folder: %w", err)
+		return err
 	}
-
+	for _, file := range result.Files {
+		f.emitFileCreated(ctx, newFile(newFile(nil, root), file))
+	}
 	return nil
 }
 
@@ -793,9 +810,14 @@ func (f *DBFS) getNavigator(ctx context.Context, path *fs.URI, requiredCapabilit
 	}
 	// Share access is revalidated for every request; a context hint cannot keep
 	// deleted links, old passwords, expired grants or stale child ACLs alive.
-	if share, ok := res.(*shareNavigator); ok && share.shareRoot == nil {
-		if _, err := share.Root(ctx, path.Root()); err != nil {
-			return nil, err
+	if share, ok := res.(*shareNavigator); ok {
+		if share.shareRoot == nil {
+			if _, err := share.Root(ctx, path); err != nil {
+				return nil, err
+			}
+		}
+		if identity := path.U.Query().Get("default_share_identity"); identity != "" && identity != inventory.DefaultShareIdentity(share.share) {
+			return nil, ErrShareNotFound
 		}
 	}
 
