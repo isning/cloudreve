@@ -1,9 +1,13 @@
 package controllers_test
 
 import (
+	"context"
 	"encoding/json"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/s3"
+	entsetting "github.com/cloudreve/Cloudreve/v4/ent/setting"
+	"github.com/cloudreve/Cloudreve/v4/inventory"
+	"github.com/cloudreve/Cloudreve/v4/routers"
 	"net"
 	"net/http"
 	"os"
@@ -23,6 +27,14 @@ func TestFilePermissionsBrowserRuntime(t *testing.T) {
 		t.Skip("opt-in interactive browser fixture")
 	}
 	f := newWritableShareFixture(t)
+	// Match an installed server while preserving fixture-specific persisted values.
+	for name, value := range inventory.DefaultSettings {
+		exists, err := f.db.Setting.Query().Where(entsetting.NameEQ(name)).Exist(context.Background())
+		require.NoError(t, err)
+		if !exists {
+			require.NoError(t, f.db.Setting.Create().SetName(name).SetValue(value).Exec(context.Background()))
+		}
+	}
 	f.immediatePermissionEvents(t)
 	origin := os.Getenv("CLOUDREVE_PERMISSION_BROWSER_ORIGIN")
 	if origin == "" {
@@ -45,9 +57,12 @@ func TestFilePermissionsBrowserRuntime(t *testing.T) {
 	visitor, password := f.createWritableVisitor(t, 2)
 	_, shareURI := f.createWritableShare(t, "cloudreve://my/permission-ui", map[string]any{"everyone": "Lw==", "anonymous": "IQ=="})
 	f.setPermissionDiscovery(t, true)
+	if os.Getenv("CLOUDREVE_REVIEW_INVALID_DEFAULTS") == "1" {
+		require.NoError(t, f.db.Setting.Update().Where(entsetting.NameEQ("default_symbolics")).SetValue("{invalid legacy configuration").Exec(context.Background()))
+	}
 	listener, err := net.Listen("tcp", "127.0.0.1:5212")
 	require.NoError(t, err)
-	server := &http.Server{Handler: f.router, ReadHeaderTimeout: 5 * time.Second}
+	server := &http.Server{Handler: routers.InitRouter(f.dep), ReadHeaderTimeout: 5 * time.Second}
 	t.Cleanup(func() { server.Close() })
 	go server.Serve(listener)
 	require.NoError(t, os.MkdirAll(dir, 0700))

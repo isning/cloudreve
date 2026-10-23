@@ -9,7 +9,6 @@ import (
 	"net/url"
 	"path"
 	"strings"
-	"time"
 
 	"github.com/cloudreve/Cloudreve/v4/ent"
 	"github.com/cloudreve/Cloudreve/v4/ent/entity"
@@ -94,7 +93,7 @@ func StorageObjectReferenced(ctx context.Context, db *ent.Client, policy *ent.St
 
 // Reads publish their own durable lifetime before opening any provider stream.
 // Reader completion cannot overwrite a replacement worker's independent row.
-func BeginStorageObjectRead(ctx context.Context, db *ent.Client, policy *ent.StoragePolicy, source string) (func(), error) {
+func BeginStorageObjectRead(ctx context.Context, db *ent.Client, completions *StorageReadCompletions, policy *ent.StoragePolicy, source string) (func(), error) {
 	tx, err := db.Tx(ctx)
 	if err != nil {
 		return nil, err
@@ -115,8 +114,6 @@ func BeginStorageObjectRead(ctx context.Context, db *ent.Client, policy *ent.Sto
 		return nil, err
 	}
 	return func() {
-		recordCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-		defer cancel()
-		_ = db.StorageObjectReader.UpdateOneID(reader.ID).SetFinished(true).Exec(recordCtx)
+		completions.ReaderFinished(reader.ID)
 	}, nil
 }

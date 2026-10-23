@@ -85,7 +85,7 @@ Compensation has independent durable records and native maintenance jobs.
 Deleting terminal task history or an account does not discard unfinished
 cleanup, nor can restart recreate a deleted file/account. Old sources are
 collected only when no current physical alias/reference or active migration
-reader requires them. Failed targets are deleted only at exact server-owned
+reader requires them. Completed migration reads retain their exact acknowledgement in the originating process and retry temporary SQL failures. Graceful shutdown drains these acknowledgements before closing SQL. A crash before acknowledgement can still leave a conservatively unfinished reader; replacement startup or lease expiry is not proof that another reader has stopped. Failed targets are deleted only at exact server-owned
 attempt locations. An unknown write can finish late; its journal stays pending
 and is checked repeatedly even after an earlier absence/delete. Physical policy
 edits/deletion remain blocked while this dependency is unresolved; credential

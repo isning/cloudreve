@@ -758,8 +758,14 @@ func (f *DBFS) initFs(ctx context.Context, uid int) error {
 	if err != nil {
 		return err
 	}
-	for _, file := range result.Files {
-		f.emitFileCreated(ctx, newFile(newFile(nil, root), file))
+	if len(result.Files) > 0 {
+		rootURI := newMyIDUri(hashid.EncodeUserID(f.hasher, uid))
+		eventRoot := newFile(nil, root)
+		eventRoot.Path[pathIndexRoot], eventRoot.Path[pathIndexUser] = rootURI, rootURI
+		defer eventRoot.Recycle()
+		for _, file := range result.Files {
+			f.emitFileCreated(ctx, newFile(eventRoot, file))
+		}
 	}
 	return nil
 }

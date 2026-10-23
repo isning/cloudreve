@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"time"
 
+	"github.com/cloudreve/Cloudreve/v4/application/dependency"
 	"github.com/cloudreve/Cloudreve/v4/ent"
 	"github.com/cloudreve/Cloudreve/v4/ent/task"
 	"github.com/cloudreve/Cloudreve/v4/inventory/types"
@@ -106,13 +107,25 @@ func (m *manager) Thumbnail(ctx context.Context, uri *fs.URI) (entitysource.Enti
 }
 
 func (m *manager) SubmitAndAwaitThumbnailTask(ctx context.Context, uri *fs.URI, ext string, entity fs.Entity) (fs.Entity, error) {
+	owner, fileID := m.user, 0
+	if !m.stateless {
+		file, err := m.fs.Get(ctx, uri, dbfs.WithRequiredCapabilities(dbfs.NavigatorCapabilityGenerateThumb))
+		if err != nil {
+			return nil, err
+		}
+		owner, _, err = m.backgroundFileTarget(ctx, file.ID(), file.OwnerID())
+		if err != nil {
+			return nil, err
+		}
+		fileID = file.ID()
+	}
 	es, err := m.GetEntitySource(ctx, 0, fs.WithEntity(entity))
 	if err != nil {
 		return nil, fmt.Errorf("failed to get entity source: %w", err)
 	}
 
 	defer es.Close()
-	t := newGenerateThumbTask(ctx, m, uri, ext, es)
+	t := newGenerateThumbTask(ctx, m.dep, owner, fileID, ext, es)
 	if err := m.dep.ThumbQueue(ctx).QueueTask(ctx, t); err != nil {
 		return nil, fmt.Errorf("failed to queue task: %w", err)
 	}
@@ -229,11 +242,12 @@ func (m *manager) generateThumb(ctx context.Context, uri *fs.URI, ext string, es
 type (
 	GenerateThumbTask struct {
 		*queue.InMemoryTask
-		es  entitysource.EntitySource
-		ext string
-		m   *manager
-		uri *fs.URI
-		sig chan *generateRes
+		es     entitysource.EntitySource
+		ext    string
+		dep    dependency.Dep
+		owner  *ent.User
+		fileID int
+		sig    chan *generateRes
 	}
 	generateRes struct {
 		thumbEntity fs.Entity
@@ -241,7 +255,7 @@ type (
 	}
 )
 
-func newGenerateThumbTask(ctx context.Context, m *manager, uri *fs.URI, ext string, es entitysource.EntitySource) *GenerateThumbTask {
+func newGenerateThumbTask(ctx context.Context, dep dependency.Dep, owner *ent.User, fileID int, ext string, es entitysource.EntitySource) *GenerateThumbTask {
 	t := &GenerateThumbTask{
 		InMemoryTask: &queue.InMemoryTask{
 			DBTask: &queue.DBTask{
@@ -251,14 +265,15 @@ func newGenerateThumbTask(ctx context.Context, m *manager, uri *fs.URI, ext stri
 				},
 			},
 		},
-		es:  es,
-		ext: ext,
-		m:   m,
-		uri: uri,
-		sig: make(chan *generateRes, 2),
+		es:     es,
+		ext:    ext,
+		dep:    dep,
+		owner:  owner,
+		fileID: fileID,
+		sig:    make(chan *generateRes, 2),
 	}
 
-	t.InMemoryTask.DBTask.Task.SetUser(m.user)
+	t.InMemoryTask.DBTask.Task.SetUser(owner)
 	return t
 }
 
@@ -271,7 +286,21 @@ func (m *GenerateThumbTask) Do(ctx context.Context) (task.Status, error) {
 	default:
 	}
 
-	res, err := m.m.generateThumb(ctx, m.uri, m.ext, m.es)
+	fm := NewFileManager(m.dep, m.owner).(*manager)
+	defer fm.Recycle()
+	var uri *fs.URI
+	if !fm.stateless {
+		target, err := fm.TraverseFile(ctx, m.fileID)
+		if err != nil || target.OwnerID() != m.owner.ID {
+			return task.StatusError, fmt.Errorf("thumbnail source changed: %w", queue.CriticalErr)
+		}
+		file, err := fm.Get(ctx, target.Uri(true), dbfs.WithFileEntities())
+		if err != nil || file.ID() != m.fileID || file.OwnerID() != m.owner.ID || file.PrimaryEntity() == nil || file.PrimaryEntity().ID() != m.es.Entity().ID() {
+			return task.StatusError, fmt.Errorf("thumbnail source changed: %w", queue.CriticalErr)
+		}
+		uri = file.Uri(true)
+	}
+	res, err := fm.generateThumb(ctx, uri, m.ext, m.es)
 	if err != nil {
 		if errors.Is(err, thumb.ErrNotAvailable) {
 			m.sig <- &generateRes{nil, err}

@@ -56,6 +56,7 @@ type (
 // concurrent safe, so all inner deps should be initialized before any goroutine starts.
 type Dep interface {
 	OIDC() *oidc.Runtime
+	StorageReadCompletions() *inventory.StorageReadCompletions
 	// ConfigProvider Get a singleton conf.ConfigProvider instance.
 	ConfigProvider() conf.ConfigProvider
 	// Logger Get a singleton logging.Logger instance.
@@ -153,6 +154,8 @@ type Dep interface {
 
 type dependency struct {
 	oidcRuntime           *oidc.Runtime
+	readCompletions       *inventory.StorageReadCompletions
+	readCompletionsOnce   sync.Once
 	configProvider        conf.ConfigProvider
 	logger                logging.Logger
 	statics               iofs.FS
@@ -994,6 +997,9 @@ func (d *dependency) Shutdown(ctx context.Context) error {
 
 	d.mu.Unlock()
 	wg.Wait()
+	if d.readCompletions != nil {
+		d.readCompletions.Close(ctx)
+	}
 
 	return nil
 }

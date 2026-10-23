@@ -170,14 +170,17 @@ func (f *DBFS) acquireByPathWithACLCheck(ctx context.Context, checkACL bool, dur
 					c.Token = ""
 				}
 
-				// If conflicted resources still under user root, expose the relative path
+				// Project only conflicts whose current object is visible through this entry.
 				userRoot := lr.ClosestAncestor.UserRoot()
-				userRootPath := userRoot.Uri(true).Path()
-				if strings.HasPrefix(c.Path, userRootPath) {
-					c.Path = userRoot.
-						Uri(false).
-						Join(strings.Split(strings.TrimPrefix(c.Path, userRootPath), fs.Separator)...).String()
-					return c
+				userRootPath := strings.TrimSuffix(userRoot.Uri(true).Path(), fs.Separator)
+				if c.Path == userRootPath || strings.HasPrefix(c.Path, userRootPath+fs.Separator) {
+					candidate := userRoot.Uri(false).JoinRaw(strings.TrimPrefix(c.Path, userRootPath))
+					if navigator, err := f.getNavigator(ctx, candidate); err == nil {
+						if target, err := f.getFileByPath(ctx, navigator, candidate); err == nil && target.CanList() {
+							c.Path = candidate.String()
+							return c
+						}
+					}
 				}
 
 				// Hide sensitive information for non-owner issued lock request

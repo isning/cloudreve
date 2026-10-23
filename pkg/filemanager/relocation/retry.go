@@ -15,6 +15,7 @@ import (
 )
 
 var ErrRetryableIO = errors.New("migration I/O temporarily unavailable")
+var ErrJournalUnavailable = errors.New("migration journal acknowledgement temporarily unavailable")
 
 func retryableIO(err error) bool {
 	if err == nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
@@ -55,12 +56,12 @@ func releaseIOFailure(ctx context.Context, db *ent.Client, item *ent.RelocationI
 	return ErrRetryableIO
 }
 
-// Exhaustion closes only unclaimed work. Another worker's current lease and
-// committed facts cannot be overwritten by an exhausted older invocation.
-func StopRetrying(ctx context.Context, db *ent.Client, taskID int) error {
-	_, err := db.RelocationItem.Update().Where(relocationitem.TaskID(taskID), relocationitem.LeaseOwner(""), relocationitem.StateIn(relocationitem.StatePlanned, relocationitem.StateVerified)).SetState(relocationitem.StateFailed).SetError("migration I/O retry limit reached").Save(ctx)
+// Terminal failure closes only unclaimed work. Another worker's current lease
+// and committed facts cannot be overwritten by an older invocation.
+func FailUnclaimed(ctx context.Context, db *ent.Client, taskID int) error {
+	_, err := db.RelocationItem.Update().Where(relocationitem.TaskID(taskID), relocationitem.LeaseOwner(""), relocationitem.StateIn(relocationitem.StatePlanned, relocationitem.StateVerified)).SetState(relocationitem.StateFailed).SetError("migration ended before this item completed").Save(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to persist migration retry exhaustion")
+		return fmt.Errorf("failed to persist unclaimed migration failure")
 	}
 	return nil
 }

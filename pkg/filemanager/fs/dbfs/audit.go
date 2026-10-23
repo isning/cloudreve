@@ -23,8 +23,8 @@ func (f *DBFS) recordAuditModel(ctx context.Context, kind types.AuditEvent, file
 		content.From = auditURI(uri, file.OwnerID, f.hasher)
 	}
 	actor := f.user
-	if authenticated := inventory.UserFromContext(ctx); authenticated != nil && !inventory.IsAnonymousUser(authenticated) {
-		actor = authenticated
+	if requester := inventory.UserFromContext(ctx); requester != nil {
+		actor = requester
 	}
 	return f.audit.Record(ctx, audit.Event{Type: kind, User: actor, FileID: file.ID, EntityID: entityID, Content: content})
 }

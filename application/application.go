@@ -192,13 +192,6 @@ func (s *server) Start() error {
 }
 
 func (s *server) Close() {
-	if s.dbClient != nil {
-		s.logger.Info("Shutting down database connection...")
-		if err := s.dbClient.Close(); err != nil {
-			s.logger.Error("Failed to close database connection: %s", err)
-		}
-	}
-
 	ctx := context.Background()
 	if conf.SystemConfig.GracePeriod != 0 {
 		var cancel context.CancelFunc
@@ -231,6 +224,12 @@ func (s *server) Close() {
 
 	if err := s.dep.Shutdown(ctx); err != nil {
 		s.logger.Warning("Failed to shutdown dependency manager: %s", err)
+	}
+	if s.dbClient != nil {
+		s.logger.Info("Shutting down database connection...")
+		if err := s.dbClient.Close(); err != nil {
+			s.logger.Error("Failed to close database connection: %s", err)
+		}
 	}
 }
 

@@ -72,6 +72,11 @@ authentication details and administrative payloads are excluded from this
 response. Inaccessible path references become `redacted`. Deleted versions
 lose their version links.
 
+Historical paths do not carry an independent object identity. For a recipient,
+only a currently listable reference resolving to the selected object is shown;
+other historical locations are conservatively redacted, including paths that
+now belong to a different object. Owners retain their own historical locations.
+
 Activity filters are empty/all, `my`, `updates`, and `reads`. This implementation
 treats download, share view and direct-link access as reads. Cursor tokens use
 HMAC authentication, bind the file, viewer, filter and direction, and fix the
@@ -120,3 +125,5 @@ frontend's existing 114 TypeScript diagnostics were compared against its pinned
 baseline with the same compiler; this change adds none. PostgreSQL/MySQL test
 helpers are available above, but those database servers were not exercised in
 this local acceptance run.
+
+Recipient activity projection also withholds rename name pairs when the historical source reference is inaccessible or cannot be tied to the selected current object. The event/category and the owner’s stored audit history remain available.

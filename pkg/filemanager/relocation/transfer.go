@@ -509,11 +509,11 @@ func (s *protectedSource) Close() error {
 }
 
 func rawSource(ctx context.Context, fm manager.FileManager, entity *ent.Entity, policy *ent.StoragePolicy) (entitysource.EntitySource, error) {
-	finish, err := inventory.BeginStorageObjectRead(ctx, dependency.FromContext(ctx).DBClient(), policy, entity.Source)
+	dep := dependency.FromContext(ctx)
+	finish, err := inventory.BeginStorageObjectRead(ctx, dep.DBClient(), dep.StorageReadCompletions(), policy, entity.Source)
 	if err != nil {
 		return nil, err
 	}
-	dep := dependency.FromContext(ctx)
 	safeCtx := dep.ForkWithLogger(ctx, securelog.New(dep.Logger(), policy.AccessKey, policy.SecretKey, entity.Source))
 	readFM := manager.NewFileManager(dependency.FromContext(safeCtx), inventory.UserFromContext(ctx))
 	r, err := readFM.GetEntitySource(safeCtx, 0, fs.WithEntity(fs.NewEntity(entity)), fs.WithPolicy(policy))
@@ -554,13 +554,12 @@ func copySingle(ctx context.Context, dep dependency.Dep, fm manager.FileManager,
 	}
 	r, err := rawSource(ctx, fm, source, a)
 	if err != nil {
+		dep.StorageReadCompletions().AttemptSourceFinished(attempt.ID)
 		return errors.New("failed to open migration source")
 	}
 	defer func() {
 		r.Close()
-		recordCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-		defer cancel()
-		_ = db.RelocationAttempt.UpdateOneID(attempt.ID).SetSourceReadFinished(true).Exec(recordCtx)
+		dep.StorageReadCompletions().AttemptSourceFinished(attempt.ID)
 	}()
 	safeCtx := dep.ForkWithLogger(ctx, securelog.New(dep.Logger(), a.AccessKey, a.SecretKey, b.AccessKey, b.SecretKey, source.Source, key))
 	writeFM := manager.NewFileManager(dependency.FromContext(safeCtx), inventory.UserFromContext(ctx))
@@ -797,7 +796,10 @@ func failItem(ctx context.Context, db *ent.Client, item *ent.RelocationItem, cau
 	recordCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
 	n, err := db.RelocationItem.Update().Where(relocationitem.ID(item.ID), relocationitem.Fence(item.Fence), relocationitem.LeaseOwner(item.LeaseOwner), relocationitem.LeaseUntilGT(time.Now()), relocationitem.StateNotIn(relocationitem.StateCommitted, relocationitem.StateNoop)).SetState(relocationitem.StateFailed).SetError(cause.Error()).SetLeaseOwner("").ClearLeaseUntil().Save(recordCtx)
-	if err == nil && n != 1 {
+	if err != nil {
+		return ErrJournalUnavailable
+	}
+	if n != 1 {
 		return ErrLeaseLost
 	}
 	return cause

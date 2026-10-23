@@ -201,14 +201,22 @@ func (m *manager) abandonMissingRelocation(ctx context.Context, item *ent.Reloca
 	if err != nil {
 		return nil, err
 	}
-	mainExists, err := db.Task.Query().Where(task.ID(item.TaskID), task.Type(queue.RelocateTaskType), task.UserTasks(item.OwnerID)).Exist(ctx)
-	if err != nil {
+	main, err := db.Task.Query().Where(task.ID(item.TaskID), task.Type(queue.RelocateTaskType), task.UserTasks(item.OwnerID)).Only(ctx)
+	if err != nil && !ent.IsNotFound(err) {
 		return nil, err
 	}
-	if ownerExists && mainExists {
+	terminal := main != nil && (main.Status == task.StatusCompleted || main.Status == task.StatusError || main.Status == task.StatusCanceled)
+	if ownerExists && main != nil && !terminal {
 		return item, nil
 	}
-	_, err = db.RelocationItem.Update().Where(relocationitem.ID(item.ID), relocationitem.Fence(item.Fence), relocationitem.StateNotIn(relocationitem.StateCommitted, relocationitem.StateNoop, relocationitem.StateFailed)).AddFence(1).SetState(relocationitem.StateFailed).SetError("migration owner or task is unavailable").SetLeaseOwner("").ClearLeaseUntil().Save(ctx)
+	update := db.RelocationItem.Update().Where(relocationitem.ID(item.ID), relocationitem.Fence(item.Fence), relocationitem.StateNotIn(relocationitem.StateCommitted, relocationitem.StateNoop, relocationitem.StateFailed))
+	if ownerExists && terminal {
+		// Terminal history is a stop intent, not proof that a live worker or
+		// external I/O has ended. Fence only work without a current lease;
+		// independent read and write facts still gate physical cleanup.
+		update.Where(relocationitem.Or(relocationitem.LeaseOwner(""), relocationitem.LeaseUntilIsNil(), relocationitem.LeaseUntilLTE(time.Now())))
+	}
+	_, err = update.AddFence(1).SetState(relocationitem.StateFailed).SetError("migration owner or task is unavailable or terminal").SetLeaseOwner("").ClearLeaseUntil().Save(ctx)
 	if err != nil {
 		return nil, err
 	}

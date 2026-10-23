@@ -44,11 +44,16 @@ func (f *DBFS) BindPolicy(ctx context.Context, uri *fs.URI, policyID int) error 
 		return err
 	}
 	defer inventory.Rollback(tx)
-	n, err := fc.GetClient().User.Update().Where(user.ID(f.user.ID), user.StatusEQ(user.StatusActive)).AddStorage(0).Save(ctx)
+	err = fc.GetClient().User.Update().Where(user.ID(f.user.ID), user.StatusEQ(user.StatusActive)).AddStorage(0).Exec(ctx)
 	if err != nil {
 		return err
 	}
-	if n != 1 {
+	// MySQL reports changed rows; a matched no-op lock can report zero.
+	active, err := fc.GetClient().User.Query().Where(user.ID(f.user.ID), user.StatusEQ(user.StatusActive)).Exist(ctx)
+	if err != nil {
+		return err
+	}
+	if !active {
 		return fs.ErrOwnerOnly
 	}
 	current, err := fc.GetByID(ctx, target.ID())

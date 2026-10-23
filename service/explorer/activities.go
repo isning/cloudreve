@@ -1,6 +1,7 @@
 package explorer
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
@@ -179,12 +180,23 @@ func (s *FileActivitiesService) List(c *gin.Context) (*FileActivitiesResponse, e
 			versions[row.ID] = true
 		}
 	}
+	paths := map[string]string{}
+	projectPath := func(raw string) string {
+		if value, ok := paths[raw]; ok {
+			return value
+		}
+		value := activityPath(c, raw, file, viewer.ID, dep.HashIDEncoder(), m)
+		paths[raw] = value
+		return value
+	}
 	for _, log := range logs {
 		content := ActivityContent{Category: types.AuditEvent(log.Type)}
 		if v := log.Content; v != nil {
-			content.OriginalName, content.NewName = v.OriginalName, v.NewName
-			content.From = activityPath(v.From, file, viewer.ID, dep.HashIDEncoder())
-			content.To = activityPath(v.To, file, viewer.ID, dep.HashIDEncoder())
+			content.From = projectPath(v.From)
+			content.To = projectPath(v.To)
+			if file.OwnerID() == viewer.ID || (content.From != "" && content.From != "redacted") {
+				content.OriginalName, content.NewName = v.OriginalName, v.NewName
+			}
 			content.EntityCreateTime = v.EntityCreateTime
 			content.StoragePolicyID, content.StoragePolicy = v.StoragePolicyID, v.StoragePolicy
 			if content.StoragePolicy == "" {
@@ -203,7 +215,7 @@ func (s *FileActivitiesService) List(c *gin.Context) (*FileActivitiesResponse, e
 	return result, nil
 }
 
-func activityPath(raw string, file fs.File, viewerID int, encoder hashid.Encoder) string {
+func activityPath(ctx context.Context, raw string, file fs.File, viewerID int, encoder hashid.Encoder, m manager.FileManager) string {
 	if raw == "" || raw == "redacted" {
 		return raw
 	}
@@ -224,7 +236,15 @@ func activityPath(raw string, file fs.File, viewerID int, encoder hashid.Encoder
 			if root != nil && root.Uri(true) != nil && root.Uri(false) != nil {
 				prefix := root.Uri(true).Path()
 				if u.Path == prefix || strings.HasPrefix(u.Path, prefix+"/") {
-					return root.Uri(false).Join(strings.TrimPrefix(u.Path, prefix)).String()
+					candidate := root.Uri(false).JoinRaw(strings.TrimPrefix(u.Path, prefix))
+					visible, err := m.Get(ctx, candidate, dbfs.WithRequiredCapabilities(dbfs.NavigatorCapabilityInfo))
+					// Historical paths carry no object identity. A different object at
+					// the same path cannot prove access to the historical reference.
+					if err == nil && visible.ID() == file.ID() && visible.OwnerID() == file.OwnerID() {
+						if current, ok := visible.(*dbfs.File); ok && current.CanList() {
+							return candidate.String()
+						}
+					}
 				}
 			}
 		}

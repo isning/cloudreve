@@ -98,11 +98,16 @@ func (t *RelocateTask) Do(ctx context.Context) (task.Status, error) {
 		}
 		return task.StatusError, err
 	}
+	if errors.Is(err, relocation.ErrJournalUnavailable) {
+		t.ResumeAfter(10 * time.Second)
+		return task.StatusSuspending, nil
+	}
 	if err != nil {
-		if errors.Is(err, relocation.ErrRetryableIO) {
-			if stopErr := relocation.StopRetrying(ctx, dep.DBClient(), t.ID()); stopErr != nil {
-				return task.StatusError, stopErr
-			}
+		stopCtx, stopCancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		stopErr := relocation.FailUnclaimed(stopCtx, dep.DBClient(), t.ID())
+		stopCancel()
+		if stopErr != nil {
+			return task.StatusError, stopErr
 		}
 		command.Phase = "failed"
 		reportCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
