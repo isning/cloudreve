@@ -13,7 +13,9 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
+	"github.com/cloudreve/Cloudreve/v4/ent"
 	"github.com/cloudreve/Cloudreve/v4/ent/auditlog"
 	"github.com/cloudreve/Cloudreve/v4/ent/file"
 	"github.com/cloudreve/Cloudreve/v4/ent/share"
@@ -21,6 +23,7 @@ import (
 	"github.com/cloudreve/Cloudreve/v4/inventory/types"
 	"github.com/cloudreve/Cloudreve/v4/pkg/boolset"
 	"github.com/cloudreve/Cloudreve/v4/pkg/hashid"
+	"github.com/cloudreve/Cloudreve/v4/pkg/serializer"
 	"github.com/cloudreve/Cloudreve/v4/service/explorer"
 	"github.com/stretchr/testify/require"
 )
@@ -43,6 +46,672 @@ func (f *storageFixture) defaultShare(t *testing.T, name string) (int, string) {
 	require.NoError(t, err)
 	return n, uri
 }
+
+func TestDefaultSharesConfigurationValidatesCurrentSourcesInInheritedTransaction(t *testing.T) {
+	for _, mode := range []string{"revoked", "new-link"} {
+		t.Run(mode, func(t *testing.T) {
+			f := newWritableShareFixture(t)
+			if f.database.Type == "sqlite" {
+				t.Skip("SQLite retains the accepting transaction's sole connection")
+			}
+			id, _ := f.defaultShare(t, "configuration-source")
+			f.setDefaultShares(t)
+			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+			defer cancel()
+			writer, tx, txCtx, err := inventory.WithTx(ctx, f.dep.UserClient())
+			require.NoError(t, err)
+			defer inventory.Rollback(tx)
+			writer.GetClient().Share.Query().CountX(txCtx)
+			if mode == "revoked" {
+				require.NoError(t, f.dep.ShareClient().Delete(ctx, id))
+			} else {
+				id, _ = f.defaultShare(t, "new-configuration-source")
+			}
+			raw := fmt.Sprintf("[%d]", id)
+			_, err = inventory.SaveDefaultShares(txCtx, writer.GetClient(), raw)
+			if mode == "revoked" {
+				require.Error(t, err, "a newly selected revoked link is not a retained configuration entry")
+				require.NoError(t, inventory.Rollback(tx))
+				return
+			}
+			require.NoError(t, err, "a newly committed valid link must remain selectable")
+			require.NoError(t, inventory.Commit(tx))
+		})
+	}
+}
+
+func TestDefaultSharesConfigurationRetainsOnlyCurrentSelections(t *testing.T) {
+	for _, retained := range []bool{false, true} {
+		t.Run(fmt.Sprintf("retained=%t", retained), func(t *testing.T) {
+			f := newWritableShareFixture(t)
+			if f.database.Type == "sqlite" {
+				t.Skip("SQLite retains the accepting transaction's sole connection")
+			}
+			id, _ := f.defaultShare(t, "retained-configuration-source")
+			if retained {
+				f.setDefaultShares(t)
+			} else {
+				f.setDefaultShares(t, id)
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+			defer cancel()
+			writer, tx, txCtx, err := inventory.WithTx(ctx, f.dep.UserClient())
+			require.NoError(t, err)
+			defer inventory.Rollback(tx)
+			writer.GetClient().Setting.Query().CountX(txCtx)
+			if retained {
+				f.setDefaultShares(t, id)
+			} else {
+				f.setDefaultShares(t)
+			}
+			require.NoError(t, f.dep.ShareClient().Delete(ctx, id))
+			raw := fmt.Sprintf("[%d]", id)
+			_, err = inventory.SaveDefaultShares(txCtx, writer.GetClient(), raw)
+			if !retained {
+				require.Error(t, err, "a removed selection must be validated as new")
+				require.NoError(t, inventory.Rollback(tx))
+				return
+			}
+			require.NoError(t, err, "currently retained unavailable selections remain removable")
+			require.NoError(t, inventory.Commit(tx))
+			stored, err := f.dep.SettingClient().Get(ctx, inventory.DefaultSharesSetting)
+			require.NoError(t, err)
+			require.JSONEq(t, raw, stored)
+		})
+	}
+}
+
+func TestDefaultSharesConfigurationPreservesPendingSourcesAndCallerTransaction(t *testing.T) {
+	for _, commit := range []bool{false, true} {
+		t.Run(fmt.Sprintf("commit=%t", commit), func(t *testing.T) {
+			f := newWritableShareFixture(t)
+			f.defaultShare(t, "configuration-seed")
+			f.setDefaultShares(t)
+			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+			defer cancel()
+			writer, tx, txCtx, err := inventory.WithTx(ctx, f.dep.UserClient())
+			require.NoError(t, err)
+			defer inventory.Rollback(tx)
+			root := writer.GetClient().File.Query().Where(file.OwnerID(2), file.Name(inventory.RootFolderName)).OnlyX(txCtx)
+			source := writer.GetClient().File.Create().SetOwnerID(2).SetParent(root).SetType(int(types.FileTypeFolder)).SetName("pending-configuration-source").SaveX(txCtx)
+			link, err := f.dep.ShareClient().Upsert(txCtx, &inventory.CreateShareParams{OwnerID: 2, FileID: source.ID})
+			require.NoError(t, err)
+			raw := fmt.Sprintf("[%d]", link.ID)
+			_, err = inventory.SaveDefaultShares(txCtx, writer.GetClient(), raw)
+			require.NoError(t, err)
+			if commit {
+				require.NoError(t, inventory.Commit(tx))
+			} else {
+				require.NoError(t, inventory.Rollback(tx))
+				raw = "[]"
+			}
+			stored, err := f.dep.SettingClient().Get(ctx, inventory.DefaultSharesSetting)
+			require.NoError(t, err)
+			require.JSONEq(t, raw, stored)
+			_, err = f.db.Share.Get(ctx, link.ID)
+			if commit {
+				require.NoError(t, err)
+			} else {
+				require.True(t, ent.IsNotFound(err), "configuration saves must not commit caller-owned sources")
+			}
+		})
+	}
+}
+
+func TestDefaultSharesPendingSourceDoesNotInvertConfigurationLocks(t *testing.T) {
+	for _, operation := range []string{"save", "install"} {
+		t.Run(operation, func(t *testing.T) {
+			f := newWritableShareFixture(t)
+			if f.database.Type == "sqlite" {
+				t.Skip("SQLite serializes writes on its single connection")
+			}
+			id, _ := f.defaultShare(t, "configuration-lock-source")
+			f.setDefaultShares(t, id)
+			competingID := id
+			if operation == "save" {
+				competingID, _ = f.defaultShare(t, "competing-configuration-source")
+			}
+			visitor, _ := f.createWritableVisitor(t, 2)
+			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+			defer cancel()
+			writer, tx, txCtx, err := inventory.WithTx(ctx, f.dep.UserClient())
+			require.NoError(t, err)
+			defer inventory.Rollback(tx)
+			root := writer.GetClient().File.Query().Where(file.OwnerID(2), file.Name(inventory.RootFolderName)).OnlyX(txCtx)
+			source := writer.GetClient().File.Create().SetOwnerID(2).SetParent(root).SetType(int(types.FileTypeFolder)).SetName("pending-lock-source").SaveX(txCtx)
+			link, err := f.dep.ShareClient().Upsert(txCtx, &inventory.CreateShareParams{OwnerID: 2, FileID: source.ID})
+			require.NoError(t, err)
+			type competingRequest struct{}
+			waiting := make(chan struct{})
+			var paused atomic.Bool
+			f.db.User.Use(func(next ent.Mutator) ent.Mutator {
+				return ent.MutateFunc(func(ctx context.Context, mutation ent.Mutation) (ent.Value, error) {
+					if ctx.Value(competingRequest{}) == true && paused.CompareAndSwap(false, true) {
+						close(waiting)
+					}
+					return next.Mutate(ctx, mutation)
+				})
+			})
+			finished := make(chan error, 1)
+			go func() {
+				otherCtx := context.WithValue(ctx, competingRequest{}, true)
+				if operation == "install" {
+					_, _, err := inventory.InstallDefaultShares(otherCtx, f.dep.UserClient(), visitor.ID, f.dep.HashIDEncoder(), true)
+					finished <- err
+					return
+				}
+				other, otherTx, otherCtx, err := inventory.WithTx(otherCtx, f.dep.UserClient())
+				if err != nil {
+					finished <- err
+					return
+				}
+				defer inventory.Rollback(otherTx)
+				_, err = inventory.SaveDefaultShares(otherCtx, other.GetClient(), fmt.Sprintf("[%d]", competingID))
+				if err == nil {
+					err = inventory.Commit(otherTx)
+				}
+				finished <- err
+			}()
+			awaitPermissionPause(t, waiting)
+			_, saveErr := inventory.SaveDefaultShares(txCtx, writer.GetClient(), fmt.Sprintf("[%d]", link.ID))
+			if saveErr == nil {
+				saveErr = inventory.Commit(tx)
+			} else {
+				_ = inventory.Rollback(tx)
+			}
+			var otherErr error
+			select {
+			case otherErr = <-finished:
+			case <-ctx.Done():
+				otherErr = ctx.Err()
+			}
+			require.NoError(t, saveErr)
+			require.NoError(t, otherErr)
+		})
+	}
+}
+
+func TestDefaultSharesPendingSourcesRequireCompleteOwnerFence(t *testing.T) {
+	for _, prelocked := range []bool{false, true} {
+		t.Run(fmt.Sprintf("prelocked=%t", prelocked), func(t *testing.T) {
+			f := newWritableShareFixture(t)
+			if f.database.Type == "sqlite" {
+				t.Skip("SQLite serializes writes on its single connection")
+			}
+			lower, _ := f.defaultShare(t, "lower-owner-source")
+			higher, password := f.createWritableVisitor(t, 2)
+			f.loginAs(t, higher.Email, password)
+			higherLink, _ := f.defaultShare(t, "higher-owner-source")
+			f.setDefaultShares(t)
+			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+			defer cancel()
+			writer, tx, txCtx, err := inventory.WithTx(ctx, f.dep.UserClient())
+			require.NoError(t, err)
+			defer inventory.Rollback(tx)
+			if prelocked {
+				require.NoError(t, inventory.LockPermissionOwners(txCtx, writer.GetClient(), 2, higher.ID))
+			}
+			root := writer.GetClient().File.Query().Where(file.OwnerID(higher.ID), file.Name(inventory.RootFolderName)).OnlyX(txCtx)
+			source := writer.GetClient().File.Create().SetOwnerID(higher.ID).SetParent(root).SetType(int(types.FileTypeFolder)).SetName("pending-higher-source").SaveX(txCtx)
+			pending, err := f.dep.ShareClient().Upsert(txCtx, &inventory.CreateShareParams{OwnerID: higher.ID, FileID: source.ID})
+			require.NoError(t, err)
+			type competingRequest struct{}
+			waiting := make(chan struct{})
+			var attempts atomic.Int32
+			barrier := int32(2)
+			if prelocked {
+				barrier = 1
+			}
+			f.db.User.Use(func(next ent.Mutator) ent.Mutator {
+				return ent.MutateFunc(func(ctx context.Context, mutation ent.Mutation) (ent.Value, error) {
+					if ctx.Value(competingRequest{}) == true && attempts.Add(1) == barrier {
+						close(waiting)
+					}
+					return next.Mutate(ctx, mutation)
+				})
+			})
+			finished := make(chan error, 1)
+			go func() {
+				other, otherTx, otherCtx, err := inventory.WithTx(context.WithValue(ctx, competingRequest{}, true), f.dep.UserClient())
+				if err != nil {
+					finished <- err
+					return
+				}
+				defer inventory.Rollback(otherTx)
+				_, err = inventory.SaveDefaultShares(otherCtx, other.GetClient(), fmt.Sprintf("[%d,%d]", lower, higherLink))
+				if err == nil {
+					err = inventory.Commit(otherTx)
+				}
+				finished <- err
+			}()
+			awaitPermissionPause(t, waiting)
+			_, saveErr := inventory.SaveDefaultShares(txCtx, writer.GetClient(), fmt.Sprintf("[%d,%d]", lower, pending.ID))
+			// A refused configuration save must leave the caller able to commit
+			// its pending source independently, releasing the competing writer.
+			commitErr := inventory.Commit(tx)
+			var otherErr error
+			select {
+			case otherErr = <-finished:
+			case <-ctx.Done():
+				otherErr = ctx.Err()
+			}
+			require.NoError(t, commitErr)
+			require.NoError(t, otherErr)
+			if prelocked {
+				require.NoError(t, saveErr)
+			} else {
+				var conflict serializer.AppError
+				require.ErrorAs(t, saveErr, &conflict)
+				require.EqualValues(t, serializer.CodeLockConflict, conflict.Code)
+			}
+			_, err = f.db.Share.Get(ctx, pending.ID)
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestDefaultSharesConfigurationFenceRequiresCompleteOwnerUnion(t *testing.T) {
+	for _, prelocked := range []bool{false, true} {
+		t.Run(fmt.Sprintf("prelocked=%t", prelocked), func(t *testing.T) {
+			f := newWritableShareFixture(t)
+			if f.database.Type == "sqlite" {
+				t.Skip("SQLite serializes writes on its single connection")
+			}
+			lower, _ := f.defaultShare(t, "configuration-lower-source")
+			higher, password := f.createWritableVisitor(t, 2)
+			f.loginAs(t, higher.Email, password)
+			higherLink, _ := f.defaultShare(t, "configuration-higher-source")
+			f.setDefaultShares(t)
+			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+			defer cancel()
+			writer, tx, txCtx, err := inventory.WithTx(ctx, f.dep.UserClient())
+			require.NoError(t, err)
+			defer inventory.Rollback(tx)
+			if prelocked {
+				require.NoError(t, inventory.LockPermissionOwners(txCtx, writer.GetClient(), 2, higher.ID))
+			}
+			_, err = inventory.SaveDefaultShares(txCtx, writer.GetClient(), fmt.Sprintf("[%d]", lower))
+			require.NoError(t, err)
+			type competingRequest struct{}
+			waiting := make(chan struct{})
+			var paused atomic.Bool
+			pause := func(ctx context.Context) {
+				if ctx.Value(competingRequest{}) == true && paused.CompareAndSwap(false, true) {
+					close(waiting)
+				}
+			}
+			f.db.User.Use(func(next ent.Mutator) ent.Mutator {
+				return ent.MutateFunc(func(ctx context.Context, mutation ent.Mutation) (ent.Value, error) {
+					if prelocked {
+						pause(ctx)
+					}
+					return next.Mutate(ctx, mutation)
+				})
+			})
+			f.db.Setting.Use(func(next ent.Mutator) ent.Mutator {
+				return ent.MutateFunc(func(ctx context.Context, mutation ent.Mutation) (ent.Value, error) {
+					if !prelocked {
+						pause(ctx)
+					}
+					return next.Mutate(ctx, mutation)
+				})
+			})
+			finished := make(chan error, 1)
+			go func() {
+				other, otherTx, otherCtx, err := inventory.WithTx(context.WithValue(ctx, competingRequest{}, true), f.dep.UserClient())
+				if err != nil {
+					finished <- err
+					return
+				}
+				defer inventory.Rollback(otherTx)
+				_, err = inventory.SaveDefaultShares(otherCtx, other.GetClient(), fmt.Sprintf("[%d]", higherLink))
+				if err == nil {
+					err = inventory.Commit(otherTx)
+				}
+				finished <- err
+			}()
+			awaitPermissionPause(t, waiting)
+			_, _, installErr := inventory.InstallDefaultShares(txCtx, writer, higher.ID, f.dep.HashIDEncoder(), true)
+			commitErr := inventory.Commit(tx)
+			var otherErr error
+			select {
+			case otherErr = <-finished:
+			case <-ctx.Done():
+				otherErr = ctx.Err()
+			}
+			require.NoError(t, commitErr)
+			require.NoError(t, otherErr)
+			if prelocked {
+				require.NoError(t, installErr)
+			} else {
+				var conflict serializer.AppError
+				require.ErrorAs(t, installErr, &conflict)
+				require.EqualValues(t, serializer.CodeLockConflict, conflict.Code)
+			}
+		})
+	}
+}
+
+func TestDefaultSharesBootstrapUsesCurrentStateInInheritedTransaction(t *testing.T) {
+	for _, mode := range []string{"automatic", "explicit", "stale-settings"} {
+		t.Run(mode, func(t *testing.T) {
+			f := newWritableShareFixture(t)
+			if f.database.Type == "sqlite" {
+				t.Skip("SQLite keeps the caller's sole connection; pending bootstrap is covered separately")
+			}
+			id, _ := f.defaultShare(t, "inherited-welcome")
+			f.setDefaultShares(t, id)
+			visitor, password := f.createWritableVisitor(t, 2)
+			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+			defer cancel()
+			writer, tx, txCtx, err := inventory.WithTx(ctx, f.dep.UserClient())
+			require.NoError(t, err)
+			defer inventory.Rollback(tx)
+			stale, err := writer.GetByID(txCtx, visitor.ID)
+			require.NoError(t, err)
+			require.False(t, stale.Settings.DefaultShares.Done)
+			require.Zero(t, writer.GetClient().File.Query().Where(file.OwnerID(visitor.ID)).CountX(txCtx))
+			f.loginAs(t, visitor.Email, password)
+			f.request(t, http.MethodGet, "/api/v4/file?uri="+url.QueryEscape("cloudreve://my"), nil, nil)
+			root := f.db.File.Query().Where(file.OwnerID(visitor.ID), file.Not(file.HasParent())).OnlyX(ctx)
+			fresh := f.db.User.GetX(ctx, visitor.ID)
+			fresh.Settings.Language = "zh-CN"
+			require.NoError(t, f.dep.UserClient().SaveSettings(ctx, fresh))
+			language := "zh-CN"
+			if mode == "stale-settings" {
+				stale.Settings.Language = "de-DE"
+				require.NoError(t, f.dep.UserClient().SaveSettings(txCtx, stale))
+				language = "de-DE"
+			} else {
+				installed, result, err := inventory.InstallDefaultShares(txCtx, writer, visitor.ID, f.dep.HashIDEncoder(), mode == "explicit")
+				require.NoError(t, err)
+				require.NoError(t, inventory.Commit(tx))
+				require.Equal(t, root.ID, installed.ID, "bootstrap must reuse the committed personal root")
+				require.Zero(t, result.Added, "an installed shortcut must not be recreated")
+			}
+			if mode == "stale-settings" {
+				require.NoError(t, inventory.Commit(tx))
+			}
+			require.Equal(t, 1, f.db.File.Query().Where(file.OwnerID(visitor.ID), file.Not(file.HasParent())).CountX(ctx))
+			require.Equal(t, 1, f.db.File.Query().Where(file.OwnerID(visitor.ID), file.IsSymbolic(true)).CountX(ctx))
+			fresh = f.db.User.GetX(ctx, visitor.ID)
+			require.True(t, fresh.Settings.DefaultShares.Done, "a stale settings form must preserve bootstrap completion")
+			require.Equal(t, language, fresh.Settings.Language)
+		})
+	}
+}
+
+func TestDefaultSharesBootstrapPreservesCallerTransaction(t *testing.T) {
+	for _, visibility := range []string{"pending", "committed"} {
+		for _, finish := range []string{"commit", "rollback"} {
+			t.Run(visibility+"/"+finish, func(t *testing.T) {
+				f := newWritableShareFixture(t)
+				if visibility == "committed" && f.database.Type == "sqlite" {
+					t.Skip("SQLite keeps the caller's sole connection")
+				}
+				if visibility == "pending" {
+					id, _ := f.defaultShare(t, "pending-welcome")
+					f.setDefaultShares(t, id)
+				}
+				ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+				defer cancel()
+				writer, tx, txCtx, err := inventory.WithTx(ctx, f.dep.UserClient())
+				require.NoError(t, err)
+				defer inventory.Rollback(tx)
+				writer.GetClient().User.Query().CountX(txCtx)
+				createCtx := txCtx
+				if visibility == "committed" {
+					id, _ := f.defaultShare(t, "snapshot-new-welcome")
+					f.setDefaultShares(t, id)
+					createCtx = ctx
+				}
+				account, err := f.dep.UserClient().Create(createCtx, &inventory.NewUserArgs{
+					Email: "pending-default-shares@example.com", Nick: "Pending member", GroupID: 2, Status: entuser.StatusActive, SkipBootstrap: true,
+				})
+				require.NoError(t, err)
+				root, result, err := inventory.InstallDefaultShares(txCtx, f.dep.UserClient(), account.ID, f.dep.HashIDEncoder(), false)
+				require.NoError(t, err)
+				require.Equal(t, 1, result.Added)
+				require.Equal(t, account.ID, root.OwnerID)
+				require.True(t, writer.GetClient().User.Query().Where(entuser.ID(account.ID), inventory.CurrentPermissionRead).OnlyX(txCtx).Settings.DefaultShares.Done)
+				if finish == "commit" {
+					require.NoError(t, inventory.Commit(tx))
+					require.Equal(t, 1, f.db.File.Query().Where(file.OwnerID(account.ID), file.IsSymbolic(true)).CountX(ctx))
+					require.True(t, f.db.User.GetX(ctx, account.ID).Settings.DefaultShares.Done)
+				} else {
+					require.NoError(t, inventory.Rollback(tx))
+					if visibility == "pending" {
+						require.Zero(t, f.db.User.Query().Where(entuser.ID(account.ID)).CountX(ctx))
+					} else {
+						require.False(t, f.db.User.GetX(ctx, account.ID).Settings.DefaultShares.Done)
+					}
+					require.Zero(t, f.db.File.Query().Where(file.OwnerID(account.ID)).CountX(ctx))
+				}
+			})
+		}
+	}
+}
+
+func TestDefaultSharesIndependentRootsDoNotHoldEmptyRanges(t *testing.T) {
+	f := newWritableShareFixture(t)
+	if f.database.Type == "sqlite" {
+		t.Skip("SQLite serializes native writers")
+	}
+	first, _ := f.createWritableVisitor(t, 2)
+	second, _ := f.createWritableVisitor(t, 2)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	ready, resume := make(chan struct{}, 2), make(chan struct{})
+	defer close(resume)
+	f.db.File.Use(func(next entgo.Mutator) entgo.Mutator {
+		return entgo.MutateFunc(func(ctx context.Context, m entgo.Mutation) (entgo.Value, error) {
+			owner, exists := m.Field(file.FieldOwnerID)
+			if m.Op().Is(entgo.OpCreate) && exists && (owner == first.ID || owner == second.ID) {
+				ready <- struct{}{}
+				select {
+				case <-resume:
+				case <-ctx.Done():
+					return nil, ctx.Err()
+				}
+			}
+			return next.Mutate(ctx, m)
+		})
+	})
+	results := make(chan error, 2)
+	for _, id := range []int{first.ID, second.ID} {
+		go func() {
+			_, _, err := inventory.InstallDefaultShares(ctx, f.dep.UserClient(), id, f.dep.HashIDEncoder(), false)
+			results <- err
+		}()
+	}
+	for range 2 {
+		select {
+		case <-ready:
+		case <-ctx.Done():
+			t.Fatal(ctx.Err())
+		}
+	}
+	// Both native root lookups have completed before either INSERT starts.
+	resume <- struct{}{}
+	resume <- struct{}{}
+	for range 2 {
+		require.NoError(t, <-results)
+	}
+	for _, id := range []int{first.ID, second.ID} {
+		require.Equal(t, 1, f.db.File.Query().Where(file.OwnerID(id), file.Not(file.HasParent())).CountX(ctx))
+	}
+}
+
+func TestDefaultSharesCurrentListSurvivesInheritedSnapshot(t *testing.T) {
+	for _, mode := range []string{"committed", "pending"} {
+		t.Run(mode, func(t *testing.T) {
+			f := newWritableShareFixture(t)
+			if mode == "committed" && f.database.Type == "sqlite" {
+				t.Skip("SQLite keeps the caller's sole connection")
+			}
+			a, _ := f.defaultShare(t, "current-list-a")
+			b, _ := f.defaultShare(t, "current-list-b")
+			visitor, _ := f.createWritableVisitor(t, 2)
+			if mode == "pending" {
+				f.setDefaultShares(t, a)
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+			defer cancel()
+			writer, tx, txCtx, err := inventory.WithTx(ctx, f.dep.UserClient())
+			require.NoError(t, err)
+			defer inventory.Rollback(tx)
+			writer.GetClient().Setting.Query().CountX(txCtx)
+			expected := "current-list-a"
+			if mode == "committed" {
+				f.setDefaultShares(t, a)
+			} else {
+				// The composed configuration save and installation share one
+				// complete source/recipient fence before the configuration lock.
+				require.NoError(t, inventory.LockPermissionOwners(txCtx, writer.GetClient(), 2, visitor.ID))
+				_, err = inventory.SaveDefaultShares(txCtx, writer.GetClient(), fmt.Sprintf("[%d]", b))
+				require.NoError(t, err)
+				expected = "current-list-b"
+			}
+			_, result, err := inventory.InstallDefaultShares(txCtx, f.dep.UserClient(), visitor.ID, f.dep.HashIDEncoder(), true)
+			require.NoError(t, err)
+			require.Equal(t, 1, result.Added)
+			require.Equal(t, expected, result.Files[0].Name)
+			require.NoError(t, inventory.Commit(tx))
+			installed := f.db.File.Query().Where(file.OwnerID(visitor.ID), file.IsSymbolic(true)).OnlyX(ctx)
+			require.Equal(t, expected, installed.Name)
+			require.False(t, f.db.User.GetX(ctx, visitor.ID).Settings.DefaultShares.Done, "explicit installation must preserve automatic eligibility")
+		})
+	}
+}
+
+func TestDefaultSharesPendingConfigurationDoesNotRequireObsoleteOwners(t *testing.T) {
+	for _, commit := range []bool{false, true} {
+		t.Run(fmt.Sprintf("commit=%t", commit), func(t *testing.T) {
+			f := newWritableShareFixture(t)
+			a, _ := f.defaultShare(t, "obsolete-owner-source")
+			owner, password := f.createWritableVisitor(t, 2)
+			f.loginAs(t, owner.Email, password)
+			b, _ := f.defaultShare(t, "pending-owner-source")
+			f.setDefaultShares(t, a)
+			recipient, _ := f.createWritableVisitor(t, 2)
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			writer, tx, txCtx, err := inventory.WithTx(ctx, f.dep.UserClient())
+			require.NoError(t, err)
+			defer inventory.Rollback(tx)
+			writer.GetClient().Setting.Query().CountX(txCtx)
+			require.NoError(t, inventory.LockPermissionOwners(txCtx, writer.GetClient(), owner.ID, recipient.ID))
+			_, err = inventory.SaveDefaultShares(txCtx, writer.GetClient(), fmt.Sprintf("[%d]", b))
+			require.NoError(t, err)
+			_, result, err := inventory.InstallDefaultShares(txCtx, f.dep.UserClient(), recipient.ID, f.dep.HashIDEncoder(), true)
+			require.NoError(t, err, "pending configuration needs only its current source and recipient owners")
+			require.Equal(t, 1, result.Added)
+			require.Equal(t, "pending-owner-source", result.Files[0].Name)
+			if f.database.Type != "sqlite" {
+				require.Zero(t, f.db.File.Query().Where(file.OwnerID(recipient.ID), file.IsSymbolic(true)).CountX(ctx))
+			}
+			if commit {
+				require.NoError(t, inventory.Commit(tx))
+				installed := f.db.File.Query().Where(file.OwnerID(recipient.ID), file.IsSymbolic(true)).OnlyX(ctx)
+				require.Equal(t, "pending-owner-source", installed.Name)
+			} else {
+				require.NoError(t, inventory.Rollback(tx))
+				require.Zero(t, f.db.File.Query().Where(file.OwnerID(recipient.ID), file.IsSymbolic(true)).CountX(ctx))
+			}
+			stored := ""
+			for _, row := range f.db.Setting.Query().AllX(ctx) {
+				if row.Name == inventory.DefaultSharesSetting {
+					stored = row.Value
+				}
+			}
+			expected := a
+			if commit {
+				expected = b
+			}
+			require.JSONEq(t, fmt.Sprintf("[%d]", expected), stored)
+			require.False(t, f.db.User.GetX(ctx, recipient.ID).Settings.DefaultShares.Done)
+		})
+	}
+}
+
+func TestDefaultSharesLargeShortcutInventoryUsesBoundedQueries(t *testing.T) {
+	f := newWritableShareFixture(t)
+	if f.database.Type != "mysql" {
+		t.Skip("MySQL/MariaDB prepared-statement parameter limit")
+	}
+	id, _ := f.defaultShare(t, "large-inventory-default")
+	f.setDefaultShares(t, id)
+	visitor, password := f.createWritableVisitor(t, 2)
+	f.loginAs(t, visitor.Email, password)
+	f.request(t, http.MethodGet, "/api/v4/file?uri="+url.QueryEscape("cloudreve://my"), nil, nil)
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	root := f.db.File.Query().Where(file.OwnerID(visitor.ID), file.Not(file.HasParent())).OnlyX(ctx)
+	const count = 65536
+	for offset := 1; offset < count; offset += 256 {
+		var batch []*ent.FileCreate
+		for i := offset; i < min(offset+256, count); i++ {
+			batch = append(batch, f.db.File.Create().SetOwnerID(visitor.ID).SetParentID(root.ID).
+				SetType(int(types.FileTypeFolder)).SetIsSymbolic(true).SetName(fmt.Sprintf("saved-%05d", i)))
+		}
+		_, err := f.db.File.CreateBulk(batch...).Save(ctx)
+		require.NoError(t, err)
+	}
+	_, result, err := inventory.InstallDefaultShares(ctx, f.dep.UserClient(), visitor.ID, f.dep.HashIDEncoder(), true)
+	require.NoError(t, err)
+	require.Zero(t, result.Added)
+	require.Equal(t, 1, result.Existing)
+	require.Equal(t, count, f.db.File.Query().Where(file.OwnerID(visitor.ID), file.IsSymbolic(true)).CountX(ctx))
+}
+
+func TestDefaultSharesSettingsSaveSeesNewAccountInInheritedSnapshot(t *testing.T) {
+	for _, change := range []string{"unchanged", "changed"} {
+		for _, finish := range []string{"commit", "rollback"} {
+			t.Run(change+"/"+finish, func(t *testing.T) {
+				f := newWritableShareFixture(t)
+				if f.database.Type != "mysql" {
+					t.Skip("MySQL/MariaDB repeatable-read unchanged-row fallback")
+				}
+				ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+				defer cancel()
+				writer, tx, txCtx, err := inventory.WithTx(ctx, f.dep.UserClient())
+				require.NoError(t, err)
+				defer inventory.Rollback(tx)
+				writer.GetClient().User.Query().CountX(txCtx)
+				created, err := f.dep.UserClient().Create(ctx, &inventory.NewUserArgs{
+					Email: "snapshot-new-settings@example.com", Nick: "New settings", GroupID: 2, Status: entuser.StatusActive, SkipBootstrap: true,
+				})
+				require.NoError(t, err)
+				f.db.User.Use(func(next entgo.Mutator) entgo.Mutator {
+					return entgo.MutateFunc(func(ctx context.Context, m entgo.Mutation) (entgo.Value, error) {
+						m.(*ent.UserMutation).SetUpdatedAt(created.UpdatedAt)
+						return next.Mutate(ctx, m)
+					})
+				})
+				input := *created
+				settings := *created.Settings
+				input.Settings = &settings
+				if change == "changed" {
+					input.Settings.Language = "de-DE"
+				}
+				require.NoError(t, f.dep.UserClient().SaveSettings(txCtx, &input))
+				if finish == "commit" {
+					require.NoError(t, inventory.Commit(tx))
+				} else {
+					require.NoError(t, inventory.Rollback(tx))
+				}
+				persisted := f.db.User.GetX(ctx, created.ID)
+				expected := created.Settings.Language
+				if finish == "commit" {
+					expected = input.Settings.Language
+				}
+				require.Equal(t, expected, persisted.Settings.Language)
+				require.Equal(t, created.Settings.DefaultShares, persisted.Settings.DefaultShares)
+			})
+		}
+	}
+}
+
 func TestDefaultSharesInitialSnapshotAndCurrentAddition(t *testing.T) {
 	f := newWritableShareFixture(t)
 	a, _ := f.defaultShare(t, "welcome-a")

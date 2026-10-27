@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"entgo.io/ent/dialect/sql"
@@ -26,7 +27,10 @@ const (
 	DBVersionPrefix           = "db_version_"
 	EnvDefaultOverwritePrefix = "CR_SETTING_DEFAULT_"
 	EnvEnableAria2            = "CR_ENABLE_ARIA2"
+	metadataPoolSize          = 4
 )
+
+var metadataClients sync.Map
 
 // InitializeDBClient runs migration and returns a new ent.Client with additional configurations
 // for hooks and interceptors.
@@ -48,6 +52,10 @@ func InitializeDBClient(l logging.Logger,
 
 // NewRawEntClient returns a new ent.Client without additional configurations.
 func NewRawEntClient(l logging.Logger, config conf.ConfigProvider) (*ent.Client, error) {
+	return newRawEntClient(l, config, false)
+}
+
+func newRawEntClient(l logging.Logger, config conf.ConfigProvider, metadataOnly bool) (*ent.Client, error) {
 	l.Info("Initializing database connection...")
 	dbConfig := config.Database()
 	confDBType := dbConfig.Type
@@ -125,14 +133,37 @@ func NewRawEntClient(l logging.Logger, config conf.ConfigProvider) (*ent.Client,
 	db.SetMaxIdleConns(50)
 	if confDBType == conf.SQLiteDB {
 		db.SetMaxOpenConns(1)
+	} else if metadataOnly {
+		db.SetMaxIdleConns(metadataPoolSize)
+		db.SetMaxOpenConns(metadataPoolSize)
 	} else {
-		db.SetMaxOpenConns(100)
+		// Keep the existing total connection budget, reserving capacity for
+		// nonlocking metadata reads while accepting transactions hold locks.
+		db.SetMaxOpenConns(100 - metadataPoolSize)
 	}
 
 	// Set timeout
 	db.SetConnMaxLifetime(time.Second * 30)
 
 	stableDriver := contextDriver{Driver: client}
+	var result, metadata *ent.Client
+	if !metadataOnly && confDBType != conf.SQLiteDB {
+		metadata, err = newRawEntClient(l, config, true)
+		if err != nil {
+			_ = client.Close()
+			return nil, fmt.Errorf("open committed metadata connection pool: %w", err)
+		}
+	}
+	if !metadataOnly {
+		stableDriver.afterClose = func() error {
+			metadataClients.Delete(result)
+			migrationDatabases.Delete(result)
+			if metadata != nil {
+				return metadata.Close()
+			}
+			return nil
+		}
+	}
 	driverOpt := ent.Driver(stableDriver)
 
 	// Enable verbose logging for debug mode.
@@ -143,7 +174,13 @@ func NewRawEntClient(l logging.Logger, config conf.ConfigProvider) (*ent.Client,
 		}))
 	}
 
-	result := ent.NewClient(driverOpt)
+	result = ent.NewClient(driverOpt)
+	if metadata != nil {
+		metadataClients.Store(result, metadata)
+	}
+	if metadataOnly {
+		return result, nil
+	}
 	lockPath := util.RelativePath(dbConfig.DBFile)
 	if dbConfig.DatabaseURL != "" && (string(confDBType) == "sqlite" || string(confDBType) == "sqlite3") {
 		raw := strings.SplitN(strings.TrimPrefix(dbConfig.DatabaseURL, "file:"), "?", 2)[0]

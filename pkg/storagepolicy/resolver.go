@@ -7,7 +7,10 @@ import (
 	"errors"
 	"fmt"
 
+	"entgo.io/ent/dialect"
+	"entgo.io/ent/dialect/sql"
 	"github.com/cloudreve/Cloudreve/v4/ent"
+	"github.com/cloudreve/Cloudreve/v4/ent/user"
 	"github.com/cloudreve/Cloudreve/v4/inventory"
 	"github.com/cloudreve/Cloudreve/v4/inventory/types"
 )
@@ -24,19 +27,33 @@ func New(users inventory.UserClient, policies inventory.StoragePolicyClient) *Re
 	return &Resolver{users: users, policies: policies}
 }
 
-// Available reloads the owner's group instead of trusting a navigation snapshot.
-// It returns only destinations for new writes; existing entity reads retain
-// their own storage policy and do not depend on this list.
+// Available inherits the file transaction, including SQLite's sole connection.
+// For MySQL's older read view, base clients supply committed planning metadata;
+// Revalidate still checks the accepting write inside its original transaction.
+// Existing entity reads do not depend on this list.
 func (r *Resolver) Available(ctx context.Context, ownerID int) ([]*ent.StoragePolicy, error) {
-	u, _ := inventory.InheritTx(ctx, r.users)
-	owner, err := u.GetByID(context.WithValue(ctx, inventory.LoadUserGroup{}, true), ownerID)
+	// This list is planning metadata. A base-client authorization lock would
+	// wait on the accepting transaction's owner fence; Revalidate uses that tx.
+	ctx = context.WithValue(ctx, inventory.CurrentPermissionReadCtx{}, false)
+	u, tx := inventory.InheritTx(ctx, r.users)
+	sc, _ := inventory.InheritTx(ctx, r.policies)
+	// Inspect the inherited query's dialect without borrowing another connection.
+	usesMySQL := false
+	owner, err := u.GetClient().User.Query().Where(user.ID(ownerID), func(s *sql.Selector) {
+		usesMySQL = s.Dialect() == dialect.MySQL
+	}).WithGroup().Only(ctx)
+	if usesMySQL && tx != nil && (err == nil || ent.IsNotFound(err)) {
+		metadata := inventory.CommittedMetadataClient(ctx)
+		u = r.users.SetClient(metadata).(inventory.UserClient)
+		sc = r.policies.SetClient(metadata).(inventory.StoragePolicyClient)
+		owner, err = u.GetByID(context.WithValue(ctx, inventory.LoadUserGroup{}, true), ownerID)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("load current policy owner: %w", err)
 	}
 	if owner.Edges.Group == nil {
 		return nil, fmt.Errorf("owner group not loaded")
 	}
-	sc, _ := inventory.InheritTx(ctx, r.policies)
 	policies, err := sc.AvailableByGroup(ctx, owner.Edges.Group)
 	if err != nil {
 		return nil, fmt.Errorf("load available storage policies: %w", err)
@@ -48,8 +65,27 @@ func (r *Resolver) Default(ctx context.Context, ownerID int) (*ent.StoragePolicy
 	return r.Select(ctx, ownerID, 0, 0)
 }
 
-// SelectForFile reads current preference ancestry from Ent. Navigation caches
-// carry paths and display data, and are never the authority for placement.
+// Revalidate is the final grant check for a write. The caller's transaction must
+// already hold the owner lock followed by the chosen concrete policy lock. Select
+// provides placement metadata; its ordinary reads can retain an older snapshot.
+// A nonzero poolID requires this exact pool-to-destination binding, in the same
+// query as its grant. Separate checks can lock different grants in reverse order
+// when administrators change memberships between selection and acceptance.
+func (r *Resolver) Revalidate(ctx context.Context, ownerID, policyID, poolID int) error {
+	sc, _ := inventory.InheritTx(ctx, r.policies)
+	granted, err := inventory.StoragePolicyGranted(ctx, sc.GetClient(), ownerID, policyID, poolID)
+	if err != nil {
+		return fmt.Errorf("revalidate storage policy grant: %w", err)
+	}
+	if !granted {
+		return ErrPolicyNotGranted
+	}
+	return nil
+}
+
+// SelectForFile reads preference ancestry from Ent. Accepting writes enable
+// CurrentPermissionReadCtx after their owner fence; navigation caches are never
+// the authority for placement.
 func (r *Resolver) SelectForFile(ctx context.Context, ownerID, explicitID int, files inventory.FileClient, fileID int) (*ent.StoragePolicy, error) {
 	if explicitID != 0 {
 		return r.Select(ctx, ownerID, explicitID, 0)

@@ -10,6 +10,8 @@ import (
 
 	"github.com/cloudreve/Cloudreve/v4/application/constants"
 	"github.com/cloudreve/Cloudreve/v4/ent"
+	entfile "github.com/cloudreve/Cloudreve/v4/ent/file"
+	entgroup "github.com/cloudreve/Cloudreve/v4/ent/group"
 	entuser "github.com/cloudreve/Cloudreve/v4/ent/user"
 	"github.com/cloudreve/Cloudreve/v4/inventory"
 	"github.com/cloudreve/Cloudreve/v4/inventory/types"
@@ -91,7 +93,7 @@ func (f *DBFS) requireSubtreePermission(ctx context.Context, n Navigator, files 
 		return err
 	}
 	defer reset()
-	return n.Walk(ctx, files, intsets.MaxInt, intsets.MaxInt, func(files []*File, _ int) error {
+	return n.Walk(ctx, append([]*File(nil), files...), intsets.MaxInt, intsets.MaxInt, func(files []*File, _ int) error {
 		for _, file := range files {
 			if !f.canAccess(ctx, file, permission) {
 				return inventory.PermissionDenied(permission)
@@ -148,11 +150,12 @@ func (f *DBFS) SetPermissions(ctx context.Context, uris []*fs.URI, setting *type
 	if err != nil {
 		return err
 	}
+	ctx = context.WithValue(ctx, inventory.CurrentPermissionReadCtx{}, true)
 	currentFiles := make([]*ent.File, 0, len(targets))
 	for _, target := range targets {
 		// Read after acquiring the canonical file lock, preserving concurrent
 		// view changes and other properties when updating only this ACL.
-		current, err := fc.GetClient().File.Get(ctx, target.ID())
+		current, err := fc.GetClient().File.Query().Where(entfile.ID(target.ID()), inventory.CurrentPermissionRead).Only(ctx)
 		if err != nil {
 			return err
 		}
@@ -192,8 +195,31 @@ func (f *DBFS) SetPermissions(ctx context.Context, uris []*fs.URI, setting *type
 // transfers. Authorization reads follow this fence inside the same transaction.
 func (f *DBFS) lockPermissionOwners(ctx context.Context, fc inventory.FileClient, targets ...*File) (*ent.User, error) {
 	ids := map[int]bool{}
+	shareCreators := map[int]bool{}
+	seenShares := map[int]bool{}
 	for _, target := range targets {
 		ids[target.OwnerID()] = true
+		if uri := target.Uri(false); uri.FileSystem() == constants.FileSystemShare {
+			id, err := f.hasher.Decode(uri.ID(hashid.EncodeUserID(f.hasher, f.user.ID)), hashid.ShareID)
+			if err != nil {
+				return nil, ErrPermissionDenied
+			}
+			if seenShares[id] {
+				continue
+			}
+			// Creator and source are immutable link fields. Include the creator
+			// in the same numeric owner order before current navigation reads.
+			creator, err := inventory.SharePermissionOwner(ctx, f.shareClient, id)
+			if ent.IsNotFound(err) {
+				return nil, ErrPermissionDenied
+			}
+			if err != nil {
+				return nil, err
+			}
+			ids[creator] = true
+			shareCreators[creator] = true
+			seenShares[id] = true
+		}
 	}
 	if f.user.ID > 0 {
 		ids[f.user.ID] = true
@@ -206,15 +232,49 @@ func (f *DBFS) lockPermissionOwners(ctx context.Context, fc inventory.FileClient
 	if err := inventory.LockPermissionOwners(ctx, fc.GetClient(), ordered...); err != nil {
 		return nil, err
 	}
+	ctx = context.WithValue(ctx, inventory.CurrentPermissionReadCtx{}, true)
+	// Navigation loads every participating owner's group. Fence their complete
+	// numeric union before taking policy or entity locks, as group saves lock
+	// the group before its policies. User locks keep group membership stable.
+	groupIDs := make(map[int]bool)
+	for _, id := range ordered {
+		owner, err := fc.GetClient().User.Query().Where(entuser.ID(id), inventory.CurrentPermissionRead).
+			Select(entuser.FieldID, entuser.FieldGroupUsers).Only(ctx)
+		if ent.IsNotFound(err) {
+			return nil, ErrPermissionDenied
+		}
+		if err != nil {
+			return nil, err
+		}
+		groupIDs[owner.GroupUsers] = true
+	}
+	if f.user.ID == 0 {
+		groupIDs[inventory.AnonymousGroupID] = true
+	}
+	groups := make([]int, 0, len(groupIDs))
+	for id := range groupIDs {
+		groups = append(groups, id)
+	}
+	sort.Ints(groups)
+	for _, id := range groups {
+		if _, err := fc.GetClient().Group.Query().Where(entgroup.ID(id), inventory.CurrentPermissionRead).
+			Select(entgroup.FieldID).Only(ctx); err != nil {
+			return nil, err
+		}
+	}
 	uc := f.userClient.SetClient(fc.GetClient()).(inventory.UserClient)
 	actor, err := uc.GetLoginUserByID(ctx, f.user.ID)
+	if ent.IsNotFound(err) {
+		return nil, ErrPermissionDenied
+	}
 	if err != nil {
 		return nil, err
 	}
 	// Native personal navigation lets a current administrator manage inactive
 	// accounts. Share entries still require active owners, including when a link
 	// becomes invalid after the initial navigation but before this fence.
-	requireActive := map[int]bool{actor.ID: true}
+	requireActive := shareCreators
+	requireActive[actor.ID] = true
 	isAdmin := actor.Edges.Group.Permissions.Enabled(int(types.GroupPermissionIsAdmin))
 	for _, target := range targets {
 		if !isAdmin || target.Uri(false).FileSystem() != constants.FileSystemMy {
@@ -222,9 +282,9 @@ func (f *DBFS) lockPermissionOwners(ctx context.Context, fc inventory.FileClient
 		}
 	}
 	for _, id := range ordered {
-		// MySQL reports changed rows for a no-op update. Check existence
-		// separately after the row lock rather than treating zero as missing.
-		query := fc.GetClient().User.Query().Where(entuser.ID(id))
+		// An unchanged lock can leave MySQL's earlier snapshot intact. Check
+		// current status under the owner lock; SQLite's write serializes it.
+		query := fc.GetClient().User.Query().Where(entuser.ID(id), inventory.CurrentPermissionRead)
 		if requireActive[id] {
 			query.Where(entuser.StatusEQ(entuser.StatusActive))
 		}
@@ -301,6 +361,7 @@ func (f *DBFS) ValidateSharePermission(ctx context.Context, target fs.File) (*en
 	if err := f.revalidatePermissions(ctx, fc, permissionCheck{file, types.FilePermissionShare, false}); err != nil {
 		return nil, err
 	}
+	ctx = context.WithValue(ctx, inventory.CurrentPermissionReadCtx{}, true)
 	return f.userClient.SetClient(fc.GetClient()).(inventory.UserClient).GetLoginUserByID(ctx, f.user.ID)
 }
 
@@ -316,6 +377,7 @@ func (f *DBFS) revalidatePermissions(ctx context.Context, fc inventory.FileClien
 	if err != nil {
 		return err
 	}
+	ctx = context.WithValue(ctx, inventory.CurrentPermissionReadCtx{}, true)
 	uc := f.userClient.SetClient(fc.GetClient()).(inventory.UserClient)
 	sc := f.shareClient.SetClient(fc.GetClient()).(inventory.ShareClient)
 	allowed := func(file *File, permission types.FilePermission) bool {
@@ -323,6 +385,15 @@ func (f *DBFS) revalidatePermissions(ctx context.Context, fc inventory.FileClien
 			file.Uri(false).FileSystem() == constants.FileSystemShare && file.HasPermission(permission)
 	}
 	for _, check := range checks {
+		exists, err := fc.GetClient().File.Query().Where(
+			entfile.ID(check.file.ID()), entfile.OwnerID(check.file.OwnerID()), inventory.CurrentPermissionRead,
+		).Exist(ctx)
+		if err != nil {
+			return err
+		}
+		if !exists {
+			return fs.ErrModified
+		}
 		uri := check.file.Uri(false)
 		var navigator Navigator
 		config := f.settingClient.DBFS(ctx)
@@ -336,7 +407,7 @@ func (f *DBFS) revalidatePermissions(ctx context.Context, fc inventory.FileClien
 		default:
 			return ErrPermissionDenied
 		}
-		err := func() error {
+		err = func() error {
 			defer navigator.Recycle()
 			target, err := navigator.To(ctx, uri)
 			if err != nil {

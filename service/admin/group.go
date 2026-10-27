@@ -83,6 +83,10 @@ func (service *SingleGroupService) Delete(c *gin.Context) error {
 
 	err = groupClient.Delete(c, service.ID)
 	if err != nil {
+		var occupied *inventory.GroupInUseError
+		if errors.As(err, &occupied) {
+			return serializer.NewError(serializer.CodeGroupUsedByUser, strconv.Itoa(occupied.Count), nil)
+		}
 		return serializer.NewError(serializer.CodeDBError, "Failed to delete group", err)
 	}
 
@@ -157,57 +161,22 @@ func (s *SingleGroupService) Get(c *gin.Context) (*GetGroupResponse, error) {
 
 type (
 	UpsertGroupService struct {
-		Group           *ent.Group      `json:"group" binding:"required"`
-		PolicyIDs       json.RawMessage `json:"policy_ids"`
-		defaultPolicyID *int
+		Group     *ent.Group      `json:"group" binding:"required"`
+		PolicyIDs json.RawMessage `json:"policy_ids"`
 	}
 	UpsertGroupParamCtx struct{}
 )
-
-func (s *UpsertGroupService) UnmarshalJSON(data []byte) error {
-	var raw struct {
-		Group     json.RawMessage `json:"group"`
-		PolicyIDs json.RawMessage `json:"policy_ids"`
-	}
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return err
-	}
-	if err := json.Unmarshal(raw.Group, &s.Group); err != nil {
-		return err
-	}
-	s.PolicyIDs = raw.PolicyIDs
-	var group struct {
-		Edges map[string]json.RawMessage `json:"edges"`
-	}
-	if err := json.Unmarshal(raw.Group, &group); err != nil {
-		return err
-	}
-	if edge, ok := group.Edges["storage_policies"]; ok {
-		var policy *struct {
-			ID int `json:"id"`
-		}
-		if err := json.Unmarshal(edge, &policy); err != nil {
-			return err
-		}
-		id := 0
-		if policy != nil {
-			id = policy.ID
-		}
-		s.defaultPolicyID = &id
-	}
-	return nil
-}
 
 func (s *UpsertGroupService) upsert(ctx context.Context, client inventory.GroupClient) (*ent.Group, error) {
 	var requested *[]int
 	if len(s.PolicyIDs) > 0 {
 		var ids []int
-		if err := json.Unmarshal(s.PolicyIDs, &ids); err != nil || len(ids) == 0 {
+		if err := json.Unmarshal(s.PolicyIDs, &ids); err != nil || ids == nil {
 			return nil, inventory.ErrInvalidGroupPolicies
 		}
 		requested = &ids
 	}
-	group, err := client.UpsertWithPolicies(ctx, s.Group, requested, s.defaultPolicyID)
+	group, err := client.UpsertWithPolicies(ctx, s.Group, requested)
 	return group, err
 }
 

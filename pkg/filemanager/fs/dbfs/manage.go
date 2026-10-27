@@ -10,6 +10,7 @@ import (
 
 	"github.com/cloudreve/Cloudreve/v4/application/constants"
 	"github.com/cloudreve/Cloudreve/v4/ent"
+	entfile "github.com/cloudreve/Cloudreve/v4/ent/file"
 	"github.com/cloudreve/Cloudreve/v4/ent/user"
 	"github.com/cloudreve/Cloudreve/v4/inventory"
 	"github.com/cloudreve/Cloudreve/v4/inventory/types"
@@ -727,6 +728,23 @@ func (f *DBFS) MoveOrCopy(ctx context.Context, path []*fs.URI, dst *fs.URI, isCo
 			return permissionCheck{target, permission, true}
 		})
 		checks = append(checks, permissionCheck{destination, types.FilePermissionCreate, false})
+		copyRoots := lo.FilterMap(targets, func(target *File, _ int) (*ent.File, bool) {
+			return target.Model, isCopy || target.OwnerID() != destination.OwnerID()
+		})
+		if len(copyRoots) > 0 {
+			if f.user.Edges.Group == nil {
+				_ = inventory.Rollback(tx)
+				return nil, fmt.Errorf("user group not loaded")
+			}
+			if _, err := f.lockPermissionOwners(ctx, fc, append(append([]*File(nil), targets...), destination)...); err != nil {
+				_ = inventory.Rollback(tx)
+				return nil, err
+			}
+			if err := inventory.LockCopyTreeReferences(ctx, fc.GetClient(), copyRoots, destination.ID()); err != nil {
+				_ = inventory.Rollback(tx)
+				return nil, err
+			}
+		}
 		if err := f.revalidatePermissions(ctx, fc, checks...); err != nil {
 			_ = inventory.Rollback(tx)
 			return nil, err
@@ -768,7 +786,8 @@ func (f *DBFS) MoveOrCopy(ctx context.Context, path []*fs.URI, dst *fs.URI, isCo
 					indexDiffBatch.Merge(copiedIndex)
 					var deletedDiff inventory.StorageDiff
 					var deletedIndex []int
-					_, deletedDiff, deletedIndex, err = f.deleteFiles(ctx, transfers, fc, nil)
+					deletionCtx := context.WithValue(ctx, inventory.CurrentPermissionReadCtx{}, true)
+					_, deletedDiff, deletedIndex, err = f.deleteFiles(deletionCtx, transfers, fc, nil)
 					storageDiff.Merge(deletedDiff)
 					indexDiffBatch.IndexToDelete = append(indexDiffBatch.IndexToDelete, deletedIndex...)
 				}
@@ -1006,6 +1025,16 @@ func (f *DBFS) deleteFiles(ctx context.Context, targets map[Navigator][]*File, f
 		toBeDeletedFiles := make([]*File, 0, len(files))
 		if err := n.Walk(ctx, files, intsets.MaxInt, intsets.MaxInt, func(targets []*File, level int) error {
 			for _, target := range targets {
+				if current, _ := ctx.Value(inventory.CurrentPermissionReadCtx{}).(bool); current {
+					// Cross-owner moves already hold the complete reference fence.
+					// Account for the same current associations that were copied.
+					model, err := fc.GetClient().File.Query().Where(entfile.ID(target.ID()), entfile.OwnerID(target.OwnerID()), inventory.CurrentPermissionRead).
+						WithEntities(func(q *ent.EntityQuery) { q.Where(inventory.CurrentPermissionRead) }).Only(ctx)
+					if err != nil {
+						return err
+					}
+					target.Model.Edges.Entities = model.Edges.Entities
+				}
 				if !f.canAccess(ctx, target, types.FilePermissionDelete) {
 					return inventory.PermissionDenied(types.FilePermissionDelete)
 				}
@@ -1040,17 +1069,64 @@ func (f *DBFS) copyFiles(ctx context.Context, targets map[Navigator][]*File, des
 		return nil, nil, nil, fmt.Errorf("user group not loaded")
 	}
 	limit := max(f.user.Edges.Group.Settings.MaxWalkedFiles, 1)
-	capacity, err := f.Capacity(ctx, destination.Owner())
+	ctx = context.WithValue(ctx, inventory.CurrentPermissionReadCtx{}, true)
+	_, capacity, err := f.currentCapacity(ctx, destination.OwnerID())
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("copy files: failed to destination owner capacity: %w", err)
+		return nil, nil, nil, fmt.Errorf("copy files: failed to get destination owner capacity: %w", err)
+	}
+	// Validate the effective scope and byte budget before any copy writes. An
+	// inherited caller may still commit its unrelated work after rejection.
+	remaining := limit
+	copySizes := make(map[int]int64)
+	remainingCapacity := capacity.Total - capacity.Used
+	if remainingCapacity < 0 {
+		return nil, nil, nil, fs.ErrInsufficientCapacity
+	}
+	for n, files := range targets {
+		reset, err := n.FollowTx(ctx)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		err = func() error {
+			defer reset()
+			return n.Walk(ctx, append([]*File(nil), files...), remaining, intsets.MaxInt, func(files []*File, _ int) error {
+				remaining -= len(files)
+				for _, file := range files {
+					if !f.canAccess(ctx, file, required) {
+						return inventory.PermissionDenied(required)
+					}
+					current, err := fc.GetClient().File.Query().
+						Where(entfile.ID(file.ID()), entfile.OwnerID(file.OwnerID()), inventory.CurrentPermissionRead).
+						WithEntities(func(q *ent.EntityQuery) { q.Where(inventory.CurrentPermissionRead) }).Only(ctx)
+					if err != nil {
+						return err
+					}
+					copySizes[file.ID()] = 0
+					for _, entity := range current.Edges.Entities {
+						// Native copy excludes entities whose upload has not finished.
+						if entity.UploadSessionID != nil {
+							continue
+						}
+						if entity.Size > remainingCapacity {
+							return fs.ErrInsufficientCapacity
+						}
+						remainingCapacity -= entity.Size
+						copySizes[file.ID()] += entity.Size
+					}
+				}
+				return nil
+			})
+		}()
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("failed to validate copy scope: %w", err)
+		}
 	}
 	// Lock the quota row before any file writes, even if the first copied layer
 	// contains only zero-size folders. Later layers may reserve bytes.
 	uc, _ := inventory.InheritTx(ctx, f.userClient)
-	if err := uc.GetClient().User.UpdateOneID(destination.OwnerID()).AddStorage(0).Exec(ctx); err != nil {
+	if err := inventory.LockPermissionOwners(ctx, uc.GetClient(), destination.OwnerID()); err != nil {
 		return nil, nil, nil, err
 	}
-
 	dstAncestors := lo.Map(destination.AncestorsChain(), func(item *File, index int) *ent.File {
 		return item.Model
 	})
@@ -1075,14 +1151,14 @@ func (f *DBFS) copyFiles(ctx context.Context, targets map[Navigator][]*File, des
 
 		defer reset()
 
-		if err := n.Walk(ctx, files, limit, intsets.MaxInt, func(targets []*File, level int) error {
+		if err := n.Walk(ctx, append([]*File(nil), files...), limit, intsets.MaxInt, func(targets []*File, level int) error {
 			// check capacity for each file
 			sizeTotal := int64(0)
 			for _, file := range targets {
 				if !f.canAccess(ctx, file, required) {
 					return inventory.PermissionDenied(required)
 				}
-				sizeTotal += file.SizeUsed()
+				sizeTotal += copySizes[file.ID()]
 			}
 
 			if err := f.validateUserCapacityRaw(ctx, sizeTotal, capacity); err != nil {

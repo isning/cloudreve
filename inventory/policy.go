@@ -2,11 +2,13 @@ package inventory
 
 import (
 	"context"
+	"database/sql"
 	"encoding/gob"
 	"fmt"
 	"strconv"
 
 	"github.com/cloudreve/Cloudreve/v4/ent"
+	"github.com/cloudreve/Cloudreve/v4/ent/entity"
 	"github.com/cloudreve/Cloudreve/v4/ent/grouppolicy"
 	"github.com/cloudreve/Cloudreve/v4/ent/policyloadbalance"
 	"github.com/cloudreve/Cloudreve/v4/ent/storagepolicy"
@@ -32,7 +34,7 @@ type (
 		TxOperator
 		// GetByGroup returns the storage policies of the group.
 		GetByGroup(ctx context.Context, group *ent.Group) (*ent.StoragePolicy, error)
-		// AvailableByGroup returns ordered grants, with the legacy default as fallback.
+		// AvailableByGroup returns the current ordered grants.
 		AvailableByGroup(ctx context.Context, group *ent.Group) ([]*ent.StoragePolicy, error)
 		// GetPolicyByID returns the storage policy by id.
 		GetPolicyByID(ctx context.Context, id int) (*ent.StoragePolicy, error)
@@ -83,6 +85,9 @@ func (c *storagePolicyClient) Delete(ctx context.Context, policy *ent.StoragePol
 		return err
 	}
 	defer Rollback(tx)
+	if err = sc.lockConfiguration(ctx); err != nil {
+		return err
+	}
 	if _, err = LockStoragePolicy(ctx, sc.client, policy.ID); err != nil {
 		return err
 	}
@@ -91,6 +96,14 @@ func (c *storagePolicyClient) Delete(ctx context.Context, policy *ent.StoragePol
 	}
 	if err = checkGroupPolicyDependencies(ctx, sc.client, policy.ID); err != nil {
 		return err
+	}
+	// HTTP prechecks may predate an upload completing and losing its session ID.
+	used, err := sc.client.Entity.Query().Where(entity.StoragePolicyEntities(policy.ID), storageLifecycleRead).Exist(ctx)
+	if err != nil {
+		return err
+	}
+	if used {
+		return ErrStoragePolicyInUse
 	}
 	if err = checkUploadPolicyDependencies(ctx, sc.client, policy.ID); err != nil {
 		return err
@@ -117,11 +130,18 @@ func (c *storagePolicyClient) delete(ctx context.Context, policy *ent.StoragePol
 }
 
 func (c *storagePolicyClient) Upsert(ctx context.Context, policy *ent.StoragePolicy) (*ent.StoragePolicy, error) {
-	sc, tx, ctx, err := WithTx(ctx, c)
+	// Independent pool membership checks must not retain InnoDB gap locks.
+	sc, tx, ctx, err := WithTxOptions(ctx, c, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
 	if err != nil {
 		return nil, err
 	}
 	defer Rollback(tx)
+	if err := sc.lockConfiguration(ctx); err != nil {
+		return nil, err
+	}
+	if err := sc.validatePool(ctx, policy); err != nil {
+		return nil, err
+	}
 	if policy.ID > 0 {
 		stored, err := LockStoragePolicy(ctx, sc.client, policy.ID)
 		if err != nil {
@@ -133,9 +153,6 @@ func (c *storagePolicyClient) Upsert(ctx context.Context, policy *ent.StoragePol
 			}
 		}
 	}
-	if err := sc.validatePool(ctx, policy); err != nil {
-		return nil, err
-	}
 	if policy.Settings == nil {
 		policy.Settings = &types.PolicySetting{}
 	}
@@ -146,7 +163,7 @@ func (c *storagePolicyClient) Upsert(ctx context.Context, policy *ent.StoragePol
 	if err := sc.savePool(ctx, policy, result); err != nil {
 		return nil, err
 	}
-	result, err = withStoragePolicyEagerLoading(ctx, sc.client.StoragePolicy.Query().Where(storagepolicy.ID(result.ID))).WithNode().Only(ctx)
+	result, err = withStoragePolicyEagerLoading(ctx, sc.client.StoragePolicy.Query().Where(storagepolicy.ID(result.ID), storageLifecycleRead)).WithNode().Only(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -201,6 +218,9 @@ func (c *storagePolicyClient) upsert(ctx context.Context, policy *ent.StoragePol
 	}
 
 	p, err := updateQuery.Save(ctx)
+	if ent.IsNotFound(err) {
+		p, err = c.client.StoragePolicy.Query().Where(storagepolicy.ID(policy.ID), storageLifecycleRead).Only(ctx)
+	}
 
 	// Clear cache
 	if err := c.cache.Delete(StoragePolicyCacheKey, strconv.Itoa(policy.ID)); err != nil {
@@ -214,14 +234,15 @@ func (c *storagePolicyClient) upsert(ctx context.Context, policy *ent.StoragePol
 }
 
 func (c *storagePolicyClient) GetByGroup(ctx context.Context, group *ent.Group) (*ent.StoragePolicy, error) {
-	val, skipCache := ctx.Value(SkipStoragePolicyCache{}).(bool)
-	skipCache = skipCache && val
-
-	res, err := withStoragePolicyEagerLoading(ctx, c.client.Group.QueryStoragePolicies(group)).WithNode().First(ctx)
+	query := c.client.GroupPolicy.Query().Where(grouppolicy.GroupID(group.ID), grouppolicy.HasStoragePolicyWith(storagepolicy.DeletedAtIsNil())).Order(ent.Asc(grouppolicy.FieldPosition)).Limit(1).QueryStoragePolicy()
+	res, err := withStoragePolicyEagerLoading(ctx, query).WithNode().First(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("get storage policies: %w", err)
 	}
 
+	if err := c.loadPolicyGroups(ctx, []*ent.StoragePolicy{res}); err != nil {
+		return nil, err
+	}
 	return res, nil
 }
 
@@ -230,32 +251,24 @@ func (c *storagePolicyClient) AvailableByGroup(ctx context.Context, group *ent.G
 	if err != nil {
 		return nil, fmt.Errorf("load group policy grants: %w", err)
 	}
-	if len(grants) > 0 {
-		policies := make([]*ent.StoragePolicy, 0, len(grants))
-		for _, grant := range grants {
-			if grant.Edges.StoragePolicy != nil {
-				policies = append(policies, grant.Edges.StoragePolicy)
-			}
+	policies := make([]*ent.StoragePolicy, 0, len(grants))
+	for _, grant := range grants {
+		if grant.Edges.StoragePolicy != nil {
+			policies = append(policies, grant.Edges.StoragePolicy)
 		}
-		return policies, nil
 	}
-	if group.StoragePolicyID == 0 {
-		return []*ent.StoragePolicy{}, nil
-	}
-	policy, err := c.GetByGroup(ctx, group)
-	if ent.IsNotFound(err) {
-		return []*ent.StoragePolicy{}, nil
-	}
-	if err != nil {
+	if err := c.loadPolicyGroups(ctx, policies); err != nil {
 		return nil, err
 	}
-	return []*ent.StoragePolicy{policy}, nil
+	return policies, nil
 }
 
 // GetPolicyByID returns the storage policy by id.
 func (c *storagePolicyClient) GetPolicyByID(ctx context.Context, id int) (*ent.StoragePolicy, error) {
 	val, skipCache := ctx.Value(SkipStoragePolicyCache{}).(bool)
 	skipCache = skipCache && val
+	loadGroups, _ := ctx.Value(LoadStoragePolicyGroup{}).(bool)
+	skipCache = skipCache || loadGroups
 
 	// Try to read from cache
 	if c.cache != nil && !skipCache {
@@ -270,6 +283,9 @@ func (c *storagePolicyClient) GetPolicyByID(ctx context.Context, id int) (*ent.S
 	res, err := withStoragePolicyEagerLoading(ctx, c.client.StoragePolicy.Query().Where(storagepolicy.ID(id))).WithNode().First(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("get storage policy: %w", err)
+	}
+	if err := c.loadPolicyGroups(ctx, []*ent.StoragePolicy{res}); err != nil {
+		return nil, err
 	}
 
 	// Write to cache
@@ -323,6 +339,9 @@ func (c *storagePolicyClient) ListPolicies(ctx context.Context, args *ListPolicy
 	if err != nil {
 		return nil, err
 	}
+	if err := c.loadPolicyGroups(ctx, policies); err != nil {
+		return nil, err
+	}
 
 	return &ListPolicyResult{
 		PaginationResults: &PaginationResults{
@@ -348,10 +367,5 @@ func withStoragePolicyEagerLoading(ctx context.Context, query *ent.StoragePolicy
 	query = query.WithPolicyLoadBalance(func(q *ent.PolicyLoadBalanceQuery) {
 		q.Order(ent.Asc(policyloadbalance.FieldID)).WithStoragePolicy(func(q *ent.StoragePolicyQuery) { q.WithNode() })
 	})
-	if _, ok := ctx.Value(LoadStoragePolicyGroup{}).(bool); ok {
-		query = query.WithGroups(func(gq *ent.GroupQuery) {
-			withGroupEagerLoading(ctx, gq)
-		})
-	}
 	return query
 }

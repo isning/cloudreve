@@ -14,6 +14,7 @@ import (
 	"github.com/cloudreve/Cloudreve/v4/pkg/filemanager/fs"
 	"github.com/cloudreve/Cloudreve/v4/pkg/filemanager/fs/dbfs"
 	"github.com/cloudreve/Cloudreve/v4/pkg/filemanager/lock"
+	"github.com/cloudreve/Cloudreve/v4/pkg/hashid"
 	"github.com/cloudreve/Cloudreve/v4/pkg/serializer"
 	"github.com/cloudreve/Cloudreve/v4/pkg/setting"
 	"github.com/cloudreve/Cloudreve/v4/pkg/util"
@@ -341,20 +342,41 @@ func (l *manager) CreateOrUpdateShare(ctx context.Context, path *fs.URI, args *C
 		return nil, err
 	}
 
+	var permissionOwnerIDs []int
+	if existed != nil {
+		creator, err := inventory.SharePermissionOwner(ctx, shareClient, existed.ID)
+		if err != nil {
+			return nil, err
+		}
+		permissionOwnerIDs = append(permissionOwnerIDs, creator)
+	}
+	if path.FileSystem() == constants.FileSystemShare {
+		id, err := l.hasher.Decode(path.ID(hashid.EncodeUserID(l.hasher, l.user.ID)), hashid.ShareID)
+		if err != nil {
+			return nil, err
+		}
+		creator, err := inventory.SharePermissionOwner(ctx, shareClient, id)
+		if err != nil {
+			return nil, err
+		}
+		permissionOwnerIDs = append(permissionOwnerIDs, creator)
+	}
 	params := &inventory.CreateShareParams{
-		OwnerID:         l.user.ID,
-		FileID:          file.ID(),
-		Password:        password,
-		Expires:         args.Expire,
-		RemainDownloads: args.RemainDownloads,
-		Existed:         existed,
-		Props:           props,
+		OwnerID:            l.user.ID,
+		FileID:             file.ID(),
+		Password:           password,
+		Expires:            args.Expire,
+		RemainDownloads:    args.RemainDownloads,
+		Existed:            existed,
+		Props:              props,
+		PermissionOwnerIDs: permissionOwnerIDs,
 	}
 	params.Authorize = func(ctx context.Context) error {
 		actor, err := l.fs.ValidateSharePermission(ctx, file)
 		if err != nil {
 			return err
 		}
+		ctx = context.WithValue(ctx, inventory.CurrentPermissionReadCtx{}, true)
 		if inventory.IsAnonymousUser(actor) || !actor.Edges.Group.Permissions.Enabled(int(types.GroupPermissionShare)) {
 			return serializer.NewError(serializer.CodeGroupNotAllowed, "Group permission denied", nil)
 		}

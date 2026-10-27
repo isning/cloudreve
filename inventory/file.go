@@ -3,8 +3,6 @@ package inventory
 import (
 	"context"
 	"fmt"
-	"sort"
-	"strconv"
 	"time"
 
 	"entgo.io/ent/dialect/sql"
@@ -16,6 +14,7 @@ import (
 	"github.com/cloudreve/Cloudreve/v4/ent/predicate"
 	"github.com/cloudreve/Cloudreve/v4/ent/schema"
 	"github.com/cloudreve/Cloudreve/v4/ent/share"
+	"github.com/cloudreve/Cloudreve/v4/ent/storagepolicy"
 	"github.com/cloudreve/Cloudreve/v4/inventory/types"
 	"github.com/cloudreve/Cloudreve/v4/pkg/conf"
 	"github.com/cloudreve/Cloudreve/v4/pkg/hashid"
@@ -307,7 +306,12 @@ func (f *fileClient) Update(ctx context.Context, file *ent.File) (*ent.File, err
 }
 
 func (f *fileClient) UpdateProps(ctx context.Context, model *ent.File, props *types.FileProps) (*ent.File, error) {
-	return f.client.File.UpdateOne(model).Where(file.OwnerIDEQ(model.OwnerID)).SetProps(props).Save(ctx)
+	updated, err := f.client.File.UpdateOne(model).Where(file.OwnerIDEQ(model.OwnerID)).SetProps(props).Save(ctx)
+	// Owner-fenced writes can see files absent from Ent's unchanged-row snapshot.
+	if current, _ := ctx.Value(CurrentPermissionReadCtx{}).(bool); current && ent.IsNotFound(err) {
+		return f.client.File.Query().Where(file.ID(model.ID), file.OwnerID(model.OwnerID), CurrentPermissionRead).Only(ctx)
+	}
+	return updated, err
 }
 
 func (f *fileClient) CountByTimeRange(ctx context.Context, start, end *time.Time) (int, error) {
@@ -606,29 +610,25 @@ func (f *fileClient) Copy(ctx context.Context, args *CopyParameter) (map[int][]*
 	files := args.Files
 	// Copy must not resurrect a deleted file or attach an obsolete physical
 	// snapshot after migration. Owner quota is already reserved by DBFS.
-	entityIDs := make(map[int]bool)
+	fileIDs := make([]int, 0, len(files)*2)
 	for _, source := range files {
-		for _, e := range source.Edges.Entities {
-			entityIDs[e.ID] = true
+		fileIDs = append(fileIDs, source.ID)
+		if destination := args.DstMap[source.FileChildren]; len(destination) > 0 {
+			fileIDs = append(fileIDs, destination[0].ID)
 		}
 	}
-	ordered := make([]int, 0, len(entityIDs))
-	for id := range entityIDs {
-		ordered = append(ordered, id)
-	}
-	sort.Ints(ordered)
-	for _, id := range ordered {
-		if _, err := f.client.ExecContext(ctx, "UPDATE entities SET reference_count = reference_count WHERE id = "+strconv.Itoa(id)); err != nil {
-			return nil, nil, err
-		}
+	if err := LockCopyReferences(ctx, f.client, fileIDs...); err != nil {
+		return nil, nil, err
 	}
 	for i, source := range files {
-		current, err := f.client.File.Query().Where(file.ID(source.ID), file.OwnerID(source.OwnerID)).WithEntities().WithMetadata().Only(ctx)
+		current, err := f.client.File.Query().Where(file.ID(source.ID), file.OwnerID(source.OwnerID), CurrentPermissionRead).
+			WithEntities(func(q *ent.EntityQuery) { q.Where(CurrentPermissionRead) }).
+			WithMetadata(func(q *ent.MetadataQuery) { q.Where(CurrentPermissionRead) }).Only(ctx)
 		if err != nil {
 			return nil, nil, fmt.Errorf("copy source is unavailable: %w", err)
 		}
 		for _, e := range current.Edges.Entities {
-			policy, err := f.client.StoragePolicy.Get(ctx, e.StoragePolicyEntities)
+			policy, err := f.client.StoragePolicy.Query().Where(storagepolicy.ID(e.StoragePolicyEntities), CurrentPermissionRead).Only(ctx)
 			if err != nil {
 				return nil, nil, err
 			}
@@ -716,7 +716,7 @@ func (f *fileClient) Copy(ctx context.Context, args *CopyParameter) (map[int][]*
 
 		entityBatch, _ := f.batchInConditionEntityID(intsets.MaxInt, 10, 1, ids)
 		entityStm = append(entityStm, lo.Map(entityBatch, func(batch predicate.Entity, index int) *ent.EntityUpdate {
-			return f.client.Entity.Update().Where(batch).AddReferenceCount(1).AddFile(newFile)
+			return f.client.Entity.Update().Where(batch, storageLifecycleRead).AddReferenceCount(1).AddFile(newFile)
 		})...)
 
 		newAncestorChain := append(newDstMap[files[index].ID], newFile)
@@ -978,7 +978,9 @@ func (f *fileClient) RemoveStaleEntities(ctx context.Context, file *ent.File) (S
 }
 
 func (f *fileClient) CreateEntity(ctx context.Context, file *ent.File, args *EntityParameters) (*ent.Entity, StorageDiff, error) {
-	policy, err := f.client.StoragePolicy.Get(ctx, args.StoragePolicyID)
+	// Entity placement must retain the accepted current location, even when
+	// this transaction's ordinary snapshot predates the destination.
+	policy, err := f.client.StoragePolicy.Query().Where(storagepolicy.ID(args.StoragePolicyID), CurrentPermissionRead).Only(ctx)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1072,7 +1074,7 @@ func (f *fileClient) SetParent(ctx context.Context, files []*ent.File, parent *e
 }
 
 func (f *fileClient) GetParentFile(ctx context.Context, root *ent.File, eagerLoading bool) (*ent.File, error) {
-	query := f.client.File.QueryParent(root)
+	query := withFilePermissionRead(ctx, f.client.File.QueryParent(root))
 	if eagerLoading {
 		query = withFileEagerLoading(ctx, query)
 	}
@@ -1090,7 +1092,7 @@ func (f *fileClient) QueryMetadata(ctx context.Context, root *ent.File) error {
 }
 
 func (f *fileClient) GetChildFile(ctx context.Context, root *ent.File, ownerID int, child string, eagerLoading bool) (*ent.File, error) {
-	query := f.childFileQuery(ownerID, false, root)
+	query := withFilePermissionRead(ctx, f.childFileQuery(ctx, ownerID, false, root))
 	if eagerLoading {
 		query = withFileEagerLoading(ctx, query)
 	}
@@ -1100,7 +1102,7 @@ func (f *fileClient) GetChildFile(ctx context.Context, root *ent.File, ownerID i
 }
 
 func (f *fileClient) GetChildFiles(ctx context.Context, args *ListFileParameters, ownerID int, roots ...*ent.File) (*ListFileResult, error) {
-	rawQuery := f.childFileQuery(ownerID, args.SharedWithMe, roots...)
+	rawQuery := f.childFileQuery(ctx, ownerID, args.SharedWithMe, roots...)
 	query := withFileEagerLoading(ctx, rawQuery)
 	if args.Search != nil {
 		query = f.searchQuery(query, args.Search, roots, ownerID)
@@ -1130,11 +1132,10 @@ func (f *fileClient) GetChildFiles(ctx context.Context, args *ListFileParameters
 }
 
 func (f *fileClient) Root(ctx context.Context, user *ent.User) (*ent.File, error) {
-	return f.client.User.
+	return withFilePermissionRead(ctx, f.client.User.
 		QueryFiles(user).
 		Where(file.Not(file.HasParent())).
-		Where(file.Name(RootFolderName)).
-		First(ctx)
+		Where(file.Name(RootFolderName))).First(ctx)
 }
 
 func (f *fileClient) CreateFolder(ctx context.Context, root *ent.File, args *CreateFolderParameters) (*ent.File, error) {
@@ -1315,6 +1316,10 @@ func (f *fileClient) ListEntities(ctx context.Context, args *ListEntityParameter
 	}, nil
 }
 
-func (f *fileClient) SetStoragePreference(ctx context.Context, file *ent.File, policyID int) (*ent.File, error) {
-	return f.client.File.UpdateOne(file).SetStoragePolicyFiles(policyID).Save(ctx)
+func (f *fileClient) SetStoragePreference(ctx context.Context, target *ent.File, policyID int) (*ent.File, error) {
+	result, err := f.client.File.UpdateOne(target).SetStoragePolicyFiles(policyID).Save(ctx)
+	if ent.IsNotFound(err) {
+		return f.client.File.Query().Where(file.ID(target.ID), CurrentPermissionRead).Only(ctx)
+	}
+	return result, err
 }

@@ -117,15 +117,48 @@ func (f *DBFS) PrepareUpload(ctx context.Context, req *fs.UploadRequest, opts ..
 		return nil, inventory.PermissionDenied(permission)
 	}
 
-	// Resolve once before locks, placeholders, quota reservation or provider I/O.
+	// Lock target before owner rows, following the native path-lock order.
+	lockedPath := ancestor.RootUri().JoinRaw(req.Props.Uri.PathTrimmed())
+	lr := &LockByPath{lockedPath, ancestor, types.FileTypeFile, ""}
+	ls, err := f.acquireByPath(ctx, time.Until(req.Props.ExpireAt), f.user, false, fs.LockApp(fs.ApplicationUpload), lr)
+	defer func() { _ = f.Release(ctx, ls) }()
+	ctx = fs.LockSessionToContext(ctx, ls)
+	if err != nil {
+		return nil, err
+	}
+	fc, dbTx, ctx, err := inventory.WithTx(ctx, f.fileClient)
+	if err != nil {
+		return nil, serializer.NewError(serializer.CodeDBError, "Failed to start transaction", err)
+	}
+	defer inventory.Rollback(dbTx)
+	if bypass, _ := ctx.Value(ByPassOwnerCheckCtxKey{}).(bool); bypass {
+		// Native thumbnail uploads bypass permissions, but still take owner
+		// lifecycle locks before current ancestry reads and quota updates.
+		if err := inventory.LockPermissionOwners(ctx, fc.GetClient(), f.user.ID, ancestor.OwnerID()); err != nil {
+			return nil, err
+		}
+	}
+	if err := f.revalidatePermissions(ctx, fc, permissionCheck{ancestor, permission, false}); err != nil {
+		return nil, err
+	}
+	// Refresh the receiving quota before policy locks, including imports and
+	// thumbnail uploads whose permission checks are intentionally bypassed.
+	owner, capacity, err := f.currentCapacity(ctx, ancestor.OwnerID())
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user capacity: %w", err)
+	}
+
+	// Resolve current ancestry once under its owner fence, before placeholders,
+	// quota reservation or provider I/O. Pending caller bindings remain visible.
 	var policy, logicalPolicy *ent.StoragePolicy
 	if req.ImportFrom == nil {
-		logicalPolicy, err = storagepolicy.New(f.userClient, f.storagePolicyClient).SelectForFile(ctx, ancestor.OwnerID(), req.Props.PreferredStoragePolicy, f.fileClient, ancestor.ID())
+		selectionCtx := context.WithValue(ctx, inventory.CurrentPermissionReadCtx{}, true)
+		logicalPolicy, err = storagepolicy.New(f.userClient, f.storagePolicyClient).SelectForFile(selectionCtx, ancestor.OwnerID(), req.Props.PreferredStoragePolicy, f.fileClient, ancestor.ID())
 		if err == nil {
 			policy, err = storagepolicy.Choose(logicalPolicy)
 		}
 	} else {
-		policy, err = f.storagePolicyClient.GetPolicyByID(ctx, req.Props.PreferredStoragePolicy)
+		policy, err = inventory.LockStoragePolicy(ctx, fc.GetClient(), req.Props.PreferredStoragePolicy)
 	}
 	if err != nil {
 		if errors.Is(err, storagepolicy.ErrNoAvailableChildren) {
@@ -135,16 +168,6 @@ func (f *DBFS) PrepareUpload(ctx context.Context, req *fs.UploadRequest, opts ..
 			return nil, serializer.NewError(serializer.CodeGroupNotAllowed, "Storage policy is unavailable", err)
 		}
 		return nil, serializer.NewError(serializer.CodeDBError, "Failed to resolve storage destination", err)
-	}
-
-	// Lock target
-	lockedPath := ancestor.RootUri().JoinRaw(req.Props.Uri.PathTrimmed())
-	lr := &LockByPath{lockedPath, ancestor, types.FileTypeFile, ""}
-	ls, err := f.acquireByPath(ctx, time.Until(req.Props.ExpireAt), f.user, false, fs.LockApp(fs.ApplicationUpload), lr)
-	defer func() { _ = f.Release(ctx, ls) }()
-	ctx = fs.LockSessionToContext(ctx, ls)
-	if err != nil {
-		return nil, err
 	}
 
 	// Encryption setting
@@ -166,11 +189,6 @@ func (f *DBFS) PrepareUpload(ctx context.Context, req *fs.UploadRequest, opts ..
 		return nil, err
 	}
 
-	owner := ancestor.Owner()
-	capacity, err := f.Capacity(ctx, owner)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get user capacity: %s", err)
-	}
 	if err := f.validateUserCapacityRaw(ctx, req.Props.Size, capacity); err != nil {
 		return nil, err
 	}
@@ -196,15 +214,6 @@ func (f *DBFS) PrepareUpload(ctx context.Context, req *fs.UploadRequest, opts ..
 		lockToken  string
 		targetFile *ent.File
 	)
-	fc, dbTx, ctx, err := inventory.WithTx(ctx, f.fileClient)
-	if err != nil {
-		return nil, serializer.NewError(serializer.CodeDBError, "Failed to start transaction", err)
-	}
-
-	if err := f.revalidatePermissions(ctx, fc, permissionCheck{ancestor, permission, false}); err != nil {
-		_ = inventory.Rollback(dbTx)
-		return nil, err
-	}
 	if err := dbTx.ReserveStorage(ctx, f.userClient, owner.ID, req.Props.Size, capacity.Total); err != nil {
 		_ = inventory.Rollback(dbTx)
 		if errors.Is(err, inventory.ErrInsufficientCapacity) {
@@ -229,13 +238,11 @@ func (f *DBFS) PrepareUpload(ctx context.Context, req *fs.UploadRequest, opts ..
 		return nil, serializer.NewError(serializer.CodeLockConflict, "Storage destination changed; retry upload", nil)
 	}
 	if req.ImportFrom == nil {
+		poolID := 0
 		if logicalPolicy.Type == types.PolicyTypeLoadBalance {
-			if _, err = storagepolicy.New(f.userClient, f.storagePolicyClient).Select(ctx, owner.ID, logicalPolicy.ID, 0); err != nil {
-				_ = inventory.Rollback(dbTx)
-				return nil, serializer.NewError(serializer.CodeGroupNotAllowed, "Load balance policy is unavailable", nil)
-			}
+			poolID = logicalPolicy.ID
 		}
-		if _, err = storagepolicy.New(f.userClient, f.storagePolicyClient).Select(ctx, owner.ID, current.ID, 0); err != nil {
+		if err = storagepolicy.New(f.userClient, f.storagePolicyClient).Revalidate(ctx, owner.ID, current.ID, poolID); err != nil {
 			_ = inventory.Rollback(dbTx)
 			return nil, serializer.NewError(serializer.CodeGroupNotAllowed, "Storage policy is unavailable", err)
 		}

@@ -3,7 +3,11 @@ package inventory
 import (
 	"context"
 	"fmt"
+
+	"entgo.io/ent/dialect"
+	"entgo.io/ent/dialect/sql"
 	"github.com/cloudreve/Cloudreve/v4/ent"
+	"github.com/cloudreve/Cloudreve/v4/ent/file"
 	"github.com/cloudreve/Cloudreve/v4/ent/passkey"
 	"github.com/cloudreve/Cloudreve/v4/ent/share"
 	"github.com/cloudreve/Cloudreve/v4/ent/user"
@@ -34,7 +38,18 @@ func (c *userClient) RemovePasskey(ctx context.Context, uid int, keyID string) e
 }
 
 func (c *shareClient) Upsert(ctx context.Context, params *CreateShareParams) (*ent.Share, error) {
-	source, err := c.client.File.Get(ctx, params.FileID)
+	c, _ = InheritTx(ctx, c)
+	usesMySQL := false
+	source, err := c.client.File.Query().Where(file.ID(params.FileID), func(s *sql.Selector) {
+		usesMySQL = s.Dialect() == dialect.MySQL
+	}).Select(file.FieldID, file.FieldOwnerID).Only(ctx)
+	if ent.IsNotFound(err) && usesMySQL {
+		// This only plans the owner fence. Current authorization still follows
+		// it in the accepting transaction, including for bound clients.
+		if committed := CommittedMetadataClient(ctx); committed != nil {
+			source, err = committed.File.Get(ctx, params.FileID)
+		}
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -44,14 +59,14 @@ func (c *shareClient) Upsert(ctx context.Context, params *CreateShareParams) (*e
 	}
 	defer Rollback(tx)
 	result, err := auditMutation(ctx, client, func(ctx context.Context, c *shareClient) (*ent.Share, []AuditEvent, error) {
-		ids := []int{source.OwnerID, params.OwnerID}
+		ids := append([]int{source.OwnerID, params.OwnerID}, params.PermissionOwnerIDs...)
 		if actor := UserFromContext(ctx); actor != nil {
 			ids = append(ids, actor.ID)
 		}
 		if err := LockPermissionOwners(ctx, c.client, ids...); err != nil {
 			return nil, nil, err
 		}
-		current, err := c.client.File.Get(ctx, params.FileID)
+		current, err := c.client.File.Query().Where(file.ID(params.FileID), CurrentPermissionRead).Only(ctx)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -91,12 +106,14 @@ func (c *shareClient) Delete(ctx context.Context, id int) error {
 	return c.deleteAuditedShares(ctx, 0, []int{id})
 }
 func (c *shareClient) deleteAuditedShares(ctx context.Context, uid int, ids []int) error {
-	before, err := c.client.Share.Query().Where(share.IDIn(ids...)).WithFile().WithUser().All(ctx)
+	before, err := sharePermissionMetadata(ctx, c, true, ids...)
 	if err != nil {
 		return err
 	}
 	owners := make([]int, 0, len(before)*2)
+	knownIDs := make([]int, 0, len(before))
 	for _, s := range before {
+		knownIDs = append(knownIDs, s.ID)
 		if s.Edges.User != nil {
 			owners = append(owners, s.Edges.User.ID)
 		}
@@ -121,7 +138,8 @@ func (c *shareClient) deleteAuditedShares(ctx context.Context, uid int, ids []in
 		// Context-free callers remain trusted inventory cleanup operations.
 		var actor *ent.User
 		if requester != nil {
-			actor, err = c.client.User.Query().Where(user.ID(requester.ID), user.StatusEQ(user.StatusActive)).WithGroup().Only(ctx)
+			actor, err = c.client.User.Query().Where(user.ID(requester.ID), user.StatusEQ(user.StatusActive), CurrentPermissionRead).
+				WithGroup(func(q *ent.GroupQuery) { q.Where(CurrentPermissionRead) }).Only(ctx)
 			if ent.IsNotFound(err) || err == nil && actor.Edges.Group == nil {
 				return false, nil, serializer.NewError(serializer.CodeNotFound, "Share not found", nil)
 			}
@@ -129,11 +147,13 @@ func (c *shareClient) deleteAuditedShares(ctx context.Context, uid int, ids []in
 				return false, nil, err
 			}
 		}
-		q := c.client.Share.Query().Where(share.IDIn(ids...))
+		// Only consider links whose creator/source supplied the owner lock union.
+		q := c.client.Share.Query().Where(share.IDIn(knownIDs...), CurrentPermissionRead)
 		if uid > 0 {
-			q.Where(share.HasUserWith(user.ID(uid)))
+			q.Where(share.HasUserWith(user.ID(uid), CurrentPermissionRead))
 		}
-		rows, err := q.WithFile().WithUser().All(ctx)
+		rows, err := q.WithFile(func(q *ent.FileQuery) { q.Where(CurrentPermissionRead) }).
+			WithUser(func(q *ent.UserQuery) { q.Where(CurrentPermissionRead) }).All(ctx)
 		if err != nil {
 			return false, nil, err
 		}

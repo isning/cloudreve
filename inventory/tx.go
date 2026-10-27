@@ -2,6 +2,7 @@ package inventory
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 
 	"github.com/cloudreve/Cloudreve/v4/ent"
@@ -15,13 +16,17 @@ type TxOperator interface {
 
 type (
 	Tx struct {
-		tx          *ent.Tx
-		parent      *Tx
-		inherited   bool
-		finished    bool
-		committed   bool
-		afterCommit []func()
-		storageDiff StorageDiff
+		tx *ent.Tx
+		// baseClient supplies committed metadata before lifecycle locks.
+		baseClient                      *ent.Client
+		parent                          *Tx
+		inherited                       bool
+		finished                        bool
+		committed                       bool
+		afterCommit                     []func()
+		storageDiff                     StorageDiff
+		permissionOwners                map[int]bool
+		defaultShareConfigurationLocked bool
 	}
 
 	// TxCtx is the context key for inherited transaction
@@ -80,18 +85,30 @@ func (t *Tx) AppendStorageDiff(diff StorageDiff) {
 
 // WithTx wraps the given inventory client with a transaction.
 func WithTx[T TxOperator](ctx context.Context, c T) (T, *Tx, context.Context, error) {
+	return WithTxOptions(ctx, c, nil)
+}
+
+// WithTxOptions applies native Ent options when starting a transaction.
+// An inherited transaction retains its caller's isolation and ownership.
+func WithTxOptions[T TxOperator](ctx context.Context, c T, opts *sql.TxOptions) (T, *Tx, context.Context, error) {
 	var txClient *ent.Client
 	var txWrapper *Tx
 
 	if txInherited, ok := ctx.Value(TxCtx{}).(*Tx); ok && !txInherited.finished {
 		txWrapper = &Tx{inherited: true, tx: txInherited.tx, parent: txInherited}
 	} else {
-		tx, err := c.GetClient().Tx(ctx)
+		var tx *ent.Tx
+		var err error
+		if opts == nil {
+			tx, err = c.GetClient().Tx(ctx)
+		} else {
+			tx, err = c.GetClient().BeginTx(ctx, opts)
+		}
 		if err != nil {
 			return c, nil, ctx, fmt.Errorf("failed to create transaction: %w", err)
 		}
 
-		txWrapper = &Tx{inherited: false, tx: tx}
+		txWrapper = &Tx{inherited: false, tx: tx, baseClient: c.GetClient()}
 		ctx = context.WithValue(ctx, TxCtx{}, txWrapper)
 	}
 
@@ -122,6 +139,22 @@ func Rollback(tx *Tx) error {
 		return tx.tx.Rollback()
 	}
 
+	return nil
+}
+
+// CommittedMetadataClient supplies nonlocking committed metadata independently
+// of the accepting transaction pool. Authorization stays in that transaction.
+// Callers must not borrow another connection for SQLite.
+func CommittedMetadataClient(ctx context.Context) *ent.Client {
+	if tx, ok := ctx.Value(TxCtx{}).(*Tx); ok && !tx.finished {
+		for tx.parent != nil {
+			tx = tx.parent
+		}
+		if metadata, ok := metadataClients.Load(tx.baseClient); ok {
+			return metadata.(*ent.Client)
+		}
+		return tx.baseClient
+	}
 	return nil
 }
 

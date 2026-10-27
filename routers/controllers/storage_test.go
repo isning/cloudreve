@@ -28,6 +28,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/cloudreve/Cloudreve/v4/application/dependency"
 	"github.com/cloudreve/Cloudreve/v4/ent"
+	"github.com/cloudreve/Cloudreve/v4/ent/grouppolicy"
 	entmigrate "github.com/cloudreve/Cloudreve/v4/ent/migrate"
 	entnode "github.com/cloudreve/Cloudreve/v4/ent/node"
 	entuser "github.com/cloudreve/Cloudreve/v4/ent/user"
@@ -285,9 +286,13 @@ func prepareStorageFixture(t *testing.T, legacy bool) *storageFixture {
 		if i == 0 {
 			boolset.Set(types.GroupPermissionIsAdmin, true, permissions)
 		}
-		_, err := db.Group.Create().SetName(fmt.Sprintf("Storage group %d", i+1)).SetPermissions(permissions).
+		group, err := db.Group.Create().SetName(fmt.Sprintf("Storage group %d", i+1)).SetPermissions(permissions).
 			SetMaxStorage(1 << 20).SetStoragePolicyID(f.policies[0].ID).Save(ctx)
 		require.NoError(t, err)
+		if !legacy {
+			_, err = db.GroupPolicy.Create().SetGroupID(group.ID).SetStoragePolicyID(f.policies[0].ID).SetPosition(0).Save(ctx)
+			require.NoError(t, err)
+		}
 	}
 	password := storageRandom(t)
 	f.adminPassword = storageRandom(t)
@@ -612,6 +617,11 @@ func TestStorageUpgradePreservesExistingContentAndIdentity(t *testing.T) {
 	f.request(t, http.MethodGet, "/api/v4/user/capacity", nil, &capacity)
 	require.EqualValues(t, len(payload)+len("new upload after legacy startup"), capacity.Used)
 	_, err := f.db.Group.UpdateOneID(2).ClearStoragePolicies().Save(context.Background())
+	require.NoError(t, err)
+	// The upstream default is a projection; clearing it does not revoke grants.
+	f.request(t, http.MethodGet, "/api/v4/user/setting/policies", nil, &policies)
+	require.Len(t, policies, 1)
+	_, err = f.db.GroupPolicy.Delete().Where(grouppolicy.GroupID(2)).Exec(context.Background())
 	require.NoError(t, err)
 	f.request(t, http.MethodGet, "/api/v4/user/setting/policies", nil, &policies)
 	require.Empty(t, policies)

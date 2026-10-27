@@ -6,12 +6,16 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
 
+	"entgo.io/ent/dialect"
+	"entgo.io/ent/dialect/sql"
 	"github.com/cloudreve/Cloudreve/v4/ent"
 	"github.com/cloudreve/Cloudreve/v4/ent/file"
+	"github.com/cloudreve/Cloudreve/v4/ent/predicate"
 	"github.com/cloudreve/Cloudreve/v4/ent/setting"
 	"github.com/cloudreve/Cloudreve/v4/ent/share"
 	"github.com/cloudreve/Cloudreve/v4/ent/user"
@@ -50,7 +54,7 @@ func ParseDefaultShares(raw string) ([]int, error) {
 func defaultShareRefs(ctx context.Context, c *ent.Client) ([]types.DefaultShareRef, error) {
 	// Fetch list and incarnation bindings in one statement: account creation
 	// must never capture a torn configuration during an administrator save.
-	rows, err := c.Setting.Query().Where(setting.NameIn(DefaultSharesSetting, defaultSharesIdentitiesSetting)).All(ctx)
+	rows, err := c.Setting.Query().Where(setting.NameIn(DefaultSharesSetting, defaultSharesIdentitiesSetting), permissionRead(ctx)).All(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -112,14 +116,41 @@ func SaveDefaultShares(ctx context.Context, c *ent.Client, raw string) (string, 
 	if err != nil {
 		return "", serializer.NewError(serializer.CodeParamErr, "Invalid default shares", nil)
 	}
-	// Acquire the same configuration fence as explicit provisioning before reads.
+	// A caller may already hold source-owner locks from creating a pending
+	// share. Acquire all candidate owners before the configuration fence, as
+	// explicit installation does, before any current source reads.
+	planned := make(map[int]bool, len(ids))
+	if len(ids) > 0 {
+		links, err := sharePermissionMetadata(ctx, NewSettingClient(c, nil), true, ids...)
+		if err != nil {
+			return "", err
+		}
+		var owners []int
+		for _, link := range links {
+			planned[link.ID] = true
+			if link.Edges.User != nil {
+				owners = append(owners, link.Edges.User.ID)
+			}
+			if link.Edges.File != nil {
+				owners = append(owners, link.Edges.File.OwnerID)
+			}
+		}
+		if err := lockDefaultShareOwners(ctx, c, owners...); err != nil {
+			return "", err
+		}
+	}
+	// Configuration writers and explicit installation share this fence.
 	if err := c.Setting.Create().SetName(DefaultSharesSetting).SetValue("[]").OnConflictColumns(setting.FieldName).Ignore().Exec(ctx); err != nil {
 		return "", err
+	}
+	if tx := permissionOwnerTransaction(ctx); tx != nil {
+		tx.defaultShareConfigurationLocked = true
 	}
 	if err := c.Setting.Update().Where(setting.Name(DefaultSharesSetting)).SetName(DefaultSharesSetting).Exec(ctx); err != nil {
 		return "", err
 	}
-	oldRefs, err := defaultShareRefs(ctx, c)
+	currentCtx := context.WithValue(ctx, CurrentPermissionReadCtx{}, true)
+	oldRefs, err := defaultShareRefs(currentCtx, c)
 	if err != nil && !errors.Is(err, errInvalidDefaultShareConfiguration) {
 		return "", err
 	}
@@ -133,7 +164,10 @@ func SaveDefaultShares(ctx context.Context, c *ent.Client, raw string) (string, 
 		if _, retained := references[id]; retained {
 			continue
 		}
-		s, err := loadDefaultShare(ctx, c, id)
+		if !planned[id] {
+			return "", serializer.NewError(serializer.CodeParamErr, "Default share is unavailable", nil)
+		}
+		s, err := loadDefaultShare(currentCtx, c, id)
 		if err != nil && !ent.IsNotFound(err) {
 			return "", err
 		}
@@ -141,7 +175,7 @@ func SaveDefaultShares(ctx context.Context, c *ent.Client, raw string) (string, 
 			return "", serializer.NewError(serializer.CodeParamErr, "Default share is unavailable", nil)
 		}
 		references[id] = types.DefaultShareRef{ID: id, CreatedAt: s.CreatedAt}
-		if err := ValidateShareSource(ctx, c, s.Edges.File, nil); err != nil {
+		if err := ValidateShareSource(currentCtx, c, s.Edges.File, nil); err != nil {
 			if errors.Is(err, ErrSourceFileInvalid) {
 				return "", serializer.NewError(serializer.CodeParamErr, "Default share is unavailable", nil)
 			}
@@ -161,8 +195,77 @@ func SaveDefaultShares(ctx context.Context, c *ent.Client, raw string) (string, 
 	return string(normalized), err
 }
 
+// A pending source may already retain higher owner locks. Reject an incomplete
+// composition fence before waiting, so the caller can retain or roll back its
+// work and retry with the complete owner union acquired before source creation.
+func lockDefaultShareOwners(ctx context.Context, c *ent.Client, ids ...int) error {
+	held := permissionOwnerLocks(ctx)
+	highest := 0
+	for id := range held {
+		highest = max(highest, id)
+	}
+	for _, id := range ids {
+		if id > 0 && id < highest && !held[id] {
+			return defaultShareOwnerConflict()
+		}
+	}
+	return LockPermissionOwners(ctx, c, ids...)
+}
+
+func defaultShareOwnerConflict() error {
+	return serializer.NewError(serializer.CodeLockConflict, "Acquire all share owners before creating sources or saving configuration", nil)
+}
+
 func loadDefaultShare(ctx context.Context, c *ent.Client, id int) (*ent.Share, error) {
-	return c.Share.Query().Where(share.ID(id)).WithUser().WithFile(func(q *ent.FileQuery) { q.WithOwner() }).Only(ctx)
+	return c.Share.Query().Where(share.ID(id), permissionRead(ctx)).
+		WithUser(func(q *ent.UserQuery) { q.Where(permissionRead(ctx)) }).
+		WithFile(func(q *ent.FileQuery) {
+			q.Where(permissionRead(ctx)).WithOwner(func(q *ent.UserQuery) { q.Where(permissionRead(ctx)) })
+		}).Only(ctx)
+}
+
+// defaultShareFiles plans primary keys without locking empty owner/name ranges.
+// The owner fence is already held. Final batches use current transaction rows,
+// while the two metadata views retain pending files and discover committed ones.
+func defaultShareFiles(ctx context.Context, c *ent.Client, includeMetadata bool, conditions ...predicate.File) ([]*ent.File, error) {
+	usesMySQL := false
+	ids, err := c.File.Query().Where(conditions...).Where(func(s *sql.Selector) {
+		usesMySQL = s.Dialect() == dialect.MySQL
+	}).IDs(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if usesMySQL {
+		if committed := CommittedMetadataClient(ctx); committed != nil {
+			latest, err := committed.File.Query().Where(conditions...).IDs(ctx)
+			if err != nil {
+				return nil, err
+			}
+			ids = append(ids, latest...)
+		}
+	}
+	unique := make(map[int]bool, len(ids))
+	for _, id := range ids {
+		unique[id] = true
+	}
+	ids = ids[:0]
+	for id := range unique {
+		ids = append(ids, id)
+	}
+	sort.Ints(ids)
+	var files []*ent.File
+	for offset := 0; offset < len(ids); offset += 500 {
+		query := c.File.Query().Where(conditions...).Where(file.IDIn(ids[offset:min(offset+500, len(ids))]...), CurrentPermissionRead)
+		if includeMetadata {
+			query.WithMetadata(func(q *ent.MetadataQuery) { q.Where(CurrentPermissionRead) })
+		}
+		batch, err := query.All(ctx)
+		if err != nil {
+			return nil, err
+		}
+		files = append(files, batch...)
+	}
+	return files, nil
 }
 
 // DefaultShareIdentity binds a shortcut to an incarnation, not a reusable ID.
@@ -181,31 +284,75 @@ type DefaultShareResult struct {
 // automatic mode consumes the account snapshot once; explicit mode uses the
 // current list and never changes automatic eligibility.
 func InstallDefaultShares(ctx context.Context, uc UserClient, uid int, h hashid.Encoder, current bool) (*ent.File, *DefaultShareResult, error) {
+	uc, _ = InheritTx(ctx, uc)
 	// Read candidate owner IDs before beginning the write transaction, so all
 	// authorization reads inside it follow the owner fences on every dialect.
-	var refs []types.DefaultShareRef
-	var err error
-	if current {
-		refs, err = defaultShareRefs(ctx, uc.GetClient())
-	} else {
-		var u *ent.User
-		u, err = uc.GetByID(ctx, uid)
-		if err == nil && u.Settings != nil && u.Settings.DefaultShares != nil && !u.Settings.DefaultShares.Done {
-			refs = u.Settings.DefaultShares.Shares
+	planningCtx := context.WithValue(ctx, CurrentPermissionReadCtx{}, false)
+	// Candidate reads only plan the complete owner fence. Current validation
+	// below decides the effective list, including pending caller configuration.
+	usesMySQL := false
+	candidate, err := uc.GetClient().User.Query().Where(user.ID(uid), func(s *sql.Selector) {
+		usesMySQL = s.Dialect() == dialect.MySQL
+	}).Only(planningCtx)
+	if ent.IsNotFound(err) && usesMySQL {
+		if committed := CommittedMetadataClient(ctx); committed != nil {
+			candidate, err = committed.User.Get(planningCtx, uid)
 		}
 	}
 	if err != nil {
 		return nil, nil, err
 	}
+	var refs []types.DefaultShareRef
+	if current {
+		configurationLocked := false
+		if tx := permissionOwnerTransaction(ctx); tx != nil {
+			configurationLocked = tx.defaultShareConfigurationLocked
+		}
+		configurationCtx := planningCtx
+		if configurationLocked {
+			// The caller already fences this configuration. Its current pending
+			// list alone decides which owners are needed; committed metadata
+			// may still contain an unrelated configuration it has replaced.
+			configurationCtx = context.WithValue(ctx, CurrentPermissionReadCtx{}, true)
+		}
+		refs, err = defaultShareRefs(configurationCtx, uc.GetClient())
+		if err != nil && !errors.Is(err, errInvalidDefaultShareConfiguration) {
+			return nil, nil, err
+		}
+		if usesMySQL && !configurationLocked {
+			if committed := CommittedMetadataClient(ctx); committed != nil {
+				latest, e := defaultShareRefs(planningCtx, committed)
+				if e != nil && !errors.Is(e, errInvalidDefaultShareConfiguration) {
+					return nil, nil, e
+				}
+				refs = append(refs, latest...)
+			}
+		}
+	} else if candidate.Settings != nil && candidate.Settings.DefaultShares != nil && !candidate.Settings.DefaultShares.Done {
+		refs = candidate.Settings.DefaultShares.Shares
+	}
 	owners := []int{uid}
+	var links []*ent.Share
+	var missing []int
 	for _, ref := range refs {
-		s, e := loadDefaultShare(ctx, uc.GetClient(), ref.ID)
+		s, e := loadDefaultShare(planningCtx, uc.GetClient(), ref.ID)
 		if ent.IsNotFound(e) {
+			missing = append(missing, ref.ID)
 			continue
 		}
 		if e != nil {
 			return nil, nil, e
 		}
+		links = append(links, s)
+	}
+	if len(missing) > 0 {
+		latest, e := sharePermissionMetadata(planningCtx, uc, true, missing...)
+		if e != nil {
+			return nil, nil, e
+		}
+		links = append(links, latest...)
+	}
+	for _, s := range links {
 		if s.Edges.User != nil {
 			owners = append(owners, s.Edges.User.ID)
 		}
@@ -219,17 +366,26 @@ func InstallDefaultShares(ctx context.Context, uc UserClient, uid int, h hashid.
 	}
 	defer Rollback(tx)
 	c := tc.GetClient()
+	if current {
+		err = lockDefaultShareOwners(ctx, c, owners...)
+	} else {
+		err = LockPermissionOwners(ctx, c, owners...)
+	}
+	if err != nil {
+		return nil, nil, err
+	}
 	// Settings writers acquire this row before touching this configuration.
 	// Serialize explicit installation with removal from the current list.
 	if current {
 		if err = c.Setting.Update().Where(setting.Name(DefaultSharesSetting)).SetName(DefaultSharesSetting).Exec(ctx); err != nil {
 			return nil, nil, err
 		}
+		if tx := permissionOwnerTransaction(ctx); tx != nil {
+			tx.defaultShareConfigurationLocked = true
+		}
 	}
-	if err = LockPermissionOwners(ctx, c, owners...); err != nil {
-		return nil, nil, err
-	}
-	actor, err := c.User.Query().Where(user.ID(uid)).WithGroup().Only(ctx)
+	ctx = context.WithValue(ctx, CurrentPermissionReadCtx{}, true)
+	actor, err := tc.GetByID(context.WithValue(ctx, LoadUserGroup{}, true), uid)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -252,20 +408,29 @@ func InstallDefaultShares(ctx context.Context, uc UserClient, uid int, h hashid.
 			return nil, nil, e
 		}
 		allowed := map[string]bool{}
-		for _, r := range latest {
+		for _, r := range refs {
 			allowed[fmt.Sprint(r.ID)+":"+r.CreatedAt.UTC().Format(time.RFC3339Nano)] = true
 		}
-		filtered := refs[:0]
-		for _, r := range refs {
+		filtered := latest[:0]
+		for _, r := range latest {
 			if allowed[fmt.Sprint(r.ID)+":"+r.CreatedAt.UTC().Format(time.RFC3339Nano)] {
 				filtered = append(filtered, r)
 			}
 		}
 		refs = filtered
 	}
-	root, err := c.File.Query().Where(file.OwnerID(uid), file.Not(file.HasParent()), file.Name(RootFolderName)).Only(ctx)
-	if ent.IsNotFound(err) {
+	roots, err := defaultShareFiles(ctx, c, false, file.OwnerID(uid), file.Not(file.HasParent()), file.Name(RootFolderName))
+	if err != nil {
+		return nil, nil, err
+	}
+	var root *ent.File
+	switch len(roots) {
+	case 0:
 		root, err = c.File.Create().SetOwnerID(uid).SetType(int(types.FileTypeFolder)).SetName(RootFolderName).Save(ctx)
+	case 1:
+		root = roots[0]
+	default:
+		return nil, nil, errors.New("multiple personal roots")
 	}
 	if err != nil {
 		return nil, nil, err
@@ -273,12 +438,13 @@ func InstallDefaultShares(ctx context.Context, uc UserClient, uid int, h hashid.
 	result := &DefaultShareResult{}
 	existing := map[string]bool{}
 	if len(refs) > 0 {
-		shortcuts, e := c.File.Query().Where(file.OwnerID(uid), file.IsSymbolic(true)).WithMetadata().All(ctx)
+		shortcuts, e := defaultShareFiles(ctx, c, true, file.OwnerID(uid), file.IsSymbolic(true))
 		if e != nil {
 			return nil, nil, e
 		}
+		ancestors := map[int]*ent.File{root.ID: root}
 		for _, shortcut := range shortcuts {
-			if e := ValidateShareSource(ctx, c, shortcut, nil); errors.Is(e, ErrSourceFileInvalid) {
+			if e := ValidateShareSource(ctx, c, shortcut, ancestors); errors.Is(e, ErrSourceFileInvalid) {
 				continue
 			} else if e != nil {
 				return nil, nil, e
@@ -375,11 +541,11 @@ func InstallDefaultShares(ctx context.Context, uc UserClient, uid int, h hashid.
 		}
 		base := name
 		for n := 1; ; n++ {
-			exists, e := c.File.Query().Where(file.FileChildren(root.ID), file.Name(name)).Exist(ctx)
+			matches, e := defaultShareFiles(ctx, c, false, file.FileChildren(root.ID), file.Name(name))
 			if e != nil {
 				return nil, nil, e
 			}
-			if !exists {
+			if len(matches) == 0 {
 				break
 			}
 			name = fmt.Sprintf("%s (%d)", base, n)

@@ -11,6 +11,7 @@ import (
 
 	"github.com/cloudreve/Cloudreve/v4/application/constants"
 	"github.com/cloudreve/Cloudreve/v4/ent"
+	entuser "github.com/cloudreve/Cloudreve/v4/ent/user"
 	"github.com/cloudreve/Cloudreve/v4/inventory"
 	"github.com/cloudreve/Cloudreve/v4/inventory/types"
 	"github.com/cloudreve/Cloudreve/v4/pkg/audit"
@@ -250,6 +251,19 @@ func (f *DBFS) Capacity(ctx context.Context, u *ent.User) (*fs.Capacity, error) 
 	res.Used = u.Storage
 	res.Total = requesterGroup.MaxStorage
 	return res, nil
+}
+
+// currentCapacity reads quota under the caller's receiving-owner and group
+// fences. Navigation models may predate an administrator's quota changes.
+func (f *DBFS) currentCapacity(ctx context.Context, ownerID int) (*ent.User, *fs.Capacity, error) {
+	uc, _ := inventory.InheritTx(ctx, f.userClient)
+	owner, err := uc.GetClient().User.Query().Where(entuser.ID(ownerID), inventory.CurrentPermissionRead).
+		WithGroup(func(q *ent.GroupQuery) { q.Where(inventory.CurrentPermissionRead) }).Only(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	capacity, err := f.Capacity(ctx, owner)
+	return owner, capacity, err
 }
 
 func (f *DBFS) CreateEntity(ctx context.Context, file fs.File, policy *ent.StoragePolicy,

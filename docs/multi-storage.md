@@ -48,10 +48,130 @@ IDs. Public policy descriptors omit provider credentials.
 workflow APIs provide task history, stages and progress. The admin group save
 adds a **project extension**, sibling `policy_ids` next to `group`, containing
 ordered numeric IDs: `{"group":{...},"policy_ids":[1,2]}`. It rejects null, empty,
-duplicate or unknown lists. Legacy saves omitting this field preserve grants;
-a legacy default change makes its new default first while retaining other
-valid grants. This implementation does not promise import/export or direct
+duplicate or unknown lists; the system anonymous group may keep an empty list.
+Creating a group requires this list. Updates omitting it preserve current
+grants. An ordinary group left unassigned by an upgrade can still edit other
+settings without adding a storage grant. The upstream default field and edge are derived from its first entry,
+and changing those display fields does not change authorization. Copying a group
+loads its current detail and preserves the complete ordered list. Storage-policy
+cards, details and save responses expose all directly assigned live groups
+through the existing `edges.groups` field, including secondary policies.
+This implementation does not promise import/export or direct
 migration of Cloudreve Pro databases.
+
+## Upgrade existing installations
+
+The storage extension's versioned startup migration (`storage_extension_schema_v10`)
+backfills a valid legacy single-policy default only when that group has no
+ordered grants. Existing lists and their order are preserved; the upstream
+default is synchronized to the first entry. Deleted groups and deleted policies
+do not receive new grants. Obsolete grants retained by previously deleted groups
+are released. A group with no valid destination stays unassigned.
+The data changes and completion marker commit together. Failed migrations can
+be retried; completed migrations do not replay after grants are removed.
+
+After upgrade, ordered grants are the sole authority for available destinations,
+group associations and grant-related deletion checks. Runtime requests do not
+fall back to an old default. New installations use the native initialization
+followed by this same migration. The existing v3 importer also writes its
+selected default into the grant table. Group writes and policy deletion share
+transactional lifecycle locks, including current-row reads on MySQL/MariaDB.
+Deletion repeats the entity-use check under its policy lock, including completed
+uploads committed after the HTTP precheck. Unchanged group updates also return
+current transaction rows before writing canonical grants.
+Group deletion rechecks membership under its exclusive group fence. Native signup
+and administrator account writes hold the current destination group's shared
+fence until commit; existing accounts take their user lock first and read the
+previous account currently in that transaction, including pending caller rows.
+Unchanged saves use the same current existence check. Deletion retains
+pending and committed members without taking user locks after the group fence.
+The existing occupied-group error code and translated member count are preserved.
+Operations spanning multiple policies acquire locks by numeric ID, including
+pool conversion, group assignment and relocation. Dependency checks after those
+locks use current rows so earlier transaction snapshots cannot permit unsafe
+pool conversion.
+Storage-policy and group administration use native read-committed transactions
+to avoid InnoDB gap-lock cycles between independent edits. Inherited transactions
+retain their caller's options.
+Storage-policy configuration writers first acquire one native settings-row lock,
+then the policy locks. This serializes administrative membership changes, including
+empty pools and conversions inside inherited transactions; upload placement does
+not acquire this configuration lock. Callers composing policy configuration writes
+in a transaction must perform them before other policy-locking operations.
+New pools also skip deletion of nonexistent memberships. Share creation checks
+its creator's current active status under the same owner lock.
+Binding, upload acceptance and relocation planning/commit revalidate the current
+owner group, canonical grant and pool membership under the lifecycle locks. This
+final check also applies to inherited transactions whose ordinary reads retain an
+older snapshot.
+MySQL/MariaDB planning metadata uses a native Ent client with a separate bounded
+connection pool when inheriting an older transaction view. Server clients reserve
+four connections for nonlocking metadata within the existing total budget of 100;
+the transaction pool uses the remaining 96. Closing the native client closes both
+pools. This keeps copy and upload planning independent of occupied transaction
+connections. SQLite reuses its transaction's sole connection.
+A selected pool and its concrete member are revalidated
+together, so a changed pool cannot authorize its former child through another pool.
+Authorization fences for file writes recheck the current status of authenticated actors
+and share owners under the existing owner locks, then shared-locks the complete
+current group set in numeric order before policy locks. Native administrators retain access to
+inactive owners through their personal filesystem; share entries require active owners.
+Final permission navigation reads current links, file ACLs and account/group
+metadata in that same transaction. Share creation collects source and existing
+link creators before acquiring the sorted owner locks;
+ordinary browsing keeps its existing query behavior.
+Lifecycle locks verify existence through current reads, including rows committed
+after an inherited transaction's snapshot and unchanged native updates.
+Unchanged group, policy, share and folder-preference saves resolve typed native
+not-found results through a current read in the accepting transaction; other
+database errors propagate. Folder binding also reads its target and ancestry
+currently under the owner fence.
+Copy locks the complete recursive policy set in numeric order, then the complete
+entity set in numeric order, before copying any layer. Policy locks are shared.
+Physical object gates follow in sorted key order, including distinct entities
+that alias the same objects through native imports.
+Retirement checks use the current source associations; obsolete planning
+references only contribute locks.
+Retired preferences remain copyable; reference locks do not grant a destination
+for future writes.
+Copy enumerates current file rows under the owner fence. Reference planning
+expands the same directory frontier in both the pending transaction view and
+committed server metadata before locking entities; SQLite stays on its accepting
+connection. Final source, entity,
+metadata and object-gate reads use current rows in that same transaction.
+Reference planning uses pages of at most 500 rows and locking precedes recursive permission navigation,
+so InnoDB range locks are acquired after the complete entity set. Native current
+permissions still decide whether the planned operation may proceed. The native
+traversal validates the file count limit against the effective transaction scope
+before copy writes, including when the caller owns the transaction;
+obsolete reference metadata does not count as copied files. Permission checks and
+copy traversal preserve the root slices used to remove cross-owner move sources.
+Upload preparation takes its native path lock and owner fence before reading
+current placement ancestry, including native thumbnail permission bypasses.
+Upload acceptance and copy reservation use the receiving owner's current user
+and group quota under those fences, including after cached navigation or an
+inherited transaction snapshot. Quota changes apply immediately to new writes.
+Writable shares charge the receiving owner. Recursive copies and cross-owner
+moves validate their complete current byte budget before inserting destination
+rows or reserving storage, so quota rejection leaves caller-owned work intact.
+Pending directory bindings remain visible; committed
+bindings and folders are not hidden by an inherited snapshot. Grant lists remain
+planning metadata, with acceptance checked in the original transaction.
+Physical imports resolve their policy inside that same accepting transaction,
+including cache misses on SQLite's single connection.
+Accepted placement keeps current node metadata and uses the same current policy
+when creating its entity. Share deletion rechecks current actor, group and link
+ownership after acquiring its owner locks.
+Share lock planning retains pending rows and supplements snapshot-missing IDs
+from committed metadata on MySQL/MariaDB, including transaction-bound clients.
+Those metadata reads never authorize deletion or change transaction ownership.
+Share creation similarly supplements snapshot-missing source-owner metadata,
+then validates the source again under the current owner fence. Its initial
+lookup inherits the caller transaction, including pending folders on SQLite.
+View changes merge current properties so they preserve concurrently updated ACLs,
+including inside an inherited transaction.
+Administrative group associations are loaded freshly and do not enter the
+shared storage-policy cache.
 
 ## What moves and what remains
 
@@ -85,7 +205,16 @@ Compensation has independent durable records and native maintenance jobs.
 Deleting terminal task history or an account does not discard unfinished
 cleanup, nor can restart recreate a deleted file/account. Old sources are
 collected only when no current physical alias/reference or active migration
-reader requires them. Completed migration reads retain their exact acknowledgement in the originating process and retry temporary SQL failures. Graceful shutdown drains these acknowledgements before closing SQL. A crash before acknowledgement can still leave a conservatively unfinished reader; replacement startup or lease expiry is not proof that another reader has stopped. Failed targets are deleted only at exact server-owned
+reader requires them. Under the physical object gate, both pending transaction
+dependencies and latest committed dependencies prevent deletion. These reads
+take no entity or policy locks after that gate. Pending removals can conservatively
+defer collection until a later native maintenance pass.
+Completed migration reads retain their exact acknowledgement in the originating
+process and retry temporary SQL failures. Graceful shutdown drains these
+acknowledgements before closing SQL. A crash before acknowledgement can still
+leave a conservatively unfinished reader; replacement startup or lease expiry
+is not proof that another reader has stopped.
+Failed targets are deleted only at exact server-owned
 attempt locations. An unknown write can finish late; its journal stays pending
 and is checked repeatedly even after an earlier absence/delete. Physical policy
 edits/deletion remain blocked while this dependency is unresolved; credential

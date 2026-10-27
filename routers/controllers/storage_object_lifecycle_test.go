@@ -5,10 +5,12 @@ import (
 	"context"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/s3"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/http/httputil"
 	"net/url"
+	"os"
 
 	"strings"
 	"sync"
@@ -20,6 +22,9 @@ import (
 	"github.com/cloudreve/Cloudreve/v4/ent/file"
 	"github.com/cloudreve/Cloudreve/v4/ent/storageobjectreader"
 	"github.com/cloudreve/Cloudreve/v4/ent/task"
+	"github.com/cloudreve/Cloudreve/v4/inventory"
+	"github.com/cloudreve/Cloudreve/v4/pkg/filemanager/fs"
+	"github.com/cloudreve/Cloudreve/v4/pkg/filemanager/manager"
 	"github.com/cloudreve/Cloudreve/v4/pkg/hashid"
 	"github.com/cloudreve/Cloudreve/v4/pkg/queue"
 	"github.com/cloudreve/Cloudreve/v4/service/explorer"
@@ -34,6 +39,70 @@ func (f *storageFixture) acceptPhysicalImport(t *testing.T) explorer.TaskRespons
 	f.request(t, http.MethodPost, "/api/v4/workflow/import", map[string]any{"src": "/", "dst": "/imported", "user_id": hashid.EncodeUserID(f.dep.HashIDEncoder(), 2), "policy_id": f.policies[0].ID, "recursive": true}, &job)
 	f.token = token
 	return job
+}
+
+func TestStorageRecycleSeesDependenciesCommittedAfterInheritedSnapshot(t *testing.T) {
+	if os.Getenv("OIDC_TEST_DRIVER") != "mysql" {
+		t.Skip("MySQL repeatable-read object dependency snapshot")
+	}
+	for _, kind := range []string{"same-policy-alias", "new-policy-alias", "pending-alias", "reader"} {
+		t.Run(kind, func(t *testing.T) {
+			f := newStorageFixtureWithLegacy(t, true)
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			owner, err := f.dep.UserClient().GetLoginUserByID(ctx, 2)
+			require.NoError(t, err)
+			ctx = context.WithValue(ctx, inventory.UserCtx{}, owner)
+			fm := manager.NewFileManager(f.dep, owner)
+			defer fm.Recycle()
+			original := f.db.File.Query().Where(file.Name("existing.txt")).OnlyX(ctx)
+			f.request(t, http.MethodPost, "/api/v4/file/create", map[string]any{"uri": "cloudreve://my/imported", "type": "folder"}, nil)
+			objects, err := fm.ListPhysical(ctx, "/", f.policies[0].ID, false, func(int) {})
+			require.NoError(t, err)
+			require.Len(t, objects, 1)
+			f.request(t, http.MethodDelete, "/api/v4/file", map[string]any{"uris": []string{"cloudreve://my/existing.txt"}, "skip_soft_delete": true}, nil)
+			writer, tx, txCtx, err := inventory.WithTx(ctx, f.dep.FileClient())
+			require.NoError(t, err)
+			defer inventory.Rollback(tx)
+			require.Zero(t, writer.GetClient().Entity.GetX(txCtx, original.PrimaryEntity).ReferenceCount)
+			if kind == "reader" {
+				finish, err := inventory.BeginStorageObjectRead(ctx, f.db, f.dep.StorageReadCompletions(), f.policies[0], "legacy-object")
+				require.NoError(t, err)
+				defer finish()
+			} else {
+				policy := f.policies[0]
+				if kind == "new-policy-alias" {
+					input := *policy
+					input.ID = 0
+					input.Name = "New alias of the original physical bucket"
+					input.Server += "/"
+					policy, err = f.dep.StoragePolicyClient().Upsert(ctx, &input)
+					require.NoError(t, err)
+				}
+				destination, err := fs.NewUriFromString("cloudreve://my/imported")
+				require.NoError(t, err)
+				importCtx := ctx
+				if kind == "pending-alias" {
+					importCtx = txCtx
+				}
+				require.NoError(t, fm.ImportPhysical(importCtx, destination, policy.ID, objects[0], false))
+				if kind != "pending-alias" {
+					require.Equal(t, []byte("persisted object before storage extension"), f.readFile(t, "cloudreve://my/imported/legacy-object"))
+				}
+			}
+			require.NoError(t, fm.RecycleEntities(txCtx, false, original.PrimaryEntity))
+			require.NoError(t, inventory.CommitWithStorageDiff(txCtx, tx, f.dep.Logger(), f.dep.UserClient()))
+			object, err := f.s3.GetObject(&s3.GetObjectInput{Bucket: aws.String(f.policies[0].BucketName), Key: aws.String("legacy-object")})
+			require.NoError(t, err, "a newly admitted alias or reader must prevent physical deletion")
+			data, err := io.ReadAll(object.Body)
+			require.NoError(t, err)
+			require.NoError(t, object.Body.Close())
+			require.Equal(t, []byte("persisted object before storage extension"), data)
+			if kind != "reader" {
+				require.Equal(t, []byte("persisted object before storage extension"), f.readFile(t, "cloudreve://my/imported/legacy-object"))
+			}
+		})
+	}
 }
 
 func TestStorageNativeRecycleProtectsPhysicalImportAliases(t *testing.T) {

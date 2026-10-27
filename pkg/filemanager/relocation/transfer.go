@@ -16,6 +16,8 @@ import (
 	"sync"
 	"time"
 
+	"entgo.io/ent/dialect"
+	"entgo.io/ent/dialect/sql"
 	"github.com/cloudreve/Cloudreve/v4/application/dependency"
 	"github.com/cloudreve/Cloudreve/v4/ent"
 	"github.com/cloudreve/Cloudreve/v4/ent/entity"
@@ -232,21 +234,44 @@ func authorizedOwner(ctx context.Context, db *ent.Client, ownerID, destinationID
 	return owner, nil
 }
 
+// Call after the owner and policy locks. Advisory selection can retain an old
+// transaction snapshot; acceptance must check the exact current grant/member.
+func revalidateDestination(ctx context.Context, db *ent.Client, ownerID, logicalID, concreteID int) error {
+	poolID := 0
+	if logicalID != concreteID {
+		poolID = logicalID
+	}
+	granted, err := inventory.StoragePolicyGranted(ctx, db, ownerID, concreteID, poolID)
+	if err != nil || !granted {
+		return errors.New("migration destination is unavailable")
+	}
+	return nil
+}
+
 // The owner lifecycle/quota lock is always first. The net quota change is zero.
-func lockOwner(ctx context.Context, db *ent.Client, ownerID, destinationID int) error {
+func lockOwner(ctx context.Context, db *ent.Client, ownerID int) error {
 	err := db.User.Update().Where(user.ID(ownerID), user.StatusEQ(user.StatusActive)).AddStorage(0).Exec(ctx)
 	if err != nil {
 		return errors.New("migration owner is unavailable")
 	}
-	owner, err := db.User.Query().Where(user.ID(ownerID), user.StatusEQ(user.StatusActive)).Only(ctx)
+	owner, err := db.User.Query().Where(user.ID(ownerID), user.StatusEQ(user.StatusActive), currentAuthorizationRead).Only(ctx)
 	if err != nil {
 		return errors.New("failed to load migration owner")
 	}
 	if _, err := db.Group.Update().Where(group.ID(owner.GroupUsers)).AddMaxStorage(0).Save(ctx); err != nil {
 		return errors.New("failed to lock migration authorization")
 	}
-	_, err = authorizedOwner(ctx, db, ownerID, destinationID)
-	return err
+	current, err := db.Group.Query().Where(group.ID(owner.GroupUsers), group.DeletedAtIsNil(), currentAuthorizationRead).Only(ctx)
+	if err != nil || current.Permissions == nil || !current.Permissions.Enabled(int(types.GroupPermissionRelocate)) {
+		return errors.New("migration authorization is unavailable")
+	}
+	return nil
+}
+
+func currentAuthorizationRead(s *sql.Selector) {
+	if s.Dialect() != dialect.SQLite {
+		s.ForUpdate()
+	}
 }
 
 func lockPolicies(ctx context.Context, db *ent.Client, ids ...int) (map[int]*ent.StoragePolicy, error) {
@@ -274,7 +299,7 @@ func recordPlans(ctx context.Context, dep dependency.Dep, taskID int, selection 
 	}
 	defer tx.Rollback()
 	c := tx.Client()
-	if err := lockOwner(ctx, c, selection.Owner.ID, selection.Destination.ID); err != nil {
+	if err := lockOwner(ctx, c, selection.Owner.ID); err != nil {
 		return err
 	}
 	existing, err := c.RelocationPlan.Query().Where(relocationplan.TaskID(taskID)).Exist(ctx)
@@ -301,20 +326,14 @@ func recordPlans(ctx context.Context, dep dependency.Dep, taskID int, selection 
 	if err != nil {
 		return err
 	}
-	var children map[int]bool
-	if selection.Destination.Type == types.PolicyTypeLoadBalance {
-		members, err := policies[selection.Destination.ID].QueryPolicyLoadBalance().All(ctx)
-		if err != nil {
+	if len(plans) == 0 {
+		if err := revalidateDestination(ctx, c, selection.Owner.ID, selection.Destination.ID, selection.Destination.ID); err != nil {
 			return err
-		}
-		children = make(map[int]bool, len(members))
-		for _, member := range members {
-			children[member.StoragePolicyID] = true
 		}
 	}
 	for _, plan := range plans {
-		if children != nil && !children[plan.Destination.ID] {
-			return errors.New("migration pool membership changed before planning")
+		if err := revalidateDestination(ctx, c, selection.Owner.ID, selection.Destination.ID, plan.Destination.ID); err != nil {
+			return err
 		}
 		if !inventory.SameStorageLocation(policies[plan.Destination.ID], plan.Destination) {
 			return ErrConflict
@@ -698,17 +717,17 @@ func commitSingle(ctx context.Context, dep dependency.Dep, fm manager.FileManage
 	}
 	defer inventory.Rollback(tx)
 	c := fc.GetClient()
-	if err := lockOwner(ctx, c, item.OwnerID, item.DestinationPolicyID); err != nil {
+	if err := lockOwner(ctx, c, item.OwnerID); err != nil {
 		return err
 	}
 	header, err := c.RelocationPlan.Query().Where(relocationplan.TaskID(item.TaskID)).Only(ctx)
 	if err != nil || header.OwnerID != item.OwnerID {
 		return errors.New("invalid migration plan")
 	}
-	if _, err := authorizedOwner(ctx, c, item.OwnerID, header.DestinationPolicyID); err != nil {
+	if _, err := lockPolicies(ctx, c, item.SourcePolicyID, item.DestinationPolicyID); err != nil {
 		return err
 	}
-	if _, err := lockPolicies(ctx, c, item.SourcePolicyID, item.DestinationPolicyID); err != nil {
+	if err := revalidateDestination(ctx, c, item.OwnerID, header.DestinationPolicyID, item.DestinationPolicyID); err != nil {
 		return err
 	}
 	if err := lockSourceEntity(ctx, c, item.SourceEntityID); err != nil {

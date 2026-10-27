@@ -46,6 +46,7 @@ func (f *DBFS) PatchProps(ctx context.Context, uri *fs.URI, props *types.FilePro
 	if err != nil {
 		return err
 	}
+	ctx = context.WithValue(ctx, inventory.CurrentPermissionReadCtx{}, true)
 	current, err := fc.GetByID(ctx, target.ID())
 	if err != nil {
 		return err

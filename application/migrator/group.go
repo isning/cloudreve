@@ -19,6 +19,12 @@ func (m *Migrator) migrateGroup() error {
 	if err := model.DB.Find(&groups).Error; err != nil {
 		return fmt.Errorf("failed to list v3 groups: %w", err)
 	}
+	ctx := context.Background()
+	tx, err := m.v4client.Tx(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
 
 	for _, group := range groups {
 		cap := &boolset.BooleanSet{}
@@ -64,7 +70,7 @@ func (m *Migrator) migrateGroup() error {
 			types.GroupPermissionRedirectedSource: opts.RedirectedSource,
 		}, cap)
 
-		stm := m.v4client.Group.Create().
+		stm := tx.Group.Create().
 			SetRawID(int(group.ID)).
 			SetCreatedAt(formatTime(group.CreatedAt)).
 			SetUpdatedAt(formatTime(group.UpdatedAt)).
@@ -78,15 +84,21 @@ func (m *Migrator) migrateGroup() error {
 			stm.SetStoragePoliciesID(policies[0])
 		}
 
-		if _, err := stm.Save(context.Background()); err != nil {
+		saved, err := stm.Save(ctx)
+		if err != nil {
 			return fmt.Errorf("failed to create group %q: %w", group.Name, err)
+		}
+		if len(policies) > 0 {
+			if err := tx.GroupPolicy.Create().SetGroupID(saved.ID).SetStoragePolicyID(policies[0]).SetPosition(0).Exec(ctx); err != nil {
+				return fmt.Errorf("failed to assign storage policy for group %q: %w", group.Name, err)
+			}
 		}
 	}
 
 	if m.dep.ConfigProvider().Database().Type == conf.PostgresDB {
 		m.l.Info("Resetting group ID sequence for postgres...")
-		m.v4client.Group.ExecContext(context.Background(), "SELECT SETVAL('groups_id_seq',  (SELECT MAX(id) FROM groups))")
+		tx.Group.ExecContext(ctx, "SELECT SETVAL('groups_id_seq',  (SELECT MAX(id) FROM groups))")
 	}
 
-	return nil
+	return tx.Commit()
 }

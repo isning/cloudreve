@@ -67,6 +67,8 @@ type (
 		OwnerID         int
 		FileID          int
 		Props           *types.ShareProps
+		// PermissionOwnerIDs joins the lifecycle lock union before Authorize.
+		PermissionOwnerIDs []int
 		// Authorize runs after the owner fence, using the inherited transaction.
 		Authorize func(context.Context) error
 	}
@@ -135,13 +137,17 @@ func (c *shareClient) upsert(ctx context.Context, params *CreateShareParams) (*e
 			createQuery.SetProps(params.Props)
 		}
 
-		return createQuery.Save(ctx)
+		result, err := createQuery.Save(ctx)
+		if ent.IsNotFound(err) {
+			return c.client.Share.Query().Where(share.ID(params.Existed.ID), storageLifecycleRead).Only(ctx)
+		}
+		return result, err
 	}
 
 	// Serialize link creation against creator deletion. The same creator-row
 	// update is held by account deletion, including on PostgreSQL where the
 	// share foreign key alone does not conflict with a non-key row update.
-	if err := c.client.User.UpdateOneID(params.OwnerID).Where(user.StatusEQ(user.StatusActive)).AddStorage(0).Exec(ctx); err != nil {
+	if err := LockActiveStorageOwner(ctx, c.client, params.OwnerID); err != nil {
 		return nil, fmt.Errorf("share creator is unavailable: %w", err)
 	}
 	query := c.client.Share.
@@ -283,7 +289,7 @@ func ValidateShareSource(ctx context.Context, client *ent.Client, source *ent.Fi
 		parent := ancestors[current.FileChildren]
 		if parent == nil {
 			var err error
-			parent, err = client.File.Get(ctx, current.FileChildren)
+			parent, err = client.File.Query().Where(file.ID(current.FileChildren), permissionRead(ctx)).Only(ctx)
 			if ent.IsNotFound(err) {
 				return ErrSourceFileInvalid
 			}
@@ -491,6 +497,7 @@ func getShareOrderOption(args *ListShareArgs) []share.OrderOption {
 }
 
 func withShareEagerLoading(ctx context.Context, q *ent.ShareQuery) *ent.ShareQuery {
+	q.Where(permissionRead(ctx))
 	if v, ok := ctx.Value(LoadShareFile{}).(bool); ok && v {
 		q.WithFile(func(q *ent.FileQuery) {
 			withFileEagerLoading(context.WithValue(ctx, LoadFileUser{}, true), q)

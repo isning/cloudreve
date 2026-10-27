@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/cloudreve/Cloudreve/v4/ent"
+	"github.com/cloudreve/Cloudreve/v4/ent/grouppolicy"
 	"github.com/cloudreve/Cloudreve/v4/ent/user"
 	"github.com/cloudreve/Cloudreve/v4/inventory"
 	"github.com/cloudreve/Cloudreve/v4/inventory/types"
@@ -43,6 +44,8 @@ func TestStorageRelocationIncludesOwnerThumbnailAndLivePhoto(t *testing.T) {
 	viewerPermissions := &boolset.BooleanSet{}
 	boolset.Set(int(types.GroupPermissionShareDownload), true, viewerPermissions)
 	_, err = f.db.Group.UpdateOneID(3).SetStoragePolicyID(f.policies[1].ID).SetPermissions(viewerPermissions).Save(context.Background())
+	require.NoError(t, err)
+	_, err = f.db.GroupPolicy.Update().Where(grouppolicy.GroupID(3)).SetStoragePolicyID(f.policies[1].ID).Save(context.Background())
 	require.NoError(t, err)
 	viewerPassword := storageRandom(t)
 	_, err = inventory.NewUserClient(f.db).Create(context.Background(), &inventory.NewUserArgs{Email: "storage-viewer@example.com", PlainPassword: viewerPassword, GroupID: 3, Status: user.StatusActive, SkipBootstrap: true})

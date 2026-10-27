@@ -27,6 +27,7 @@ changes, identity linking and later settings changes do not reinstall them.
 ## Adding current recommendations
 
 Signed-in users can choose **Settings → Preferences → Add site default shares**.
+
 This explicitly adds the administrator's **current** recommendations, including
 for old accounts. It does not restore the account's historical onboarding list.
 
@@ -65,6 +66,26 @@ serializes with configuration saves. Shortcut writes, completion and native
 audit records commit together. File notifications publish after commit. Stable
 identity checks reject reuse of a configured or installed share's numeric ID.
 Already issued provider URLs retain their native expiry behavior.
+
+Initialization and settings saves read current provisioning state under the
+existing owner locks, including inherited MySQL/MariaDB repeatable-read transactions. They
+reuse a root or shortcut committed after that transaction's snapshot and preserve
+completion when saving an older settings form. Pending accounts and roots stay
+in the caller's transaction: rollback removes their initialization too. Root and
+name lookups avoid locking empty index ranges so independent accounts can
+initialize concurrently.
+Configuration saves also validate new selections against current sources under
+the same owner fences. Only selections in the current stored configuration may
+retain an unavailable link; pending caller sources and rollback remain supported.
+Configuration saves and explicit installation acquire their complete owner fence
+before the configuration fence, including when the caller has created a share.
+Callers composing pending shares or configuration saves with installation must
+use native `inventory.LockPermissionOwners` for the complete source and recipient
+owner union before creating shares or saving configuration. These composed
+default-share operations reject a later lower owner lock, or any new owner lock
+after the configuration fence, with the native lock-conflict error before that
+operation writes. The caller retains control of committing or rolling back its
+pending work.
 
 ## Verification
 

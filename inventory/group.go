@@ -4,9 +4,12 @@ import (
 	"context"
 	"fmt"
 
+	"entgo.io/ent/dialect"
+	"entgo.io/ent/dialect/sql"
 	"github.com/cloudreve/Cloudreve/v4/ent"
 	"github.com/cloudreve/Cloudreve/v4/ent/group"
 	"github.com/cloudreve/Cloudreve/v4/ent/grouppolicy"
+	"github.com/cloudreve/Cloudreve/v4/ent/user"
 	"github.com/cloudreve/Cloudreve/v4/pkg/cache"
 	"github.com/cloudreve/Cloudreve/v4/pkg/conf"
 )
@@ -19,6 +22,13 @@ type (
 const (
 	AnonymousGroupID = 3
 )
+
+// GroupInUseError preserves the native member count in deletion responses.
+type GroupInUseError struct{ Count int }
+
+func (e *GroupInUseError) Error() string {
+	return fmt.Sprintf("group is assigned to %d users", e.Count)
+}
 
 type (
 	GroupClient interface {
@@ -35,8 +45,8 @@ type (
 		CountUsers(ctx context.Context, id int) (int, error)
 		// Upsert upserts a group.
 		Upsert(ctx context.Context, group *ent.Group) (*ent.Group, error)
-		// UpsertWithPolicies atomically maintains ordered grants and the legacy default.
-		UpsertWithPolicies(ctx context.Context, group *ent.Group, policyIDs *[]int, defaultPolicyID *int) (*ent.Group, error)
+		// UpsertWithPolicies maintains ordered grants and derives the default. Omission preserves existing grants.
+		UpsertWithPolicies(ctx context.Context, group *ent.Group, policyIDs *[]int) (*ent.Group, error)
 		// Delete deletes a group.
 		Delete(ctx context.Context, id int) error
 	}
@@ -79,35 +89,40 @@ func (c *groupClient) ListAll(ctx context.Context) ([]*ent.Group, error) {
 	return withGroupEagerLoading(ctx, c.client.Group.Query()).All(ctx)
 }
 
-func (c *groupClient) Upsert(ctx context.Context, group *ent.Group) (*ent.Group, error) {
-	if group.ID == 0 {
+func (c *groupClient) Upsert(ctx context.Context, input *ent.Group) (*ent.Group, error) {
+	if input.ID == 0 {
 		stm := c.client.Group.Create().
-			SetName(group.Name).
-			SetMaxStorage(group.MaxStorage).
-			SetSpeedLimit(group.SpeedLimit).
-			SetPermissions(group.Permissions).
-			SetSettings(group.Settings)
+			SetName(input.Name).
+			SetMaxStorage(input.MaxStorage).
+			SetSpeedLimit(input.SpeedLimit).
+			SetPermissions(input.Permissions).
+			SetSettings(input.Settings)
 
-		if group.Edges.StoragePolicies != nil && group.Edges.StoragePolicies.ID > 0 {
-			stm.SetStoragePolicyID(group.Edges.StoragePolicies.ID)
+		if input.Edges.StoragePolicies != nil && input.Edges.StoragePolicies.ID > 0 {
+			stm.SetStoragePolicyID(input.Edges.StoragePolicies.ID)
 		}
 
 		return stm.Save(ctx)
 	}
 
-	stm := c.client.Group.UpdateOne(group).
-		SetName(group.Name).
-		SetMaxStorage(group.MaxStorage).
-		SetSpeedLimit(group.SpeedLimit).
-		SetPermissions(group.Permissions).
-		SetSettings(group.Settings).
+	stm := c.client.Group.UpdateOne(input).
+		SetName(input.Name).
+		SetMaxStorage(input.MaxStorage).
+		SetSpeedLimit(input.SpeedLimit).
+		SetPermissions(input.Permissions).
+		SetSettings(input.Settings).
 		ClearStoragePolicies()
 
-	if group.Edges.StoragePolicies != nil && group.Edges.StoragePolicies.ID > 0 {
-		stm.SetStoragePolicyID(group.Edges.StoragePolicies.ID)
+	if input.Edges.StoragePolicies != nil && input.Edges.StoragePolicies.ID > 0 {
+		stm.SetStoragePolicyID(input.Edges.StoragePolicies.ID)
 	}
 
 	res, err := stm.Save(ctx)
+	// Ent's unchanged-row fallback can miss a group created after the snapshot.
+	// Keep the result and existence check in the caller's current transaction.
+	if ent.IsNotFound(err) {
+		return c.client.Group.Query().Where(group.ID(input.ID), storageLifecycleRead).Only(ctx)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -121,6 +136,31 @@ func (c *groupClient) Delete(ctx context.Context, id int) error {
 		return err
 	}
 	defer Rollback(tx)
+	if _, err := gc.lockGroup(ctx, id); err != nil {
+		return err
+	}
+	serverDB := false
+	users, err := gc.client.User.Query().Where(user.GroupUsers(id), func(s *sql.Selector) {
+		serverDB = s.Dialect() != dialect.SQLite
+	}).Count(ctx)
+	if err != nil {
+		return err
+	}
+	// Assignments hold a shared group lock. Avoid user locks here, since user
+	// updates take their user lock before that group lock. Retain pending users
+	// and supplement an inherited snapshot with committed membership.
+	if serverDB {
+		if metadata := CommittedMetadataClient(ctx); metadata != nil {
+			committed, err := metadata.User.Query().Where(user.GroupUsers(id)).Count(ctx)
+			if err != nil {
+				return err
+			}
+			users = max(users, committed)
+		}
+	}
+	if users > 0 {
+		return &GroupInUseError{Count: users}
+	}
 	if _, err := gc.client.GroupPolicy.Delete().Where(grouppolicy.GroupID(id)).Exec(ctx); err != nil {
 		return fmt.Errorf("failed to release group policy grants: %w", err)
 	}
@@ -178,6 +218,7 @@ func getGroupOrderOption(args *ListGroupParameters) []group.OrderOption {
 }
 
 func withGroupEagerLoading(ctx context.Context, q *ent.GroupQuery) *ent.GroupQuery {
+	q.Where(permissionRead(ctx))
 	if _, ok := ctx.Value(LoadGroupPolicy{}).(bool); ok {
 		q.WithStoragePolicies(func(spq *ent.StoragePolicyQuery) {
 			withStoragePolicyEagerLoading(ctx, spq)

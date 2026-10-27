@@ -105,6 +105,8 @@ func TestFilePermissionsDiscoveryAudienceAndCurrentGroup(t *testing.T) {
 	originalGroup := f.db.Group.GetX(context.Background(), 2)
 	foreignGroup, err := f.db.Group.Create().SetName("Different creator group").SetPermissions(originalGroup.Permissions).SetSettings(originalGroup.Settings).SetMaxStorage(originalGroup.MaxStorage).SetStoragePolicyID(f.policies[0].ID).Save(context.Background())
 	require.NoError(t, err)
+	_, err = f.db.GroupPolicy.Create().SetGroupID(foreignGroup.ID).SetStoragePolicyID(f.policies[0].ID).SetPosition(0).Save(context.Background())
+	require.NoError(t, err)
 	delegate, delegatePassword := f.createWritableVisitor(t, foreignGroup.ID)
 	_, delegationEntry := f.createWritableShare(t, "cloudreve://my/audiences", map[string]any{"everyone": "Pw=="})
 	f.loginAs(t, delegate.Email, delegatePassword)

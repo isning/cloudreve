@@ -85,7 +85,14 @@ func (f *fileClient) searchQuery(q *ent.FileQuery, args *SearchFileParameters, p
 }
 
 // ChildFileQuery generates query for child file(s) of a given set of root
-func (f *fileClient) childFileQuery(ownerID int, isSymbolic bool, root ...*ent.File) *ent.FileQuery {
+func (f *fileClient) childFileQuery(ctx context.Context, ownerID int, isSymbolic bool, root ...*ent.File) *ent.FileQuery {
+	if current, _ := ctx.Value(CurrentPermissionReadCtx{}).(bool); current && len(root) > 0 && root[0] != nil {
+		// The native edge traversal can put the parent lookup in an ordinary
+		// subquery. Its older snapshot must not hide a current parent.
+		return f.client.File.Query().Where(file.FileChildrenIn(lo.Map(root, func(parent *ent.File, _ int) int {
+			return parent.ID
+		})...))
+	}
 	rawQuery := f.client.File.Query()
 	if len(root) == 1 && root[0] != nil {
 		// Query children of one single root
@@ -298,7 +305,17 @@ func (f *fileClient) offsetPagination(ctx context.Context, query *ent.FileQuery,
 	}, nil
 }
 
+func withFilePermissionRead(ctx context.Context, q *ent.FileQuery) *ent.FileQuery {
+	if current, _ := ctx.Value(CurrentPermissionReadCtx{}).(bool); current {
+		// Permission navigation follows owner/parent FKs, which cannot duplicate
+		// files. PostgreSQL disallows DISTINCT together with a row lock.
+		q.Unique(false).Where(permissionRead(ctx))
+	}
+	return q
+}
+
 func withFileEagerLoading(ctx context.Context, q *ent.FileQuery) *ent.FileQuery {
+	withFilePermissionRead(ctx, q)
 	if v, ok := ctx.Value(LoadFileEntity{}).(bool); ok && v {
 		q.WithEntities(func(m *ent.EntityQuery) {
 			m.Order(ent.Desc(entity.FieldID))

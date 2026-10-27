@@ -2,6 +2,7 @@ package admin
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"net/url"
@@ -101,7 +102,7 @@ func (service *SingleStoragePolicyService) Delete(c *gin.Context) error {
 			return serializer.NewError(serializer.CodePolicyUsedByGroups, "Storage policy is granted to an active group", nil)
 		}
 		if errors.Is(err, inventory.ErrStoragePolicyInUse) {
-			return serializer.NewError(serializer.CodePolicyUsedByFiles, "Storage policy has active uploads or migration dependencies", nil)
+			return serializer.NewError(serializer.CodePolicyUsedByFiles, "Storage policy is used by files, active uploads or migration dependencies", nil)
 		}
 		return serializer.NewError(serializer.CodeDBError, "Failed to delete policy", err)
 	}
@@ -308,7 +309,7 @@ func (service *UpdateStoragePolicyService) Update(c *gin.Context) (*GetStoragePo
 
 	service.Policy.ID = idInt
 
-	sc, tx, ctx, err := inventory.WithTx(c, storagePolicyClient)
+	sc, tx, ctx, err := inventory.WithTxOptions(c, storagePolicyClient, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
 	if err != nil {
 		return nil, serializer.NewError(serializer.CodeDBError, "Failed to create transaction", err)
 	}

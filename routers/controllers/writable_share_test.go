@@ -3,14 +3,18 @@ package controllers_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/cloudreve/Cloudreve/v4/application/dependency"
 	"github.com/cloudreve/Cloudreve/v4/ent"
+	ententity "github.com/cloudreve/Cloudreve/v4/ent/entity"
+	entfile "github.com/cloudreve/Cloudreve/v4/ent/file"
 	enttask "github.com/cloudreve/Cloudreve/v4/ent/task"
 	entuser "github.com/cloudreve/Cloudreve/v4/ent/user"
 	"github.com/cloudreve/Cloudreve/v4/inventory"
@@ -226,6 +230,8 @@ func TestWritableSharePathsAndCrossOwnerCopiesUseTheReceivingOwnersPolicies(t *t
 	boolset.Set(types.GroupPermissionShareDownload, true, permissions)
 	g, err := f.db.Group.Create().SetName("Another owner").SetPermissions(permissions).SetStoragePolicyID(f.policies[1].ID).SetMaxStorage(1 << 20).SetSettings(&types.GroupSetting{MaxWalkedFiles: 1000}).Save(context.Background())
 	require.NoError(t, err)
+	_, err = f.db.GroupPolicy.Create().SetGroupID(g.ID).SetStoragePolicyID(f.policies[1].ID).SetPosition(0).Save(context.Background())
+	require.NoError(t, err)
 	visitor, password := f.createWritableVisitor(t, g.ID)
 	f.loginAs(t, visitor.Email, password)
 	f.upload(t, "cloudreve://my/source.txt", []byte("other policy"), nil)
@@ -324,6 +330,119 @@ func TestWritableShareCopyMoveAndDelegationRetainTheRealFileOwner(t *testing.T) 
 	require.Equal(t, []byte("move"), f.readFile(t, "cloudreve://my/team/move.txt"))
 	require.EqualValues(t, len("owner")+len("copy")+len("move"), f.db.User.GetX(context.Background(), 2).Storage)
 	require.EqualValues(t, len("copy"), f.db.User.GetX(context.Background(), visitor.ID).Storage)
+}
+
+func TestWritableShareRecursiveMoveRemovesTheSourceRoot(t *testing.T) {
+	for _, sourceShare := range []bool{false, true} {
+		t.Run(fmt.Sprintf("source-share=%t", sourceShare), func(t *testing.T) {
+			f := newWritableShareFixture(t)
+			data := []byte("complete transferred subtree")
+			f.request(t, http.MethodPost, "/api/v4/file/create", map[string]any{"uri": "cloudreve://my/inbox", "type": "folder"}, nil)
+			if sourceShare {
+				f.upload(t, "cloudreve://my/inbox/source/nested/file.txt", data, nil)
+			}
+			_, share := f.createWritableShare(t, "cloudreve://my/inbox", map[string]any{"everyone": "Pw=="})
+			visitor, password := f.createWritableVisitor(t, 2)
+			f.loginAs(t, visitor.Email, password)
+			source, destination, copied := "cloudreve://my/source", share, "cloudreve://my/inbox/source/nested/file.txt"
+			sourceOwner, destinationOwner := visitor.ID, 2
+			if sourceShare {
+				source, destination = share+"/source", "cloudreve://my/destination"
+				copied = destination + "/source/nested/file.txt"
+				sourceOwner, destinationOwner = 2, visitor.ID
+				f.request(t, http.MethodPost, "/api/v4/file/create", map[string]any{"uri": destination, "type": "folder"}, nil)
+			} else {
+				f.upload(t, source+"/nested/file.txt", data, nil)
+			}
+			f.request(t, http.MethodPost, "/api/v4/file/move", map[string]any{"uris": []string{source}, "dst": destination}, nil)
+			require.False(t, f.db.File.Query().Where(entfile.OwnerID(sourceOwner), entfile.NameIn("source", "nested", "file.txt")).ExistX(context.Background()))
+			require.Zero(t, f.db.User.GetX(context.Background(), sourceOwner).Storage)
+			if !sourceShare {
+				f.login(t)
+			}
+			require.Equal(t, data, f.readFile(t, copied))
+			require.EqualValues(t, len(data), f.db.User.GetX(context.Background(), destinationOwner).Storage)
+		})
+	}
+}
+
+func TestWritableShareInheritedMoveRemovesCurrentSourcesAndReferences(t *testing.T) {
+	if os.Getenv("OIDC_TEST_DRIVER") != "mysql" {
+		t.Skip("MySQL repeatable-read source removal")
+	}
+	for _, mode := range []string{"new-child", "new-version"} {
+		for _, commit := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/commit=%t", mode, commit), func(t *testing.T) {
+				f := newWritableShareFixture(t)
+				f.request(t, http.MethodPost, "/api/v4/file/create", map[string]any{"uri": "cloudreve://my/inbox", "type": "folder"}, nil)
+				_, destination := f.createWritableShare(t, "cloudreve://my/inbox", map[string]any{"everyone": "Pw=="})
+				actor, password := f.createWritableVisitor(t, 2)
+				f.loginAs(t, actor.Email, password)
+				const source = "cloudreve://my/source"
+				f.request(t, http.MethodPost, "/api/v4/file/create", map[string]any{"uri": source, "type": "folder"}, nil)
+				content := source + "/nested/file.txt"
+				if mode == "new-version" {
+					f.upload(t, content, []byte("previous version"), nil)
+				}
+				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+				defer cancel()
+				writer, tx, txCtx, err := inventory.WithTx(ctx, f.dep.FileClient())
+				require.NoError(t, err)
+				defer inventory.Rollback(tx)
+				writer.GetClient().File.Query().CountX(txCtx)
+				data := []byte("committed after the inherited snapshot")
+				if mode == "new-version" {
+					var session explorer.UploadSessionResponse
+					f.request(t, http.MethodPut, "/api/v4/file/upload", map[string]any{
+						"uri": content, "size": len(data), "entity_type": "version",
+					}, &session)
+					f.finishUpload(t, session, data)
+				} else {
+					f.upload(t, content, data, nil)
+				}
+				entities := f.db.Entity.Query().Where(ententity.HasFileWith(entfile.OwnerID(actor.ID))).AllX(ctx)
+				require.NotEmpty(t, entities)
+				sourceBytes := f.db.User.GetX(ctx, actor.ID).Storage
+				sourceCount := f.db.File.Query().Where(entfile.OwnerID(actor.ID)).CountX(ctx)
+				actor, err = f.dep.UserClient().GetLoginUserByID(ctx, actor.ID)
+				require.NoError(t, err)
+				fm := manager.NewFileManager(f.dep, actor)
+				defer fm.Recycle()
+				src, err := fs.NewUriFromString(source)
+				require.NoError(t, err)
+				dst, err := fs.NewUriFromString(destination)
+				require.NoError(t, err)
+				txCtx = context.WithValue(txCtx, inventory.UserCtx{}, actor)
+				require.NoError(t, fm.MoveOrCopy(txCtx, []*fs.URI{src}, dst, false))
+				require.Equal(t, sourceCount, f.db.File.Query().Where(entfile.OwnerID(actor.ID)).CountX(ctx), "source deletion must retain caller ownership")
+				require.Zero(t, f.db.File.Query().Where(entfile.OwnerID(2), entfile.Name("file.txt")).CountX(ctx))
+				if !commit {
+					require.NoError(t, inventory.Rollback(tx))
+					require.Equal(t, sourceBytes, f.db.User.GetX(ctx, actor.ID).Storage)
+					require.Zero(t, f.db.User.GetX(ctx, 2).Storage)
+					require.Equal(t, sourceCount, f.db.File.Query().Where(entfile.OwnerID(actor.ID)).CountX(ctx))
+					require.Equal(t, data, f.readFile(t, content))
+				} else {
+					require.NoError(t, inventory.CommitWithStorageDiff(txCtx, tx, f.dep.Logger(), f.dep.UserClient()))
+					require.False(t, f.db.File.Query().Where(entfile.OwnerID(actor.ID), entfile.NameIn("source", "nested", "file.txt")).ExistX(ctx), "no source child may become an orphan")
+					require.Zero(t, f.db.User.GetX(ctx, actor.ID).Storage)
+					require.Equal(t, sourceBytes, f.db.User.GetX(ctx, 2).Storage)
+					f.login(t)
+					require.Equal(t, data, f.readFile(t, "cloudreve://my/inbox/source/nested/file.txt"))
+				}
+				for _, original := range entities {
+					current := f.db.Entity.Query().Where(ententity.ID(original.ID)).WithFile().OnlyX(ctx)
+					require.Equal(t, 1, current.ReferenceCount)
+					require.Len(t, current.Edges.File, 1)
+					expectedOwner := actor.ID
+					if commit {
+						expectedOwner = 2
+					}
+					require.Equal(t, expectedOwner, current.Edges.File[0].OwnerID)
+				}
+			})
+		}
+	}
 }
 
 func TestWritableShareFileOwnerCanManageDelegatedLinksWithoutChangingTheirCreator(t *testing.T) {

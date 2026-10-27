@@ -5,7 +5,12 @@ import (
 	"fmt"
 	"slices"
 
+	"entgo.io/ent/dialect"
+	"entgo.io/ent/dialect/sql"
 	"github.com/cloudreve/Cloudreve/v4/ent"
+	"github.com/cloudreve/Cloudreve/v4/ent/file"
+	"github.com/cloudreve/Cloudreve/v4/ent/schema"
+	"github.com/cloudreve/Cloudreve/v4/ent/share"
 	"github.com/cloudreve/Cloudreve/v4/ent/user"
 	"github.com/cloudreve/Cloudreve/v4/inventory/types"
 	"github.com/cloudreve/Cloudreve/v4/pkg/boolset"
@@ -13,10 +18,109 @@ import (
 	"github.com/cloudreve/Cloudreve/v4/pkg/serializer"
 )
 
+// CurrentPermissionReadCtx enables current authorization reads inside the caller's
+// transaction, after its permission-owner locks. Ordinary navigation is unchanged.
+type CurrentPermissionReadCtx struct{}
+
+// CurrentPermissionRead uses a shared current read on server databases. SQLite
+// already holds its writer lock; MySQL and MariaDB share the legacy lock syntax.
+func CurrentPermissionRead(s *sql.Selector) {
+	switch s.Dialect() {
+	case dialect.MySQL:
+		s.ForShare(sql.WithLockClause("LOCK IN SHARE MODE"))
+	case dialect.SQLite:
+	default:
+		s.ForShare()
+	}
+}
+
+func permissionRead(ctx context.Context) func(*sql.Selector) {
+	return func(s *sql.Selector) {
+		if current, _ := ctx.Value(CurrentPermissionReadCtx{}).(bool); current {
+			CurrentPermissionRead(s)
+		}
+	}
+}
+
+// SharePermissionOwner loads immutable creator metadata before lifecycle locks.
+// Retired rows still identify the lock owner; this is never an access decision.
+func SharePermissionOwner(ctx context.Context, base ShareClient, id int) (int, error) {
+	links, err := sharePermissionMetadata(ctx, base, false, id)
+	if err != nil {
+		return 0, err
+	}
+	if len(links) == 0 {
+		return 0, fmt.Errorf("share %d creator metadata: %w", id, &ent.NotFoundError{})
+	}
+	creator, err := links[0].Edges.UserOrErr()
+	if err != nil {
+		return 0, err
+	}
+	return creator.ID, nil
+}
+
+// sharePermissionMetadata plans the complete owner lock union without taking
+// link or file locks first. These IDs never authorize the subsequent mutation.
+func sharePermissionMetadata(ctx context.Context, base TxOperator, includeSource bool, ids ...int) ([]*ent.Share, error) {
+	client, _ := InheritTx(ctx, base)
+	readCtx := schema.SkipSoftDelete(ctx)
+	usesMySQL := false
+	lookup := func(c *ent.Client, ids []int) ([]*ent.Share, error) {
+		q := c.Share.Query().Where(share.IDIn(ids...), func(s *sql.Selector) {
+			usesMySQL = s.Dialect() == dialect.MySQL
+		}).Select(share.FieldID).WithUser(func(q *ent.UserQuery) { q.Select(user.FieldID) })
+		if includeSource {
+			q.WithFile(func(q *ent.FileQuery) { q.Select(file.FieldID, file.FieldOwnerID) })
+		}
+		return q.All(readCtx)
+	}
+	links, err := lookup(client.GetClient(), ids)
+	if err != nil {
+		return nil, err
+	}
+	if usesMySQL {
+		seen := make(map[int]bool, len(links))
+		for _, link := range links {
+			seen[link.ID] = true
+		}
+		var missing []int
+		for _, id := range ids {
+			if !seen[id] {
+				missing = append(missing, id)
+			}
+		}
+		if len(missing) > 0 {
+			// Native WithTx keeps the original client for committed metadata,
+			// including when base itself is already transaction-scoped. Pending
+			// rows stay in links, and SQLite never borrows another connection.
+			metadataClient := base.GetClient()
+			if committed := CommittedMetadataClient(ctx); committed != nil {
+				metadataClient = committed
+			}
+			committed, err := lookup(metadataClient, missing)
+			if err != nil {
+				return nil, err
+			}
+			links = append(links, committed...)
+		}
+	}
+	return links, nil
+}
+
 // LockPermissionOwners serializes permission-sensitive commits against file ACL
 // and link changes using the existing owner rows, in a stable lock order.
+// Default-share compositions must acquire their complete owner set before the
+// configuration fence; later expansions return a native lock conflict.
 func LockPermissionOwners(ctx context.Context, client *ent.Client, ids ...int) error {
 	slices.Sort(ids)
+	held := permissionOwnerLocks(ctx)
+	if tx := permissionOwnerTransaction(ctx); tx != nil && tx.defaultShareConfigurationLocked {
+		for _, id := range ids {
+			if id > 0 && !held[id] {
+				return defaultShareOwnerConflict()
+			}
+		}
+	}
 	for i, id := range ids {
 		if id <= 0 || i > 0 && ids[i-1] == id {
 			continue
@@ -24,8 +128,37 @@ func LockPermissionOwners(ctx context.Context, client *ent.Client, ids ...int) e
 		if err := client.User.Update().Where(user.ID(id)).AddStorage(0).Exec(ctx); err != nil {
 			return err
 		}
+		if held != nil {
+			held[id] = true
+		}
 	}
 	return nil
+}
+
+// Inherited operations share the root transaction's acquired owner fence.
+func permissionOwnerTransaction(ctx context.Context) *Tx {
+	tx, _ := ctx.Value(TxCtx{}).(*Tx)
+	if tx == nil || tx.finished {
+		return nil
+	}
+	for tx.parent != nil {
+		tx = tx.parent
+	}
+	if tx.finished {
+		return nil
+	}
+	return tx
+}
+
+func permissionOwnerLocks(ctx context.Context) map[int]bool {
+	tx := permissionOwnerTransaction(ctx)
+	if tx == nil {
+		return nil
+	}
+	if tx.permissionOwners == nil {
+		tx.permissionOwners = make(map[int]bool)
+	}
+	return tx.permissionOwners
 }
 
 // ResolvePermission uses the most specific matching rule, then everyone.

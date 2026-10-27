@@ -3,6 +3,7 @@ package inventory
 import (
 	"context"
 	stdsql "database/sql"
+	"errors"
 	"fmt"
 	"time"
 
@@ -14,7 +15,18 @@ import (
 // Driver cancellation watchers must not observe Gin's mutable Request or its
 // recycled context. Keep cancellation/deadline immutable while preserving the
 // caller's metadata, transaction semantics and native SQL row representation.
-type contextDriver struct{ *entsql.Driver }
+type contextDriver struct {
+	*entsql.Driver
+	afterClose func() error
+}
+
+func (d contextDriver) Close() error {
+	err := d.Driver.Close()
+	if d.afterClose != nil {
+		return errors.Join(err, d.afterClose())
+	}
+	return err
+}
 
 type queryContext struct {
 	context.Context

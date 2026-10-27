@@ -7,7 +7,6 @@ import (
 
 	"github.com/cloudreve/Cloudreve/v4/application/constants"
 	"github.com/cloudreve/Cloudreve/v4/ent"
-	"github.com/cloudreve/Cloudreve/v4/ent/user"
 	"github.com/cloudreve/Cloudreve/v4/inventory"
 	"github.com/cloudreve/Cloudreve/v4/inventory/types"
 	"github.com/cloudreve/Cloudreve/v4/pkg/filemanager/fs"
@@ -44,18 +43,14 @@ func (f *DBFS) BindPolicy(ctx context.Context, uri *fs.URI, policyID int) error 
 		return err
 	}
 	defer inventory.Rollback(tx)
-	err = fc.GetClient().User.Update().Where(user.ID(f.user.ID), user.StatusEQ(user.StatusActive)).AddStorage(0).Exec(ctx)
-	if err != nil {
-		return err
-	}
-	// MySQL reports changed rows; a matched no-op lock can report zero.
-	active, err := fc.GetClient().User.Query().Where(user.ID(f.user.ID), user.StatusEQ(user.StatusActive)).Exist(ctx)
-	if err != nil {
-		return err
-	}
-	if !active {
+	err = inventory.LockActiveStorageOwner(ctx, fc.GetClient(), f.user.ID)
+	if ent.IsNotFound(err) {
 		return fs.ErrOwnerOnly
 	}
+	if err != nil {
+		return err
+	}
+	ctx = context.WithValue(ctx, inventory.CurrentPermissionReadCtx{}, true)
 	current, err := fc.GetByID(ctx, target.ID())
 	if err != nil {
 		return err
@@ -90,7 +85,7 @@ func (f *DBFS) BindPolicy(ctx context.Context, uri *fs.URI, policyID int) error 
 		}
 		return err
 	}
-	if _, err = storagepolicy.New(f.userClient, f.storagePolicyClient).Select(ctx, f.user.ID, policyID, 0); err != nil {
+	if err = storagepolicy.New(f.userClient, f.storagePolicyClient).Revalidate(ctx, f.user.ID, policyID, 0); err != nil {
 		if errors.Is(err, storagepolicy.ErrPolicyNotGranted) || errors.Is(err, storagepolicy.ErrNoAvailablePolicies) {
 			return serializer.NewError(serializer.CodeGroupNotAllowed, "Storage policy is unavailable", err)
 		}

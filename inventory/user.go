@@ -16,6 +16,7 @@ import (
 	"github.com/cloudreve/Cloudreve/v4/ent"
 	"github.com/cloudreve/Cloudreve/v4/ent/davaccount"
 	"github.com/cloudreve/Cloudreve/v4/ent/file"
+	"github.com/cloudreve/Cloudreve/v4/ent/group"
 	"github.com/cloudreve/Cloudreve/v4/ent/oauthgrant"
 	"github.com/cloudreve/Cloudreve/v4/ent/passkey"
 	"github.com/cloudreve/Cloudreve/v4/ent/schema"
@@ -448,6 +449,9 @@ func (c *userClient) Create(ctx context.Context, args *NewUserArgs) (*ent.User, 
 }
 
 func (c *userClient) create(ctx context.Context, args *NewUserArgs) (*ent.User, error) {
+	if err := lockUserGroup(ctx, c.client, args.GroupID); err != nil {
+		return nil, err
+	}
 	// Try to check if there's user with same email.
 	if existedUser, err := c.GetByEmail(ctx, args.Email); err == nil {
 		if existedUser.Status == user.StatusInactive {
@@ -494,6 +498,9 @@ func (c *userClient) create(ctx context.Context, args *NewUserArgs) (*ent.User, 
 
 	if newUser.ID == 1 && !args.SkipBootstrap {
 		// For the first user registered, elevate it to admin group.
+		if err := lockUserGroup(ctx, c.client, 1); err != nil {
+			return nil, err
+		}
 		if _, err := newUser.Update().SetGroupID(1).Save(ctx); err != nil {
 			return newUser, fmt.Errorf("failed to elevate user to admin: %w", err)
 		}
@@ -570,7 +577,7 @@ func (c *userClient) SaveSettings(ctx context.Context, u *ent.User) error {
 	if err = LockPermissionOwners(ctx, uc.client, u.ID); err != nil {
 		return err
 	}
-	fresh, err := uc.client.User.Get(ctx, u.ID)
+	fresh, err := uc.client.User.Query().Where(user.ID(u.ID), CurrentPermissionRead).Only(ctx)
 	if err != nil {
 		return err
 	}
@@ -581,7 +588,14 @@ func (c *userClient) SaveSettings(ctx context.Context, u *ent.User) error {
 		settings.DefaultShares = nil
 	}
 	if err = uc.client.User.UpdateOneID(u.ID).SetSettings(&settings).Exec(ctx); err != nil {
-		return err
+		if !ent.IsNotFound(err) {
+			return err
+		}
+		// An unchanged save may miss a snapshot-new account in Ent's fallback.
+		// The owner fence remains held; check existence in this transaction.
+		if _, err = uc.client.User.Query().Where(user.ID(u.ID), CurrentPermissionRead).Only(ctx); err != nil {
+			return err
+		}
 	}
 	return Commit(tx)
 }
@@ -658,10 +672,20 @@ func (c *userClient) ListUsers(ctx context.Context, args *ListUserParameters) (*
 }
 
 func (c *userClient) Upsert(ctx context.Context, u *ent.User, password, twoFa string) (*ent.User, error) {
+	uc, tx, ctx, err := WithTx(ctx, c)
+	if err != nil {
+		return nil, err
+	}
+	defer Rollback(tx)
 	previous := u
 	if u.ID > 0 {
-		var err error
-		previous, err = c.GetByID(ctx, u.ID)
+		if err := LockPermissionOwners(ctx, uc.client, u.ID); err != nil {
+			return nil, err
+		}
+		// Read after the lifecycle fence: keep pending caller rows visible and
+		// accept users committed after an inherited repeatable-read snapshot.
+		ctx = context.WithValue(ctx, CurrentPermissionReadCtx{}, true)
+		previous, err = uc.GetByID(ctx, u.ID)
 		if err != nil {
 			return nil, err
 		}
@@ -670,11 +694,6 @@ func (c *userClient) Upsert(ctx context.Context, u *ent.User, password, twoFa st
 	if u.ID == 0 {
 		kind = types.AuditUserSignup
 	}
-	uc, tx, ctx, err := WithTx(ctx, c)
-	if err != nil {
-		return nil, err
-	}
-	defer Rollback(tx)
 	result, err := uc.mutateWithAudit(ctx, previous, kind, types.LogEntry{}, func(ctx context.Context, client *ent.Client) (*ent.User, error) {
 		return (&userClient{client: client}).upsert(ctx, u, password, twoFa)
 	})
@@ -688,6 +707,9 @@ func (c *userClient) Upsert(ctx context.Context, u *ent.User, password, twoFa st
 }
 
 func (c *userClient) upsert(ctx context.Context, u *ent.User, password, twoFa string) (*ent.User, error) {
+	if err := lockUserGroup(ctx, c.client, u.GroupUsers); err != nil {
+		return nil, err
+	}
 	if u.ID == 0 {
 		settings := &types.UserSetting{}
 		if err := captureDefaultShares(ctx, c.client, settings); err != nil {
@@ -741,7 +763,24 @@ func (c *userClient) upsert(ctx context.Context, u *ent.User, password, twoFa st
 		q.ClearTwoFactorSecret()
 	}
 
-	return q.Save(ctx)
+	result, err := q.Save(ctx)
+	// Ent's unchanged-row fallback uses an ordinary snapshot existence read.
+	// The lifecycle lock is already held; decide existence in this transaction.
+	if ent.IsNotFound(err) {
+		return c.GetByID(ctx, u.ID)
+	}
+	return result, err
+}
+
+// Group deletion holds the exclusive counterpart until membership validation
+// and retirement commit. Existing users are locked before this shared fence.
+func lockUserGroup(ctx context.Context, client *ent.Client, id int) error {
+	_, err := client.Group.Query().Where(group.ID(id), group.DeletedAtIsNil(), CurrentPermissionRead).
+		Select(group.FieldID).Only(ctx)
+	if err != nil {
+		return fmt.Errorf("user group is unavailable: %w", err)
+	}
+	return nil
 }
 
 func getUserOrderOption(args *ListUserParameters) []user.OrderOption {
@@ -815,6 +854,7 @@ func CheckPassword(u *ent.User, password string) error {
 }
 
 func withUserEagerLoading(ctx context.Context, q *ent.UserQuery) *ent.UserQuery {
+	q.Where(permissionRead(ctx))
 	if v, ok := ctx.Value(LoadUserGroup{}).(bool); ok && v {
 		q.WithGroup(func(gq *ent.GroupQuery) {
 			withGroupEagerLoading(ctx, gq)
